@@ -1,0 +1,130 @@
+/**
+ * Structured logging.
+ *
+ * Rules enforced here:
+ *  - No raw personal data. Known sensitive keys are redacted automatically and
+ *    `safeMeta()` drops anything that is not explicitly allow listed.
+ *  - Every log line carries a component and, where available, a request id.
+ *  - Tests run at level "silent" so that assertions stay readable.
+ */
+import pino, { type Logger, type LoggerOptions } from "pino";
+
+import { env } from "@/lib/config/env";
+
+const REDACTED = "[redacted]";
+
+/**
+ * Keys that must never appear in logs, regardless of nesting depth.
+ * pino applies these paths before serialisation.
+ */
+const REDACT_PATHS = [
+  "*.email",
+  "*.emailAddress",
+  "*.password",
+  "*.token",
+  "*.tokenHash",
+  "*.secret",
+  "*.apiKey",
+  "*.authorization",
+  "*.cookie",
+  "*.name",
+  "*.fullName",
+  "*.legalName",
+  "*.phone",
+  "*.address",
+  "*.postalAddress",
+  "*.valueEnc",
+  "*.value",
+  "*.body",
+  "*.subject",
+  "*.identifiers",
+  "email",
+  "password",
+  "token",
+  "secret",
+  "authorization",
+  "cookie",
+  "req.headers.authorization",
+  "req.headers.cookie",
+];
+
+function buildOptions(): LoggerOptions {
+  const base: LoggerOptions = {
+    level: env.LOG_LEVEL,
+    redact: { paths: REDACT_PATHS, censor: REDACTED },
+    base: { app: "brokermogger", appEnv: env.APP_ENV },
+    timestamp: pino.stdTimeFunctions.isoTime,
+    formatters: {
+      level(label) {
+        return { level: label };
+      },
+    },
+  };
+
+  if (env.APP_ENV === "development" && !env.isTest) {
+    return {
+      ...base,
+      transport: {
+        target: "pino-pretty",
+        options: {
+          colorize: true,
+          translateTime: "HH:MM:ss.l",
+          ignore: "pid,hostname,app",
+        },
+      },
+    };
+  }
+
+  return base;
+}
+
+let rootLogger: Logger | undefined;
+
+function getRootLogger(): Logger {
+  rootLogger ??= pino(buildOptions());
+  return rootLogger;
+}
+
+export function createLogger(
+  component: string,
+  bindings: Record<string, unknown> = {}
+): Logger {
+  return getRootLogger().child({ component, ...bindings });
+}
+
+export const logger: Logger = new Proxy({} as Logger, {
+  get(_target, property: string | symbol) {
+    const value = getRootLogger()[property as keyof Logger];
+    return typeof value === "function" ? value.bind(getRootLogger()) : value;
+  },
+});
+
+/**
+ * Allow list based metadata builder. Only primitive values survive and strings
+ * are truncated, so an accidental identifier never ends up in the log stream.
+ */
+export function safeMeta(
+  input: Record<string, unknown>,
+  allowedKeys: readonly string[]
+): Record<string, unknown> {
+  const output: Record<string, unknown> = {};
+
+  for (const key of allowedKeys) {
+    const value = input[key];
+    if (value === undefined || value === null) continue;
+
+    if (typeof value === "string") {
+      output[key] = value.length > 200 ? `${value.slice(0, 200)}...` : value;
+    } else if (
+      typeof value === "number" ||
+      typeof value === "boolean" ||
+      value instanceof Date
+    ) {
+      output[key] = value;
+    } else if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
+      output[key] = value.slice(0, 20);
+    }
+  }
+
+  return output;
+}

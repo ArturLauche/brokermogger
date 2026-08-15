@@ -1,0 +1,157 @@
+# Development stack for Brokermogger.
+#
+# Usage:
+#   docker compose up -d postgres postgres-test minio   # infrastructure only
+#   docker compose --profile app up -d --build          # full stack incl. app + worker
+#
+# No real emails are sent: EMAIL_PROVIDER defaults to `mock` and
+# ALLOW_EXTERNAL_SENDING defaults to `false`.
+
+name: brokermogger
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: brokermogger
+      POSTGRES_PASSWORD: brokermogger
+      POSTGRES_DB: brokermogger
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U brokermogger -d brokermogger"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Separate database for integration tests so `npm run test:integration`
+  # never touches development data.
+  postgres-test:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: brokermogger
+      POSTGRES_PASSWORD: brokermogger
+      POSTGRES_DB: brokermogger_test
+    ports:
+      - "5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U brokermogger -d brokermogger_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: brokermogger
+      MINIO_ROOT_PASSWORD: brokermogger-dev-secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 brokermogger brokermogger-dev-secret &&
+      mc mb --ignore-existing local/brokermogger-evidence &&
+      mc anonymous set none local/brokermogger-evidence &&
+      echo 'evidence bucket ready'
+      "
+    restart: "no"
+
+  migrate:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    command: ["npx", "prisma", "migrate", "deploy"]
+    environment:
+      DATABASE_URL: postgresql://brokermogger:brokermogger@postgres:5432/brokermogger?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      APP_ENV: development
+      APP_BASE_URL: http://localhost:3000
+      AUTH_URL: http://localhost:3000
+      AUTH_TRUST_HOST: "true"
+      DATABASE_URL: postgresql://brokermogger:brokermogger@postgres:5432/brokermogger?schema=public
+      EMAIL_PROVIDER: mock
+      ALLOW_EXTERNAL_SENDING: "false"
+      STORAGE_BACKEND: s3
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: brokermogger-evidence
+      S3_ACCESS_KEY_ID: brokermogger
+      S3_SECRET_ACCESS_KEY: brokermogger-dev-secret
+      S3_FORCE_PATH_STYLE: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    command: ["node", "dist-worker/worker.js"]
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      APP_ENV: development
+      APP_BASE_URL: http://localhost:3000
+      DATABASE_URL: postgresql://brokermogger:brokermogger@postgres:5432/brokermogger?schema=public
+      EMAIL_PROVIDER: mock
+      ALLOW_EXTERNAL_SENDING: "false"
+      STORAGE_BACKEND: s3
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: brokermogger-evidence
+      S3_ACCESS_KEY_ID: brokermogger
+      S3_SECRET_ACCESS_KEY: brokermogger-dev-secret
+      S3_FORCE_PATH_STYLE: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  postgres-data:
+  minio-data:

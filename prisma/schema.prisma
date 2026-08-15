@@ -1,0 +1,1536 @@
+// Brokermogger - open source privacy request desk.
+//
+// Design rules for this schema:
+//  * Core relationships are relational. JSONB is only used for flexible metadata,
+//    broker specific configuration, webhook payloads and evidence metadata.
+//  * Personal identifiers are stored application-encrypted (`*Enc`) with an
+//    optional HMAC blind index (`*Bi`) so equality lookups stay possible.
+//  * Append-only tables (AuditLog, RemovalRequestEvent, RequestSnapshot,
+//    ConsentRecord) are protected by database triggers created in the
+//    `append_only_and_constraints` migration and carry a hash chain.
+//  * No billing, subscription, payment or pricing entities exist by design.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  USER
+  MAINTAINER
+  INSTANCE_ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING_DELETION
+  DELETED
+}
+
+enum ProfileKind {
+  SELF
+  HOUSEHOLD_ADULT
+  GUARDIAN_MANAGED_MINOR
+}
+
+enum ProfileStatus {
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+/// Consent status of a profile. GUARDIAN_MANAGED is modelled but blocked in the MVP.
+enum ConsentStatus {
+  SELF
+  GUARDIAN_MANAGED
+  EXPLICIT_CONSENT_OBTAINED
+  PENDING_CONSENT
+  NOT_ALLOWED
+}
+
+enum ConsentPurpose {
+  PROFILE_MANAGEMENT
+  REQUEST_GENERATION
+  REQUEST_SUBMISSION
+  IDENTITY_VERIFICATION
+}
+
+enum ConsentMethod {
+  SELF_ATTESTATION
+  DOUBLE_OPT_IN_EMAIL
+  UPLOADED_DECLARATION
+  GUARDIAN_DECLARATION
+}
+
+enum HouseholdRelationship {
+  SELF
+  SPOUSE_OR_PARTNER
+  PARENT
+  ADULT_CHILD
+  SIBLING
+  OTHER_ADULT
+}
+
+enum HouseholdMemberStatus {
+  PENDING
+  ACTIVE
+  REVOKED
+}
+
+enum HouseholdConsentStatus {
+  PENDING
+  VERIFIED
+  DECLINED
+  EXPIRED
+  REVOKED
+}
+
+enum IdentifierType {
+  FULL_NAME
+  PREVIOUS_NAME
+  EMAIL
+  PHONE
+  POSTAL_ADDRESS
+  PREVIOUS_ADDRESS
+  APPROXIMATE_LOCATION
+  USERNAME
+  OTHER
+}
+
+enum IdentifierSensitivity {
+  NORMAL
+  SENSITIVE
+}
+
+enum BrokerCategory {
+  PEOPLE_SEARCH
+  MARKETING_LIST_PROVIDER
+  LEAD_GENERATION
+  DATA_ENRICHMENT
+  ADTECH_AUDIENCE_DATA
+  RECRUITMENT_PROFILE_AGGREGATION
+  PROPERTY_PUBLIC_RECORDS
+  RISK_IDENTITY_FRAUD
+}
+
+enum DataCategory {
+  IDENTITY
+  CONTACT
+  LOCATION
+  EMPLOYMENT
+  EDUCATION
+  PROPERTY
+  PUBLIC_RECORDS
+  ONLINE_BEHAVIOUR
+  INFERRED_ATTRIBUTES
+  HOUSEHOLD_RELATIONSHIPS
+  FINANCIAL_INDICATORS
+}
+
+enum BrokerVerificationStatus {
+  UNVERIFIED
+  SOURCE_FOUND
+  CONTACT_VERIFIED
+  REQUEST_METHOD_VERIFIED
+  RESPONSE_BEHAVIOR_VERIFIED
+  DEPRECATED
+  INACTIVE
+}
+
+/// Elevated and restricted tiers always force manual review before sending.
+enum BrokerRiskTier {
+  STANDARD
+  ELEVATED
+  RESTRICTED
+}
+
+enum ContactMethodType {
+  EMAIL
+  WEB_FORM
+  PRIVACY_PORTAL_URL
+  POSTAL
+  API
+  DROP_PLATFORM
+}
+
+enum BrokerAliasKind {
+  TRADING_NAME
+  LEGACY_NAME
+  DOMAIN
+  BRAND
+}
+
+enum SeedSourceType {
+  OFFICIAL_PRIVACY_PAGE
+  PUBLIC_REGISTRY
+  MANUAL_ENTRY
+  DEMO_FICTIONAL
+}
+
+enum CoverageType {
+  STATUTORY
+  VOLUNTARY_OPT_OUT
+  UNKNOWN
+}
+
+enum RequestType {
+  DELETION
+  ACCESS
+  CORRECTION
+  OBJECTION
+  OPT_OUT
+  SUPPRESSION
+  CONSENT_WITHDRAWAL
+  FOLLOW_UP
+  FINAL_REMINDER
+  ESCALATION
+}
+
+enum RequestChannel {
+  EMAIL
+  WEB_FORM
+  API
+  POSTAL
+  DROP
+}
+
+enum RequestStatus {
+  DRAFT
+  PREPARED
+  AWAITING_USER_APPROVAL
+  APPROVED
+  SENT
+  DELIVERED
+  WAITING_FOR_BROKER
+  BROKER_REQUESTED_VERIFICATION
+  NEEDS_USER_ACTION
+  FOLLOW_UP_SCHEDULED
+  FOLLOW_UP_SENT
+  COMPLETED
+  PARTIALLY_COMPLETED
+  REJECTED
+  NO_RESPONSE
+  ESCALATION_RECOMMENDED
+  MANUAL_REVIEW_REQUIRED
+  CLOSED
+  FAILED
+}
+
+enum RequestEventType {
+  CREATED
+  STATUS_CHANGE
+  APPROVAL
+  MANUAL_REVIEW
+  EMAIL_QUEUED
+  EMAIL_SENT
+  EMAIL_DELIVERED
+  EMAIL_FAILED
+  RESPONSE_RECEIVED
+  EVIDENCE_ADDED
+  NOTE
+  CORRECTION
+  SYSTEM
+}
+
+enum ActorType {
+  USER
+  SYSTEM
+  ADMIN
+  BROKER
+}
+
+enum LegalConfidence {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum PublicationStatus {
+  DRAFT
+  PUBLISHED
+  SUPERSEDED
+  ARCHIVED
+}
+
+enum BrokerResponseClassification {
+  CONFIRMED_COMPLETED
+  PARTIALLY_COMPLETED
+  REJECTED
+  VERIFICATION_REQUESTED
+  AUTO_ACKNOWLEDGEMENT
+  UNCLEAR
+  OUT_OF_SCOPE
+}
+
+enum EvidenceKind {
+  SENT_MESSAGE
+  BROKER_RESPONSE
+  SCREENSHOT
+  IDENTITY_DOCUMENT
+  REPORT
+  OTHER
+}
+
+enum EvidenceEncryption {
+  NONE
+  SERVER_SIDE
+  CLIENT_SIDE_AES_GCM
+}
+
+enum NotificationType {
+  REQUEST_PREPARED
+  APPROVAL_NEEDED
+  REQUEST_SENT
+  BROKER_RESPONSE_RECEIVED
+  VERIFICATION_NEEDED
+  DEADLINE_APPROACHING
+  FOLLOW_UP_SENT
+  REMOVAL_CONFIRMED
+  REQUEST_REJECTED
+  RECHECK_RECOMMENDED
+  ACCOUNT_SECURITY_EVENT
+  FAIR_USE_LIMIT_REACHED
+  HOUSEHOLD_CONSENT_UPDATE
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+}
+
+enum NotificationSeverity {
+  INFO
+  ACTION_REQUIRED
+  WARNING
+}
+
+enum AuditOutcome {
+  SUCCESS
+  DENIED
+  ERROR
+}
+
+enum AdminActionType {
+  BREAK_GLASS_GRANT
+  USER_DATA_VIEW
+  BROKER_EDIT
+  BROKER_VERIFICATION_CHANGE
+  LEGAL_RULE_PUBLISH
+  TEMPLATE_PUBLISH
+  JOB_RETRY
+  JOB_CANCEL
+  SETTING_CHANGE
+  MANUAL_REVIEW_DECISION
+  USER_SUSPEND
+}
+
+enum JobType {
+  SEND_REQUEST
+  PREPARE_FOLLOW_UP
+  DISPATCH_NOTIFICATION
+  PROCESS_EMAIL_WEBHOOK
+  GENERATE_REPORT
+  DELETE_ACCOUNT_DATA
+  PURGE_EVIDENCE
+  PURGE_TEMP_ID_FILES
+  DEADLINE_WATCH
+  RECHECK_REMINDER
+  RETENTION_SWEEP
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  RETRYABLE
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum JobLogLevel {
+  DEBUG
+  INFO
+  WARN
+  ERROR
+}
+
+enum EmailPurpose {
+  MAGIC_LINK
+  NOTIFICATION
+  BROKER_REQUEST
+  BROKER_FOLLOW_UP
+  CONSENT_INVITE
+  ACCOUNT_SECURITY
+}
+
+enum EmailStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  BOUNCED
+  COMPLAINED
+  FAILED
+  SUPPRESSED
+}
+
+enum EmailProviderKind {
+  MOCK
+  SANDBOX
+  RESEND
+}
+
+enum ReportStatus {
+  PENDING
+  GENERATING
+  READY
+  FAILED
+}
+
+enum ReportFormat {
+  JSON
+  PDF
+}
+
+// ---------------------------------------------------------------------------
+// Auth.js core tables
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String     @id @default(cuid())
+  /// Always stored lowercase. Uniqueness is enforced case-insensitively.
+  email         String     @unique
+  emailVerified DateTime?
+  name          String?
+  image         String?
+  role          UserRole   @default(USER)
+  status        UserStatus @default(ACTIVE)
+  timezone      String     @default("UTC")
+  locale        String     @default("en")
+
+  /// Non-sensitive UI + notification preferences.
+  preferences Json @default("{}")
+
+  lastLoginAt         DateTime?
+  deletionRequestedAt DateTime?
+  anonymizedAt        DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  accounts           Account[]
+  sessions           Session[]
+  profiles           UserProfile[]
+  householdMembers   HouseholdMember[]
+  consentRecords     ConsentRecord[]
+  removalRequests    RemovalRequest[]
+  evidenceFiles      EvidenceFile[]
+  notifications      Notification[]
+  reports            Report[]
+  quota              UserQuota?
+  adminActions       AdminAction[]      @relation("AdminActionActor")
+  adminActionsTarget AdminAction[]      @relation("AdminActionTarget")
+  householdConsents  HouseholdConsent[] @relation("HouseholdConsentRequester")
+  outboundEmails     OutboundEmail[]
+
+  @@index([status])
+  @@index([role])
+  @@index([deletedAt])
+}
+
+model Account {
+  id                       String  @id @default(cuid())
+  userId                   String
+  type                     String
+  provider                 String
+  providerAccountId        String
+  refresh_token            String?
+  access_token             String?
+  expires_at               Int?
+  token_type               String?
+  scope                    String?
+  id_token                 String?
+  session_state            String?
+  refresh_token_expires_in Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expires])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  createdAt DateTime @default(now())
+
+  @@unique([identifier, token])
+  @@index([expires])
+}
+
+// ---------------------------------------------------------------------------
+// Profiles, household and consent
+// ---------------------------------------------------------------------------
+
+model UserProfile {
+  id          String        @id @default(cuid())
+  ownerUserId String
+  kind        ProfileKind
+  status      ProfileStatus @default(ACTIVE)
+
+  /// Display label chosen by the account holder. Not a legal name.
+  displayName String
+
+  /// Application-encrypted legal name used inside generated requests.
+  legalNameEnc String?
+  legalNameBi  String?
+
+  countryCode        String
+  region             String?
+  residencyConfirmed Boolean @default(false)
+  residencyNote      String?
+
+  consentStatus ConsentStatus
+  isPrimary     Boolean       @default(false)
+
+  /// Reply-to address used for broker correspondence for this profile.
+  contactEmailEnc    String?
+  contactEmailBi     String?
+  contactEmailMasked String?
+
+  onboardingCompletedAt DateTime?
+  notes                 String?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?
+  updatedById String?
+
+  owner             User                @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  identifiers       ProfileIdentifier[]
+  householdMember   HouseholdMember?
+  consentRecords    ConsentRecord[]
+  removalRequests   RemovalRequest[]
+  evidenceFiles     EvidenceFile[]
+  notifications     Notification[]
+  reports           Report[]
+  householdConsents HouseholdConsent[]
+  outboundEmails    OutboundEmail[]
+
+  @@index([ownerUserId, status])
+  @@index([ownerUserId, kind])
+  @@index([countryCode, region])
+  @@index([deletedAt])
+}
+
+model ProfileIdentifier {
+  id        String         @id @default(cuid())
+  profileId String
+  type      IdentifierType
+  label     String?
+
+  /// AES-256-GCM envelope. Never logged, never returned to the client raw.
+  valueEnc      String
+  /// HMAC-SHA256 blind index for equality lookups and duplicate detection.
+  valueBi       String
+  /// Human readable masked preview, safe for lists and audit context.
+  maskedPreview String
+
+  sensitivity IdentifierSensitivity @default(NORMAL)
+  isPrimary   Boolean               @default(false)
+  verifiedAt  DateTime?
+
+  /// Optional restriction, e.g. only use for a subset of request types.
+  usageScope Json @default("{}")
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?
+  updatedById String?
+
+  profile UserProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, type, valueBi])
+  @@index([profileId, type])
+  @@index([valueBi])
+  @@index([deletedAt])
+}
+
+model HouseholdMember {
+  id           String                @id @default(cuid())
+  ownerUserId  String
+  profileId    String                @unique
+  relationship HouseholdRelationship
+  status       HouseholdMemberStatus @default(PENDING)
+
+  /// Contact address of the represented person, used for the consent invite.
+  invitedEmailEnc    String?
+  invitedEmailBi     String?
+  invitedEmailMasked String?
+
+  addedReason String?
+  revokedAt   DateTime?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?
+  updatedById String?
+
+  owner    User               @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  profile  UserProfile        @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  consents HouseholdConsent[]
+
+  @@index([ownerUserId, status])
+  @@index([deletedAt])
+}
+
+model HouseholdConsent {
+  id                String                 @id @default(cuid())
+  householdMemberId String
+  profileId         String
+  requestedByUserId String
+  status            HouseholdConsentStatus @default(PENDING)
+
+  contactEmailEnc    String
+  contactEmailBi     String
+  contactEmailMasked String
+
+  /// SHA-256 of the single-use consent token. The token itself is never stored.
+  tokenHash String @unique
+  scope     Json   @default("{}")
+
+  statementText String
+  statementHash String
+
+  expiresAt  DateTime
+  verifiedAt DateTime?
+  declinedAt DateTime?
+  revokedAt  DateTime?
+
+  /// Hashed request context of the verification click, no raw IP is stored.
+  verificationIpHash        String?
+  verificationUserAgentHash String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  householdMember HouseholdMember @relation(fields: [householdMemberId], references: [id], onDelete: Cascade)
+  profile         UserProfile     @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  requestedBy     User            @relation("HouseholdConsentRequester", fields: [requestedByUserId], references: [id], onDelete: Cascade)
+  consentRecords  ConsentRecord[]
+
+  @@index([profileId, status])
+  @@index([status, expiresAt])
+}
+
+/// Append-only consent evidence. Never updated, corrections create new rows.
+model ConsentRecord {
+  id                 String         @id @default(cuid())
+  profileId          String
+  /// Account holder who captured or triggered the consent record.
+  actorUserId        String
+  purpose            ConsentPurpose
+  method             ConsentMethod
+  status             ConsentStatus
+  householdConsentId String?
+  removalRequestId   String?
+
+  /// The exact wording that was shown to the person giving consent.
+  statementText String
+  statementHash String
+
+  /// Structured evidence, e.g. token id, masked email, UI version.
+  evidence Json @default("{}")
+
+  grantedAt DateTime  @default(now())
+  expiresAt DateTime?
+  revokedAt DateTime?
+
+  prevHash String?
+  hash     String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile          UserProfile       @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  actor            User              @relation(fields: [actorUserId], references: [id], onDelete: Cascade)
+  // Cascade instead of the implicit SetNull: append-only rows must never be
+  // updated, so a referential SetNull would be rejected by the guard trigger.
+  householdConsent HouseholdConsent? @relation(fields: [householdConsentId], references: [id], onDelete: Cascade)
+  removalRequest   RemovalRequest?   @relation(fields: [removalRequestId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, purpose])
+  @@index([removalRequestId])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Jurisdictions and legal rules
+// ---------------------------------------------------------------------------
+
+model Jurisdiction {
+  id          String  @id @default(cuid())
+  /// Stable machine key, e.g. US-CA, US-OTHER, DE, GB, BR, IN, AU, SG.
+  code        String  @unique
+  name        String
+  countryCode String
+  region      String?
+  description String?
+  isActive    Boolean @default(true)
+  sortOrder   Int     @default(100)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  legalRules       LegalRule[]
+  brokerCoverage   BrokerJurisdictionCoverage[]
+  requestTemplates RequestTemplate[]
+  removalRequests  RemovalRequest[]
+
+  @@index([countryCode, region])
+  @@index([isActive])
+}
+
+model LegalRule {
+  id             String  @id @default(cuid())
+  jurisdictionId String
+  /// Stable key within a jurisdiction, e.g. ccpa-delete, gdpr-erasure.
+  key            String
+  lawName        String
+  shortName      String
+  description    String?
+  isActive       Boolean @default(true)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?
+  updatedById String?
+
+  jurisdiction Jurisdiction       @relation(fields: [jurisdictionId], references: [id], onDelete: Cascade)
+  versions     LegalRuleVersion[]
+
+  @@unique([jurisdictionId, key])
+  @@index([isActive])
+}
+
+model LegalRuleVersion {
+  id          String            @id @default(cuid())
+  legalRuleId String
+  version     Int
+  status      PublicationStatus @default(DRAFT)
+
+  supportedRequestTypes    RequestType[]
+  legalBasisText           String
+  /// Baseline response deadline in calendar days, null when no statutory deadline exists.
+  deadlineDays             Int?
+  /// Structured deadline logic: extensions, business day handling, conditions.
+  deadlineRule             Json            @default("{}")
+  verificationRequirements Json            @default("{}")
+  escalationPath           String
+  escalationAuthority      String?
+  escalationUrl            String?
+  /// Ordered clause keys that the template renderer may include.
+  templateClauses          Json            @default("[]")
+  riskNotes                String
+  requiresLegalReview      Boolean         @default(true)
+  confidence               LegalConfidence @default(LOW)
+
+  sourceUrl         String
+  sourceTitle       String
+  additionalSources Json     @default("[]")
+  lastReviewedAt    DateTime
+  reviewedBy        String
+
+  effectiveFrom  DateTime
+  effectiveUntil DateTime?
+  changeNotes    String
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?
+
+  legalRule       LegalRule        @relation(fields: [legalRuleId], references: [id], onDelete: Cascade)
+  removalRequests RemovalRequest[]
+
+  @@unique([legalRuleId, version])
+  @@index([status, effectiveFrom])
+}
+
+// ---------------------------------------------------------------------------
+// Broker database
+// ---------------------------------------------------------------------------
+
+model Broker {
+  id            String         @id @default(cuid())
+  slug          String         @unique
+  legalName     String
+  tradingNames  String[]       @default([])
+  websiteUrl    String?
+  category      BrokerCategory
+  subcategories String[]       @default([])
+
+  countriesServed String[]       @default([])
+  regionsServed   String[]       @default([])
+  dataCategories  DataCategory[] @default([])
+
+  privacyEmail      String?
+  privacyRequestUrl String?
+  optOutUrl         String?
+  webFormUrl        String?
+  postalAddress     String?
+
+  apiSupported Boolean @default(false)
+  apiNotes     String?
+
+  /// Known verification requirements, e.g. {"identityDocument": false, "accountRequired": true}.
+  verificationRequirements Json @default("{}")
+  /// Known response behaviour, e.g. {"typicalResponseDays": 21, "autoResponder": true}.
+  knownResponseBehavior    Json @default("{}")
+
+  confidenceScore          Int                      @default(0)
+  sourceUrl                String?
+  lastVerifiedAt           DateTime?
+  manualReviewRequired     Boolean                  @default(true)
+  isActive                 Boolean                  @default(true)
+  verificationStatus       BrokerVerificationStatus @default(UNVERIFIED)
+  productionSendingEnabled Boolean                  @default(false)
+  productionUnsafeFlag     Boolean                  @default(false)
+  isDemoData               Boolean                  @default(true)
+  riskTier                 BrokerRiskTier           @default(STANDARD)
+
+  notes String?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?
+  updatedById String?
+
+  aliases              BrokerAlias[]
+  contactMethods       BrokerContactMethod[]
+  jurisdictionCoverage BrokerJurisdictionCoverage[]
+  seedSources          BrokerSeedSource[]
+  removalRequests      RemovalRequest[]
+  responses            BrokerResponse[]
+
+  @@index([category, isActive])
+  @@index([verificationStatus])
+  @@index([isDemoData])
+  @@index([deletedAt])
+}
+
+model BrokerAlias {
+  id       String          @id @default(cuid())
+  brokerId String
+  alias    String
+  kind     BrokerAliasKind @default(TRADING_NAME)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  broker Broker @relation(fields: [brokerId], references: [id], onDelete: Cascade)
+
+  @@unique([brokerId, alias])
+  @@index([alias])
+}
+
+model BrokerContactMethod {
+  id       String            @id @default(cuid())
+  brokerId String
+  type     ContactMethodType
+  /// Email address, URL or postal address depending on `type`.
+  value    String
+  label    String?
+
+  isPreferred      Boolean   @default(false)
+  isVerified       Boolean   @default(false)
+  verifiedAt       DateTime?
+  verifiedBy       String?
+  verificationNote String?
+  sourceUrl        String?
+  priority         Int       @default(100)
+  isActive         Boolean   @default(true)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?
+  updatedById String?
+
+  broker Broker @relation(fields: [brokerId], references: [id], onDelete: Cascade)
+
+  @@unique([brokerId, type, value])
+  @@index([brokerId, isActive])
+}
+
+model BrokerJurisdictionCoverage {
+  id             String       @id @default(cuid())
+  brokerId       String
+  jurisdictionId String
+  coverageType   CoverageType @default(UNKNOWN)
+
+  supportedRequestTypes RequestType[]   @default([])
+  notes                 String?
+  confidence            LegalConfidence @default(LOW)
+  isActive              Boolean         @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  broker       Broker       @relation(fields: [brokerId], references: [id], onDelete: Cascade)
+  jurisdiction Jurisdiction @relation(fields: [jurisdictionId], references: [id], onDelete: Cascade)
+
+  @@unique([brokerId, jurisdictionId])
+  @@index([jurisdictionId, isActive])
+}
+
+model BrokerSeedSource {
+  id          String         @id @default(cuid())
+  brokerId    String
+  sourceUrl   String?
+  sourceTitle String
+  sourceType  SeedSourceType
+  retrievedAt DateTime
+  isDemo      Boolean        @default(true)
+  notes       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  broker Broker @relation(fields: [brokerId], references: [id], onDelete: Cascade)
+
+  @@index([brokerId])
+}
+
+// ---------------------------------------------------------------------------
+// Templates
+// ---------------------------------------------------------------------------
+
+model RequestTemplate {
+  id             String         @id @default(cuid())
+  key            String         @unique
+  name           String
+  description    String?
+  requestType    RequestType
+  channel        RequestChannel @default(EMAIL)
+  jurisdictionId String?
+  isActive       Boolean        @default(true)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?
+  updatedById String?
+
+  jurisdiction Jurisdiction?            @relation(fields: [jurisdictionId], references: [id])
+  versions     RequestTemplateVersion[]
+
+  @@index([requestType, isActive])
+  @@index([jurisdictionId])
+}
+
+model RequestTemplateVersion {
+  id         String            @id @default(cuid())
+  templateId String
+  version    Int
+  status     PublicationStatus @default(DRAFT)
+
+  subjectTemplate String
+  bodyTemplate    String
+
+  requiredVariables String[] @default([])
+  optionalVariables String[] @default([])
+  locale            String   @default("en")
+  changeNotes       String   @default("")
+  /// SHA-256 over subject + body, used to detect silent edits.
+  checksum          String
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?
+
+  template        RequestTemplate  @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  removalRequests RemovalRequest[]
+
+  @@unique([templateId, version])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Removal requests
+// ---------------------------------------------------------------------------
+
+model RemovalRequest {
+  id             String         @id @default(cuid())
+  userId         String
+  profileId      String
+  brokerId       String
+  jurisdictionId String
+  requestType    RequestType
+  channel        RequestChannel
+  status         RequestStatus  @default(DRAFT)
+
+  legalRuleVersionId String?
+  templateVersionId  String?
+  legalBasisText     String
+  deadlineDays       Int?
+  deadlineAt         DateTime?
+
+  manualReviewRequired   Boolean   @default(false)
+  manualReviewReasons    String[]  @default([])
+  manualReviewResolvedAt DateTime?
+  manualReviewResolvedBy String?
+
+  /// Broker side destination. Business contact data, not personal data.
+  destinationType  ContactMethodType?
+  destinationValue String?
+
+  /// Identifier ids included in the rendered request plus a masked summary.
+  includedIdentifierIds String[] @default([])
+  includedIdentifiers   Json     @default("[]")
+
+  currentSnapshotId       String?
+  approvedAt              DateTime?
+  approvedByUserId        String?
+  approvalConsentRecordId String?
+
+  sentAt          DateTime?
+  deliveredAt     DateTime?
+  firstResponseAt DateTime?
+  completedAt     DateTime?
+  closedAt        DateTime?
+  closureReason   String?
+
+  followUpCount  Int       @default(0)
+  nextFollowUpAt DateTime?
+  lastEventAt    DateTime  @default(now())
+
+  externalReference String?
+  metadata          Json    @default("{}")
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?
+  updatedById String?
+
+  user             User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile          UserProfile             @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  broker           Broker                  @relation(fields: [brokerId], references: [id])
+  jurisdiction     Jurisdiction            @relation(fields: [jurisdictionId], references: [id])
+  legalRuleVersion LegalRuleVersion?       @relation(fields: [legalRuleVersionId], references: [id])
+  templateVersion  RequestTemplateVersion? @relation(fields: [templateVersionId], references: [id])
+
+  events         RemovalRequestEvent[]
+  snapshots      RequestSnapshot[]
+  responses      BrokerResponse[]
+  evidenceFiles  EvidenceFile[]
+  notifications  Notification[]
+  consentRecords ConsentRecord[]
+  outboundEmails OutboundEmail[]
+
+  @@index([userId, status])
+  @@index([profileId, status])
+  @@index([brokerId, status])
+  @@index([status, deadlineAt])
+  @@index([status, nextFollowUpAt])
+  @@index([deletedAt])
+}
+
+/// Append-only lifecycle trail. Corrections are new events, never updates.
+model RemovalRequestEvent {
+  id               String           @id @default(cuid())
+  removalRequestId String
+  type             RequestEventType
+  fromStatus       RequestStatus?
+  toStatus         RequestStatus?
+
+  actorType   ActorType
+  actorUserId String?
+  message     String?
+  /// Redacted structured payload. Must not contain raw personal identifiers.
+  payload     Json      @default("{}")
+
+  correctsEventId String?
+
+  prevHash String?
+  hash     String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  removalRequest RemovalRequest @relation(fields: [removalRequestId], references: [id], onDelete: Cascade)
+
+  @@index([removalRequestId, createdAt])
+  @@index([type])
+}
+
+/// Immutable rendered request exactly as approved by the user.
+model RequestSnapshot {
+  id               String @id @default(cuid())
+  removalRequestId String
+  version          Int
+
+  subject String
+  body    String
+
+  templateVersionId  String?
+  legalRuleVersionId String?
+
+  /// Masked variable set used for rendering. Raw identifiers are not stored here.
+  variables        Json   @default("{}")
+  /// SHA-256 over subject + body. Approval compares the hash the user saw.
+  contentHash      String
+  /// SHA-256 over the sorted list of included identifier blind indexes.
+  identifierDigest String
+
+  renderedAt      DateTime @default(now())
+  createdByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  removalRequest RemovalRequest @relation(fields: [removalRequestId], references: [id], onDelete: Cascade)
+
+  @@unique([removalRequestId, version])
+  @@index([contentHash])
+}
+
+model BrokerResponse {
+  id               String         @id @default(cuid())
+  removalRequestId String
+  brokerId         String
+  receivedAt       DateTime
+  channel          RequestChannel @default(EMAIL)
+
+  fromAddress String?
+  subjectEnc  String?
+  bodyEnc     String?
+  bodyPreview String?
+
+  classification           BrokerResponseClassification @default(UNCLEAR)
+  classificationConfidence LegalConfidence              @default(LOW)
+  classifiedBy             ActorType                    @default(SYSTEM)
+  requiresUserAction       Boolean                      @default(false)
+
+  evidenceFileId String?
+  rawMetadata    Json    @default("{}")
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?
+
+  removalRequest RemovalRequest @relation(fields: [removalRequestId], references: [id], onDelete: Cascade)
+  broker         Broker         @relation(fields: [brokerId], references: [id])
+
+  @@index([removalRequestId, receivedAt])
+  @@index([classification])
+}
+
+// ---------------------------------------------------------------------------
+// Evidence, notifications, reports
+// ---------------------------------------------------------------------------
+
+model EvidenceFile {
+  id               String  @id @default(cuid())
+  userId           String
+  profileId        String?
+  removalRequestId String?
+
+  kind           EvidenceKind
+  storageKey     String       @unique
+  storageBackend String
+  contentType    String
+  byteSize       Int
+  checksumSha256 String
+
+  encryption      EvidenceEncryption @default(SERVER_SIDE)
+  encryptionKeyId String?
+
+  filenameEnc    String?
+  filenameMasked String?
+
+  isTemporary     Boolean   @default(false)
+  retentionPolicy String    @default("default")
+  expiresAt       DateTime?
+
+  accessCount    Int       @default(0)
+  lastAccessedAt DateTime?
+
+  metadata Json @default("{}")
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile        UserProfile?    @relation(fields: [profileId], references: [id], onDelete: SetNull)
+  removalRequest RemovalRequest? @relation(fields: [removalRequestId], references: [id], onDelete: SetNull)
+  reports        Report[]
+
+  @@index([userId, kind])
+  @@index([removalRequestId])
+  @@index([isTemporary, expiresAt])
+  @@index([deletedAt])
+}
+
+model Notification {
+  id               String  @id @default(cuid())
+  userId           String
+  profileId        String?
+  removalRequestId String?
+
+  type     NotificationType
+  channel  NotificationChannel  @default(IN_APP)
+  severity NotificationSeverity @default(INFO)
+
+  title     String
+  body      String
+  actionUrl String?
+
+  readAt      DateTime?
+  dismissedAt DateTime?
+  emailedAt   DateTime?
+
+  /// Stable key to avoid duplicate notifications for the same trigger.
+  dedupeKey String?
+  metadata  Json    @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile        UserProfile?    @relation(fields: [profileId], references: [id], onDelete: SetNull)
+  removalRequest RemovalRequest? @relation(fields: [removalRequestId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+}
+
+model Report {
+  id        String  @id @default(cuid())
+  userId    String
+  profileId String?
+
+  title    String
+  dateFrom DateTime
+  dateTo   DateTime
+  format   ReportFormat @default(PDF)
+  status   ReportStatus @default(PENDING)
+
+  evidenceFileId String?
+  /// Aggregated, non-sensitive summary rendered in the UI.
+  summary        Json      @default("{}")
+  generatedAt    DateTime?
+  error          String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile      UserProfile?  @relation(fields: [profileId], references: [id], onDelete: SetNull)
+  evidenceFile EvidenceFile? @relation(fields: [evidenceFileId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status])
+  @@index([deletedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Audit, admin actions
+// ---------------------------------------------------------------------------
+
+/// Append-only, hash chained audit trail. Must never contain raw personal data.
+model AuditLog {
+  id       String @id @default(cuid())
+  sequence BigInt @default(autoincrement())
+
+  actorType   ActorType
+  actorUserId String?
+  actorRole   UserRole?
+
+  action       String
+  resourceType String
+  resourceId   String?
+  targetUserId String?
+
+  outcome AuditOutcome @default(SUCCESS)
+  reason  String?
+
+  ipHash        String?
+  userAgentHash String?
+  requestId     String?
+
+  metadata Json @default("{}")
+
+  prevHash String?
+  hash     String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  adminActions AdminAction[]
+
+  @@index([actorUserId, createdAt])
+  @@index([targetUserId, createdAt])
+  @@index([action, createdAt])
+  @@index([resourceType, resourceId])
+  @@index([sequence])
+}
+
+model AdminAction {
+  id          String          @id @default(cuid())
+  adminUserId String
+  type        AdminActionType
+
+  targetUserId       String?
+  targetResourceType String?
+  targetResourceId   String?
+
+  /// Free text justification. Required for every sensitive admin access.
+  justification  String
+  grantExpiresAt DateTime?
+  revokedAt      DateTime?
+  auditLogId     String?
+
+  metadata Json @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  admin      User      @relation("AdminActionActor", fields: [adminUserId], references: [id], onDelete: Cascade)
+  targetUser User?     @relation("AdminActionTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+  auditLog   AuditLog? @relation(fields: [auditLogId], references: [id], onDelete: SetNull)
+
+  @@index([adminUserId, createdAt])
+  @@index([targetUserId, createdAt])
+  @@index([type, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Background jobs
+// ---------------------------------------------------------------------------
+
+model BackgroundJob {
+  id     String    @id @default(cuid())
+  type   JobType
+  status JobStatus @default(PENDING)
+
+  runAt          DateTime  @default(now())
+  lockedAt       DateTime?
+  lockedBy       String?
+  lockExpiresAt  DateTime?
+  attemptCount   Int       @default(0)
+  maxAttempts    Int       @default(5)
+  lastError      String?
+  payloadJson    Json      @default("{}")
+  /// Unique per logical unit of work. Guarantees at-most-once side effects.
+  idempotencyKey String    @unique
+
+  relatedUserId    String?
+  relatedRequestId String?
+  priority         Int       @default(100)
+  completedAt      DateTime?
+  cancelledAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  logs BackgroundJobLog[]
+
+  @@index([status, runAt])
+  @@index([type, status])
+  @@index([relatedUserId])
+  @@index([relatedRequestId])
+  @@index([lockExpiresAt])
+}
+
+model BackgroundJobLog {
+  id      String      @id @default(cuid())
+  jobId   String
+  attempt Int
+  level   JobLogLevel @default(INFO)
+  message String
+
+  durationMs Int?
+  metadata   Json @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  job BackgroundJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, createdAt])
+  @@index([level, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Email ledger and webhooks
+// ---------------------------------------------------------------------------
+
+model OutboundEmail {
+  id       String            @id @default(cuid())
+  purpose  EmailPurpose
+  status   EmailStatus       @default(QUEUED)
+  provider EmailProviderKind
+
+  removalRequestId String?
+  userId           String?
+  profileId        String?
+
+  /// Recipient stored encrypted plus a masked preview for the UI.
+  toAddressEnc    String
+  toAddressMasked String
+  toAddressHash   String
+
+  fromAddress String
+  replyTo     String?
+  subjectEnc  String
+  bodyHash    String
+
+  /// Attempt counter used for the dedupe constraint together with purpose.
+  attempt           Int     @default(1)
+  providerMessageId String?
+
+  sentAt       DateTime?
+  deliveredAt  DateTime?
+  bouncedAt    DateTime?
+  complainedAt DateTime?
+  failedAt     DateTime?
+  lastError    String?
+
+  metadata Json @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  removalRequest RemovalRequest?     @relation(fields: [removalRequestId], references: [id], onDelete: SetNull)
+  user           User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+  profile        UserProfile?        @relation(fields: [profileId], references: [id], onDelete: SetNull)
+  webhookEvents  EmailWebhookEvent[]
+
+  @@unique([removalRequestId, purpose, attempt])
+  @@index([status, createdAt])
+  @@index([toAddressHash, createdAt])
+  @@index([providerMessageId])
+}
+
+model EmailWebhookEvent {
+  id        String @id @default(cuid())
+  provider  String
+  /// Provider event id, used for idempotent ingestion.
+  eventId   String @unique
+  eventType String
+
+  payloadJson       Json
+  signatureVerified Boolean @default(false)
+
+  receivedAt      DateTime  @default(now())
+  processedAt     DateTime?
+  processingError String?
+  outboundEmailId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  outboundEmail OutboundEmail? @relation(fields: [outboundEmailId], references: [id], onDelete: SetNull)
+
+  @@index([processedAt])
+  @@index([eventType, receivedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Settings, quotas, rate limiting
+// ---------------------------------------------------------------------------
+
+model SystemSetting {
+  id          String  @id @default(cuid())
+  key         String  @unique
+  valueJson   Json
+  description String
+  category    String  @default("general")
+  isSensitive Boolean @default(false)
+
+  updatedByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+}
+
+/// Operational fair use limits. Never a monetization mechanism.
+model UserQuota {
+  id     String @id @default(cuid())
+  userId String @unique
+
+  maxProfiles                Int @default(6)
+  requestsPerDay             Int @default(25)
+  requestsPerMonth           Int @default(200)
+  requestsPerBrokerPer30Days Int @default(5)
+  evidenceUploadsPerDay      Int @default(50)
+  magicLinksPer15Minutes     Int @default(3)
+
+  notes           String?
+  updatedByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model RateLimitBucket {
+  id    String @id @default(cuid())
+  /// Limit scope, e.g. magic_link_email, request_create_user, broker_send_domain.
+  scope String
+  /// Hashed subject key. Raw emails, IPs or domains are never stored here.
+  key   String
+
+  windowStart   DateTime
+  windowSeconds Int
+  count         Int      @default(0)
+  expiresAt     DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([scope, key, windowStart])
+  @@index([expiresAt])
+}
