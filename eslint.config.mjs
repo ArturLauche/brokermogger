@@ -80,6 +80,7 @@ const eslintConfig = defineConfig([
   {
     files: [
       "lib/db/**/*.ts",
+      "lib/jobs/handlers.ts",
       "workers/**/*.ts",
       "prisma/**/*.ts",
       "scripts/**/*.ts",

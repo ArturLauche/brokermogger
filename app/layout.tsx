@@ -11,11 +11,19 @@ export const metadata: Metadata = {
     default: "Brokermogger",
     template: "%s | Brokermogger",
   },
+  applicationName: "Brokermogger",
   description:
     "Open source privacy request desk for preparing, approving, sending and tracking data broker privacy requests.",
   robots: {
     index: true,
     follow: true,
+  },
+  openGraph: {
+    type: "website",
+    siteName: "Brokermogger",
+    title: "Brokermogger",
+    description:
+      "Prepare, approve and track your own privacy requests. Free, open source and self hostable.",
   },
 };
 

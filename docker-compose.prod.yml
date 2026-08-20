@@ -1,0 +1,82 @@
+# Production-style compose. Fill secrets via environment or an uncommitted .env.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+
+name: brokermogger-prod
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: brokermogger
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: brokermogger
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U brokermogger -d brokermogger"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    command: ["npx", "prisma", "migrate", "deploy"]
+    environment:
+      DATABASE_URL: postgresql://brokermogger:${POSTGRES_PASSWORD}@postgres:5432/brokermogger?schema=public
+      SKIP_ENV_VALIDATION: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      APP_ENV: production
+      DATABASE_URL: postgresql://brokermogger:${POSTGRES_PASSWORD}@postgres:5432/brokermogger?schema=public
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-resend}
+      ALLOW_EXTERNAL_SENDING: ${ALLOW_EXTERNAL_SENDING:-false}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    command: ["npx", "tsx", "workers/worker.ts"]
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      APP_ENV: production
+      DATABASE_URL: postgresql://brokermogger:${POSTGRES_PASSWORD}@postgres:5432/brokermogger?schema=public
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-resend}
+      ALLOW_EXTERNAL_SENDING: ${ALLOW_EXTERNAL_SENDING:-false}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  postgres-data:

@@ -128,7 +128,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    command: ["node", "dist-worker/worker.js"]
+    command: ["npx", "tsx", "workers/worker.ts"]
     restart: unless-stopped
     env_file:
       - path: .env

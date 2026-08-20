@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres-test:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: brokermogger
+          POSTGRES_PASSWORD: brokermogger
+          POSTGRES_DB: brokermogger_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U brokermogger -d brokermogger_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://brokermogger:brokermogger@localhost:5433/brokermogger_test?schema=public
+      TEST_DATABASE_URL: postgresql://brokermogger:brokermogger@localhost:5433/brokermogger_test?schema=public
+      AUTH_SECRET: test-auth-secret-000000000000000000000000
+      ENCRYPTION_KEYS: v1:dGVzdC1lbmNyeXB0aW9uLWtleS1kby1ub3QtdXNlAAA=
+      ENCRYPTION_ACTIVE_KEY_ID: v1
+      BLIND_INDEX_KEY: dGVzdC1ibGluZC1pbmRleC1rZXktZG8tbm90LXVzZQA=
+      EMAIL_PROVIDER: mock
+      EMAIL_FROM: Brokermogger <privacy@example.invalid>
+      ALLOW_EXTERNAL_SENDING: "false"
+      STORAGE_BACKEND: memory
+      APP_ENV: development
+      APP_BASE_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx prisma migrate deploy
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run test
+      - run: npm run test:integration
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+        env:
+          SKIP_ENV_VALIDATION: "true"
+      - run: npm run test:e2e
+        env:
+          E2E_SKIP_WEBSERVER: ""
+          CI: "true"

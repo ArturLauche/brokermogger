@@ -31,9 +31,9 @@ describe("field encryption", () => {
 
   it("rejects a ciphertext moved to another record", () => {
     const envelope = encryptField("ada@example.org", context);
-    expect(() => decryptField(envelope, { ...context, recordId: "identifier-2" })).toThrow(
-      /failed authentication/i
-    );
+    expect(() =>
+      decryptField(envelope, { ...context, recordId: "identifier-2" })
+    ).toThrow(/failed authentication/i);
   });
 
   it("rejects a ciphertext moved to another column", () => {
