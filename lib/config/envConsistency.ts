@@ -22,14 +22,27 @@ export interface EnvConsistencyReport {
   issues: string[];
 }
 
-export function parseDotEnvKeys(source: string): string[] {
-  const keys = new Set<string>();
+export function parseDotEnvMap(source: string): Record<string, string> {
+  const values: Record<string, string> = {};
   for (const rawLine of source.split("\n")) {
     const line = rawLine.trim();
     if (!line || line.startsWith("#") || !line.includes("=")) continue;
-    keys.add(line.slice(0, line.indexOf("=")));
+    const eq = line.indexOf("=");
+    const key = line.slice(0, eq);
+    let value = line.slice(eq + 1);
+    if (
+      (value.startsWith('"') && value.endsWith('"') && value.length >= 2) ||
+      (value.startsWith("'") && value.endsWith("'") && value.length >= 2)
+    ) {
+      value = value.slice(1, -1);
+    }
+    values[key] = value;
   }
-  return [...keys];
+  return values;
+}
+
+export function parseDotEnvKeys(source: string): string[] {
+  return Object.keys(parseDotEnvMap(source));
 }
 
 export function parseZodSchemaKeys(envTsSource: string): string[] {
@@ -44,12 +57,46 @@ export function parseZodSchemaKeys(envTsSource: string): string[] {
   return [...keys];
 }
 
-function hasTestPostgresPortMapping(source: string): boolean {
+/**
+ * Body of a YAML mapping keyed by `heading`, using indentation rather than a
+ * parser so both docker compose and GitHub Actions service blocks work.
+ */
+export function extractIndentedBlock(source: string, heading: string): string | null {
+  const lines = source.split("\n");
+  const headingPattern = new RegExp(`^([ \\t]*)${escapeRegExp(heading)}:\\s*$`);
+  const start = lines.findIndex((line) => headingPattern.test(line));
+  if (start === -1) return null;
+
+  const headingIndent = lines[start]?.match(/^[ \t]*/)?.[0] ?? "";
+  const block: string[] = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    const line = lines[i] ?? "";
+    if (line.trim() === "") {
+      block.push(line);
+      continue;
+    }
+    const indent = line.match(/^[ \t]*/)?.[0] ?? "";
+    if (indent.length <= headingIndent.length) break;
+    block.push(line);
+  }
+  return block.join("\n");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function hasPortMapping(block: string, hostPort: string, containerPort: string): boolean {
   return (
-    source.includes("postgres-test") &&
-    (source.includes(`- ${TEST_POSTGRES_PORT}:5432`) ||
-      source.includes(`- "${TEST_POSTGRES_PORT}:5432"`))
+    block.includes(`- ${hostPort}:${containerPort}`) ||
+    block.includes(`- "${hostPort}:${containerPort}"`)
   );
+}
+
+function hasTestPostgresPortMapping(source: string): boolean {
+  const block = extractIndentedBlock(source, "postgres-test");
+  if (!block) return false;
+  return hasPortMapping(block, TEST_POSTGRES_PORT, "5432");
 }
 
 function databaseUrlsUseLoopbackTestPort(ciWorkflow: string): boolean {
@@ -61,7 +108,8 @@ function databaseUrlsUseLoopbackTestPort(ciWorkflow: string): boolean {
 
 export function checkEnvConsistency(input: EnvConsistencyInput): EnvConsistencyReport {
   const schemaKeys = parseZodSchemaKeys(input.envTs);
-  const exampleKeys = parseDotEnvKeys(input.example);
+  const exampleValues = parseDotEnvMap(input.example);
+  const exampleKeys = Object.keys(exampleValues);
   const issues: string[] = [];
 
   const missingFromExample = schemaKeys.filter((key) => !exampleKeys.includes(key));
@@ -76,7 +124,8 @@ export function checkEnvConsistency(input: EnvConsistencyInput): EnvConsistencyR
     issues.push(`In .env.example but not in env.ts: ${extraInExample.join(", ")}`);
   }
 
-  if (!input.example.includes(`:${TEST_POSTGRES_PORT}/`)) {
+  const testDatabaseUrl = exampleValues.TEST_DATABASE_URL ?? "";
+  if (!testDatabaseUrl.includes(`:${TEST_POSTGRES_PORT}/`)) {
     issues.push(
       `.env.example must document TEST_DATABASE_URL on port ${TEST_POSTGRES_PORT}.`
     );

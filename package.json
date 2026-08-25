@@ -5,7 +5,7 @@
   "description": "Open source privacy request desk for preparing, approving, sending and tracking data broker privacy requests.",
   "license": "AGPL-3.0-or-later",
   "engines": {
-    "node": ">=22.22.2"
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
   "scripts": {
     "dev": "next dev",
@@ -25,11 +25,11 @@
     "db:reset": "prisma migrate reset --force",
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
-    "test": "NODE_ENV=test vitest run --project unit --project components",
-    "test:unit": "NODE_ENV=test vitest run --project unit",
-    "test:components": "NODE_ENV=test vitest run --project components",
-    "test:integration": "NODE_ENV=test vitest run --project integration",
-    "test:watch": "NODE_ENV=test vitest",
+    "test": "vitest run --project unit --project components",
+    "test:unit": "vitest run --project unit",
+    "test:components": "vitest run --project components",
+    "test:integration": "vitest run --project integration",
+    "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install --with-deps chromium",
     "prepare:standalone": "mkdir -p .next/standalone/.next .next/standalone/public && rm -rf .next/standalone/.next/static && cp -R .next/static .next/standalone/.next/static && cp -R public/. .next/standalone/public/",

@@ -99,6 +99,34 @@ describe("checkEnvConsistency", () => {
     });
     expect(report.issues.join("\n")).toMatch(/postgres-test/);
   });
+
+  it("rejects TEST_DATABASE_URL on the wrong port even if DATABASE_URL uses 5433", () => {
+    const report = checkEnvConsistency({
+      ...validInput,
+      example: [
+        "APP_ENV=development",
+        "DATABASE_URL=postgresql://brokermogger:brokermogger@localhost:5433/brokermogger",
+        "TEST_DATABASE_URL=postgresql://brokermogger:brokermogger@localhost:5432/brokermogger_test",
+      ].join("\n"),
+    });
+    expect(report.issues.join("\n")).toMatch(/TEST_DATABASE_URL on port 5433/);
+  });
+
+  it("rejects a postgres-test service whose 5433 mapping belongs to another service", () => {
+    const report = checkEnvConsistency({
+      ...validInput,
+      compose: `
+services:
+  postgres:
+    ports:
+      - "5433:5432"
+  postgres-test:
+    ports:
+      - "5434:5432"
+`,
+    });
+    expect(report.issues.join("\n")).toMatch(/postgres-test/);
+  });
 });
 
 describe("checked-in env documentation", () => {

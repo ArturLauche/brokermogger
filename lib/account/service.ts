@@ -1,7 +1,7 @@
 /**
  * Account export and deletion.
  */
-import { recordAudit } from "@/lib/audit/service";
+import { recordAudit, recordAuditOrThrow } from "@/lib/audit/service";
 import {
   getOwnedAccount,
   markAccountDeletionRequested,
@@ -64,16 +64,16 @@ export async function exportAccountData(actor: ActorContext): Promise<Buffer> {
 export async function requestAccountDeletion(actor: ActorContext) {
   requirePermission(actor, "account:delete", { ownerUserId: actor.userId });
   await markAccountDeletionRequested(actor);
+  await recordAuditOrThrow({
+    actor,
+    action: "account.deletion_requested",
+    resourceType: "user",
+    resourceId: actor.userId,
+  });
   await enqueueJob({
     type: "DELETE_ACCOUNT_DATA",
     payload: { userId: actor.userId, requestedAt: new Date().toISOString() },
     idempotencyKey: `delete-account:${actor.userId}`,
     relatedUserId: actor.userId,
-  });
-  await recordAudit({
-    actor,
-    action: "account.deletion_requested",
-    resourceType: "user",
-    resourceId: actor.userId,
   });
 }

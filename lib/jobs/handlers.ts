@@ -6,7 +6,10 @@
  * goes through repositories so this module never imports the Prisma client.
  */
 import { env } from "@/lib/config/env";
-import { anonymiseDeletedAccount } from "@/lib/db/repositories/account";
+import {
+  anonymiseDeletedAccount,
+  findAccountEmailById,
+} from "@/lib/db/repositories/account";
 import {
   listExpiredTemporaryEvidence,
   listRetentionDueEvidence,
@@ -20,7 +23,6 @@ import {
   getWebhookEventById,
   markWebhookEventProcessed,
 } from "@/lib/db/repositories/outboundEmail";
-import { findAccountById } from "@/lib/db/repositories/users";
 import { getEmailProvider } from "@/lib/email";
 import type { JobHandlerRegistry, JobResult } from "@/lib/jobs/types";
 import { createLogger } from "@/lib/observability/logger";
@@ -65,13 +67,13 @@ export function createJobHandlers(): JobHandlerRegistry {
         return { message: "In-app notification only." };
       }
 
-      const user = await findAccountById(notification.userId);
-      if (!user?.email) {
+      const email = await findAccountEmailById(notification.userId);
+      if (!email) {
         return { message: "Account has no email address." };
       }
 
       await getEmailProvider().sendNotificationEmail({
-        to: { address: user.email },
+        to: { address: email },
         subject: notification.title,
         text: notification.body,
         notificationId: notification.id,
@@ -98,7 +100,8 @@ export function createJobHandlers(): JobHandlerRegistry {
     },
 
     async DELETE_ACCOUNT_DATA(job): Promise<JobResult> {
-      await anonymiseDeletedAccount(job.payload.userId);
+      const actor = systemActor(job.id);
+      await anonymiseDeletedAccount(actor, job.payload.userId);
       return { message: "Account identifiers anonymised and pending jobs cancelled." };
     },
 

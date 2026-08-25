@@ -15,7 +15,7 @@ It is not a law firm. It does not guarantee removal. The shipped broker director
 
 ## Requirements
 
-- Node.js 22.22.2 or later (`.nvmrc` pins 22.23.2)
+- Node.js `^22.22.2 || ^24.15.0 || >=26.0.0` (`.nvmrc` pins 22.23.2)
 - PostgreSQL 16
 - An email provider for production (`resend` or `sandbox`). Development uses `mock`.
 
@@ -93,7 +93,7 @@ GitHub Actions runs on every push to `main` and on pull requests. Node is instal
 3. `npm run check:env`, `typecheck`, `lint`, `format:check`, `test`, `test:integration`
 4. Production build and Playwright (`npm run test:e2e`)
 
-No GitHub secrets are required for CI. The Docker workflow builds the image on pull requests and pushes to GHCR only from `main` and `v*` tags, using `GITHUB_TOKEN`.
+No GitHub secrets are required for CI. The Docker workflow builds the image on pull requests and `workflow_dispatch`, and pushes to GHCR only from `main` and `v*` tag pushes, using `GITHUB_TOKEN`.
 
 ## Security
 

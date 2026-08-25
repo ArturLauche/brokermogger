@@ -2,7 +2,7 @@
 # are defined here so a fresh fork can run the workflow.
 #
 # Required service: postgres:16 (job service container on 127.0.0.1:5433).
-# Node version comes from .nvmrc (pinned 22.23.2; satisfies engines >=22.22.2).
+# Node version comes from .nvmrc (pinned 22.23.2; jsdom engines ^22.22.2 || ^24.15.0 || >=26).
 name: CI
 
 on:

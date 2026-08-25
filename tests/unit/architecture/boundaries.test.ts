@@ -31,7 +31,9 @@ describe("lib architecture boundaries", () => {
   it("keeps Prisma client imports inside lib/db", () => {
     const offenders = files
       .filter((file) => !file.path.startsWith("lib/db/"))
-      .filter((file) => /from ["']@\/lib\/db\/client["']/.test(file.source));
+      .filter((file) =>
+        /(?:from\s+|import\s*\()\s*["']@\/lib\/db\/client["']/.test(file.source)
+      );
     expect(offenders.map((file) => file.path)).toEqual([]);
   });
 
@@ -44,7 +46,7 @@ describe("lib architecture boundaries", () => {
 
   it("keeps Next.js and app imports out of domain lib except the NextAuth adapters", () => {
     const nextImporters = files.filter((file) =>
-      /from ["']next(?:\/[^"']*)?["']/.test(file.source)
+      /(?:from\s+|import\s*\()\s*["']next(?:\/[^"']*)?["']/.test(file.source)
     );
     // NextAuth v5 `auth()`, `headers()`, `cookies()` and `redirect()` are
     // request-scoped. Fake-moving these modules out of lib/auth would break
@@ -56,8 +58,8 @@ describe("lib architecture boundaries", () => {
 
     const appImporters = files.filter(
       (file) =>
-        /from ["']@\/app(?:\/[^"']*)?["']/.test(file.source) ||
-        /from ["'](?:\.\.\/)+app\//.test(file.source)
+        /(?:from\s+|import\s*\()\s*["']@\/app(?:\/[^"']*)?["']/.test(file.source) ||
+        /(?:from\s+|import\s*\()\s*["'](?:\.\.\/)+app\//.test(file.source)
     );
     expect(appImporters.map((file) => file.path)).toEqual([]);
   });

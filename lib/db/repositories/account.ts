@@ -3,6 +3,7 @@
  */
 import type { Prisma } from "@prisma/client";
 
+import { NotFoundError, ValidationError } from "@/lib/core/errors";
 import { prisma, withAppendOnlyDeletes } from "@/lib/db/client";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
@@ -49,10 +50,43 @@ export async function markAccountDeletionRequested(actor: ActorContext) {
 }
 
 /**
- * Worker-only: anonymise identifiers after the owner requested deletion.
+ * Worker notification dispatch: the email address only. Do not reuse
+ * authentication-layer account summaries here.
+ */
+export async function findAccountEmailById(userId: string): Promise<string | null> {
+  const row = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true },
+  });
+  return row?.email ?? null;
+}
+
+/**
+ * Anonymise identifiers after the owner requested deletion.
+ * Requires an authorized actor (the worker passes `systemActor`) and only
+ * proceeds when that same account has `deletionRequestedAt` set.
  * Uses the append-only escape hatch so the database triggers allow the update.
  */
-export async function anonymiseDeletedAccount(userId: string): Promise<void> {
+export async function anonymiseDeletedAccount(
+  actor: ActorContext,
+  userId: string
+): Promise<void> {
+  requirePermission(actor, "account:delete", { ownerUserId: userId });
+
+  const account = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { deletionRequestedAt: true, anonymizedAt: true },
+  });
+  if (!account) {
+    throw new NotFoundError("This account does not exist.");
+  }
+  if (!account.deletionRequestedAt) {
+    throw new ValidationError("Account deletion has not been requested.");
+  }
+  if (account.anonymizedAt) {
+    return;
+  }
+
   await withAppendOnlyDeletes(async (tx) => {
     await tx.profileIdentifier.updateMany({
       where: { profile: { ownerUserId: userId } },
