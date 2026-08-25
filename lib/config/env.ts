@@ -198,8 +198,15 @@ function crossFieldChecks(parsed: RawEnv): string[] {
   return problems;
 }
 
+function readEnvFlag(name: string): boolean {
+  // Bracket access keeps Next.js from inlining this flag at `next build` time.
+  // Docker and CI set SKIP_ENV_VALIDATION only while compiling; runtime must
+  // still validate the real environment.
+  return process.env[name] === "true";
+}
+
 function buildEnv(): AppEnv {
-  const skipValidation = process.env.SKIP_ENV_VALIDATION === "true";
+  const skipValidation = readEnvFlag("SKIP_ENV_VALIDATION");
   const source: NodeJS.ProcessEnv = skipValidation
     ? { ...PLACEHOLDER_ENV, ...process.env }
     : process.env;

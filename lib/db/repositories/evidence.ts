@@ -61,4 +61,29 @@ export async function softDeleteEvidence(actor: ActorContext, evidenceId: string
   });
 }
 
+export async function listRetentionDueEvidence(cutoff: Date, take = 50) {
+  return prisma.evidenceFile.findMany({
+    where: { deletedAt: null, createdAt: { lt: cutoff }, isTemporary: false },
+    take,
+  });
+}
+
+export async function listExpiredTemporaryEvidence(take = 50) {
+  return prisma.evidenceFile.findMany({
+    where: {
+      isTemporary: true,
+      deletedAt: null,
+      expiresAt: { lte: new Date() },
+    },
+    take,
+  });
+}
+
+export async function markEvidencePurged(id: string) {
+  return prisma.evidenceFile.update({
+    where: { id },
+    data: { deletedAt: new Date() },
+  });
+}
+
 export type { EvidenceKind };

@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/common/page-header";
 import { StatusBadge } from "@/components/common/status-badge";
 import { ExternalLink } from "@/components/common/external-link";
+import { resolveActiveProfileForRequest } from "@/app/_lib/active-profile";
 import { requireActorOrRedirect } from "@/lib/auth";
 import { getOwnedProfile } from "@/lib/db/repositories/profiles";
 import {
@@ -11,7 +12,6 @@ import {
   listActiveJurisdictions,
   listPublishedLegalRules,
 } from "@/lib/db/repositories/catalog";
-import { resolveActiveProfile } from "@/lib/profiles/resolveActive";
 import { evaluateConsent } from "@/lib/consent/status";
 import { resolveJurisdiction } from "@/lib/jurisdiction/resolve";
 import { isAppError } from "@/lib/core/errors";
@@ -27,7 +27,7 @@ export default async function NewRequestPage({
   searchParams: Promise<{ brokers?: string; error?: string }>;
 }) {
   const actor = await requireActorOrRedirect();
-  const { active } = await resolveActiveProfile(actor);
+  const { active } = await resolveActiveProfileForRequest(actor);
   const params = await searchParams;
   const preselected = new Set((params.brokers ?? "").split(",").filter(Boolean));
 

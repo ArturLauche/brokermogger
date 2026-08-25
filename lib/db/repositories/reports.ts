@@ -33,6 +33,14 @@ export async function getOwnedReport(actor: ActorContext, reportId: string) {
   return report;
 }
 
+/** Worker report generation: load by id without expanding the Prisma client into domain services. */
+export async function getReportById(reportId: string) {
+  return prisma.report.findUnique({
+    where: { id: reportId },
+    include: { profile: true },
+  });
+}
+
 export async function createReport(data: Prisma.ReportCreateInput) {
   return prisma.report.create({ data });
 }

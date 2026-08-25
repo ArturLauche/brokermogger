@@ -80,7 +80,6 @@ const eslintConfig = defineConfig([
   {
     files: [
       "lib/db/**/*.ts",
-      "lib/jobs/handlers.ts",
       "workers/**/*.ts",
       "prisma/**/*.ts",
       "scripts/**/*.ts",
@@ -90,6 +89,49 @@ const eslintConfig = defineConfig([
     ],
     rules: {
       "no-restricted-imports": "off",
+    },
+  },
+  {
+    files: ["lib/**/*.ts"],
+    ignores: [
+      // NextAuth v5 needs request-scoped Next.js APIs. Only these two files
+      // import `next/*`; moving them would break session guards. See
+      // lib/auth/requestContext.ts and lib/auth/guards.ts.
+      "lib/auth/requestContext.ts",
+      "lib/auth/guards.ts",
+      "lib/db/**/*.ts",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@/lib/db/client",
+              message:
+                "Import repositories from @/lib/db/repositories instead. Direct Prisma access bypasses ActorContext authorization.",
+            },
+            {
+              name: "@prisma/client",
+              importNames: ["PrismaClient"],
+              message:
+                "Use the shared client from lib/db/client.ts inside lib/db only. Types and enums may be imported freely.",
+            },
+            {
+              name: "next",
+              message:
+                "Domain logic in lib/** must not import Next.js. Keep framework adapters in app/** or the two NextAuth files in lib/auth.",
+            },
+          ],
+          patterns: [
+            {
+              group: ["next/*", "next/dist/*", "@/app", "@/app/*"],
+              message:
+                "Domain logic in lib/** must not import Next.js or app/**. Keep framework adapters in app/** or the two NextAuth files in lib/auth.",
+            },
+          ],
+        },
+      ],
     },
   },
   {

@@ -8,10 +8,10 @@ import "./test-env";
  * `docker compose up -d postgres-test` or from the CI service container.
  */
 export default function setup() {
-  const databaseUrl = process.env.DATABASE_URL;
+  const databaseUrl = process.env.TEST_DATABASE_URL;
   if (!databaseUrl) {
     throw new Error(
-      "TEST_DATABASE_URL is not set. Start the test database with `docker compose up -d postgres-test`."
+      "TEST_DATABASE_URL is not set. Start the test database with `docker compose up -d postgres-test` and point TEST_DATABASE_URL at that instance (see .env.example)."
     );
   }
 

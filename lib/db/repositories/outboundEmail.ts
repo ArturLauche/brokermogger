@@ -165,3 +165,14 @@ export async function recordWebhookEvent(
 
   return { id: created.id, duplicate: false };
 }
+
+export async function getWebhookEventById(id: string) {
+  return prisma.emailWebhookEvent.findUnique({ where: { id } });
+}
+
+export async function markWebhookEventProcessed(id: string) {
+  return prisma.emailWebhookEvent.update({
+    where: { id },
+    data: { processedAt: new Date() },
+  });
+}

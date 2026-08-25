@@ -2,6 +2,12 @@ import react from "@vitejs/plugin-react";
 import tsconfigPaths from "vite-tsconfig-paths";
 import { defineConfig } from "vitest/config";
 
+// Must run before React is imported. A leftover NODE_ENV=production (for
+// example after `next build`) loads react-dom's production build, which has
+// no React.act and breaks every component test. Object.assign avoids the
+// readonly NODE_ENV typing from @types/node.
+Object.assign(process.env, { NODE_ENV: "test" });
+
 /**
  * Three test projects:
  *   unit         pure domain logic, no database, no network

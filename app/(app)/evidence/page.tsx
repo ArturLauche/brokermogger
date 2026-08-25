@@ -14,11 +14,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { resolveActiveProfileForRequest } from "@/app/_lib/active-profile";
 import { requireActorOrRedirect } from "@/lib/auth";
 import { listOwnedRequests } from "@/lib/db/repositories/requests";
 import { listEvidence } from "@/lib/evidence/service";
 import { formatIsoDate } from "@/lib/format/datetime";
-import { resolveActiveProfile } from "@/lib/profiles/resolveActive";
 
 import { deleteEvidenceAction, uploadEvidenceAction } from "./actions";
 
@@ -31,7 +31,7 @@ export default async function EvidencePage({
   searchParams: Promise<{ stored?: string; error?: string }>;
 }) {
   const actor = await requireActorOrRedirect();
-  const { active } = await resolveActiveProfile(actor);
+  const { active } = await resolveActiveProfileForRequest(actor);
   const files = await listEvidence(actor, active?.id ?? null);
   const requests = await listOwnedRequests(actor, active?.id ?? null);
   const params = await searchParams;

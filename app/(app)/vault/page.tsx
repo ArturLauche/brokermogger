@@ -16,11 +16,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { resolveActiveProfileForRequest } from "@/app/_lib/active-profile";
 import { requireActorOrRedirect } from "@/lib/auth";
 import { getOwnedProfile } from "@/lib/db/repositories/profiles";
 import { listConsentRecordsForProfile } from "@/lib/db/repositories/household";
 import { formatUtcStamp } from "@/lib/format/datetime";
-import { resolveActiveProfile } from "@/lib/profiles/resolveActive";
 import { IDENTIFIER_TYPE_LABELS } from "@/lib/requests/labels";
 
 import {
@@ -36,7 +36,7 @@ export const dynamic = "force-dynamic";
 
 export default async function VaultPage() {
   const actor = await requireActorOrRedirect();
-  const { active } = await resolveActiveProfile(actor);
+  const { active } = await resolveActiveProfileForRequest(actor);
 
   if (!active) {
     return (

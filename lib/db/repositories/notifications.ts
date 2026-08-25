@@ -43,3 +43,10 @@ export async function markNotificationRead(userId: string, id: string) {
 export async function getNotification(id: string) {
   return prisma.notification.findUnique({ where: { id } });
 }
+
+export async function markNotificationEmailed(id: string) {
+  return prisma.notification.update({
+    where: { id },
+    data: { emailedAt: new Date() },
+  });
+}

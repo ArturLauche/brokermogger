@@ -2,11 +2,27 @@
  * Job handler registry used by the worker process.
  *
  * Each handler is idempotent. SEND_REQUEST relies on the outbound email unique
- * constraint so a retry cannot produce a second broker message.
+ * constraint so a retry cannot produce a second broker message. Persistence
+ * goes through repositories so this module never imports the Prisma client.
  */
 import { env } from "@/lib/config/env";
-import { withAppendOnlyDeletes, prisma } from "@/lib/db/client";
-import { getNotification } from "@/lib/db/repositories/notifications";
+import {
+  anonymiseDeletedAccount,
+  findAccountEmailById,
+} from "@/lib/db/repositories/account";
+import {
+  listExpiredTemporaryEvidence,
+  listRetentionDueEvidence,
+  markEvidencePurged,
+} from "@/lib/db/repositories/evidence";
+import {
+  getNotification,
+  markNotificationEmailed,
+} from "@/lib/db/repositories/notifications";
+import {
+  getWebhookEventById,
+  markWebhookEventProcessed,
+} from "@/lib/db/repositories/outboundEmail";
 import { getEmailProvider } from "@/lib/email";
 import type { JobHandlerRegistry, JobResult } from "@/lib/jobs/types";
 import { createLogger } from "@/lib/observability/logger";
@@ -51,41 +67,30 @@ export function createJobHandlers(): JobHandlerRegistry {
         return { message: "In-app notification only." };
       }
 
-      const user = await prisma.user.findUnique({
-        where: { id: notification.userId },
-        select: { email: true },
-      });
-      if (!user?.email) {
+      const email = await findAccountEmailById(notification.userId);
+      if (!email) {
         return { message: "Account has no email address." };
       }
 
       await getEmailProvider().sendNotificationEmail({
-        to: { address: user.email },
+        to: { address: email },
         subject: notification.title,
         text: notification.body,
         notificationId: notification.id,
       });
-      await prisma.notification.update({
-        where: { id: notification.id },
-        data: { emailedAt: new Date() },
-      });
+      await markNotificationEmailed(notification.id);
       return { message: "Notification email sent." };
     },
 
     async PROCESS_EMAIL_WEBHOOK(job): Promise<JobResult> {
-      const event = await prisma.emailWebhookEvent.findUnique({
-        where: { id: job.payload.webhookEventId },
-      });
+      const event = await getWebhookEventById(job.payload.webhookEventId);
       if (!event) {
         return { message: "Webhook event not found." };
       }
       if (event.processedAt) {
         return { message: "Webhook event already processed." };
       }
-      await prisma.emailWebhookEvent.update({
-        where: { id: event.id },
-        data: { processedAt: new Date() },
-      });
+      await markWebhookEventProcessed(event.id);
       return { message: `Processed ${event.eventType}.` };
     },
 
@@ -95,72 +100,29 @@ export function createJobHandlers(): JobHandlerRegistry {
     },
 
     async DELETE_ACCOUNT_DATA(job): Promise<JobResult> {
-      const userId = job.payload.userId;
-      await withAppendOnlyDeletes(async (tx) => {
-        await tx.profileIdentifier.updateMany({
-          where: { profile: { ownerUserId: userId } },
-          data: { deletedAt: new Date() },
-        });
-        await tx.userProfile.updateMany({
-          where: { ownerUserId: userId },
-          data: {
-            deletedAt: new Date(),
-            legalNameEnc: null,
-            contactEmailEnc: null,
-            displayName: "Deleted profile",
-          },
-        });
-        await tx.user.update({
-          where: { id: userId },
-          data: {
-            status: "DELETED",
-            anonymizedAt: new Date(),
-            name: null,
-            email: `deleted-${userId}@anonymised.invalid`,
-          },
-        });
-        await tx.backgroundJob.updateMany({
-          where: { relatedUserId: userId, status: { in: ["PENDING", "RETRYABLE"] } },
-          data: { status: "CANCELLED", cancelledAt: new Date() },
-        });
-      });
+      const actor = systemActor(job.id);
+      await anonymiseDeletedAccount(actor, job.payload.userId);
       return { message: "Account identifiers anonymised and pending jobs cancelled." };
     },
 
     async PURGE_EVIDENCE(): Promise<JobResult> {
       const cutoff = new Date();
       cutoff.setMonth(cutoff.getMonth() - 24);
-      const files = await prisma.evidenceFile.findMany({
-        where: { deletedAt: null, createdAt: { lt: cutoff }, isTemporary: false },
-        take: 50,
-      });
+      const files = await listRetentionDueEvidence(cutoff);
       const storage = getStorage();
       for (const file of files) {
         await storage.delete(file.storageKey);
-        await prisma.evidenceFile.update({
-          where: { id: file.id },
-          data: { deletedAt: new Date() },
-        });
+        await markEvidencePurged(file.id);
       }
       return { message: `Purged ${files.length} evidence files.` };
     },
 
     async PURGE_TEMP_ID_FILES(): Promise<JobResult> {
-      const files = await prisma.evidenceFile.findMany({
-        where: {
-          isTemporary: true,
-          deletedAt: null,
-          expiresAt: { lte: new Date() },
-        },
-        take: 50,
-      });
+      const files = await listExpiredTemporaryEvidence();
       const storage = getStorage();
       for (const file of files) {
         await storage.delete(file.storageKey);
-        await prisma.evidenceFile.update({
-          where: { id: file.id },
-          data: { deletedAt: new Date() },
-        });
+        await markEvidencePurged(file.id);
       }
       return { message: `Purged ${files.length} temporary identity files.` };
     },

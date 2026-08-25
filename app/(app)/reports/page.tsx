@@ -14,9 +14,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { resolveActiveProfileForRequest } from "@/app/_lib/active-profile";
 import { requireActorOrRedirect } from "@/lib/auth";
 import { formatIsoDate } from "@/lib/format/datetime";
-import { resolveActiveProfile } from "@/lib/profiles/resolveActive";
 import { listReports } from "@/lib/reports/service";
 
 import { generateReportAction } from "./actions";
@@ -30,7 +30,7 @@ export default async function ReportsPage({
   searchParams: Promise<{ queued?: string; error?: string }>;
 }) {
   const actor = await requireActorOrRedirect();
-  const { active, profiles } = await resolveActiveProfile(actor);
+  const { active, profiles } = await resolveActiveProfileForRequest(actor);
   const reports = await listReports(actor, null);
   const params = await searchParams;
   const todayDate = new Date();

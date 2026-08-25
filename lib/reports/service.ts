@@ -9,13 +9,14 @@ import { addMonths } from "date-fns";
 import { recordAudit } from "@/lib/audit/service";
 import { ValidationError } from "@/lib/core/errors";
 import { createEvidenceFile } from "@/lib/db/repositories/evidence";
-import { listRequestsForUser } from "@/lib/db/repositories/requests";
 import {
   createReport,
   getOwnedReport,
+  getReportById,
   listOwnedReports,
   updateReport,
 } from "@/lib/db/repositories/reports";
+import { listRequestsForUser } from "@/lib/db/repositories/requests";
 import { enqueueJob } from "@/lib/jobs/queue";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
@@ -80,11 +81,7 @@ export async function markReportDownloaded(actor: ActorContext, reportId: string
 }
 
 export async function renderReportForJob(reportId: string): Promise<{ message: string }> {
-  const { prisma } = await import("@/lib/db/client");
-  const report = await prisma.report.findUnique({
-    where: { id: reportId },
-    include: { profile: true },
-  });
+  const report = await getReportById(reportId);
   if (!report) {
     return { message: "Report no longer exists." };
   }
