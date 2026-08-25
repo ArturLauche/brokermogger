@@ -15,7 +15,7 @@ It is not a law firm. It does not guarantee removal. The shipped broker director
 
 ## Requirements
 
-- Node.js 22.22 or later
+- Node.js 22.22.2 or later (`.nvmrc` pins 22.23.2)
 - PostgreSQL 16
 - An email provider for production (`resend` or `sandbox`). Development uses `mock`.
 
@@ -86,9 +86,9 @@ Image registry: `ghcr.io/arturlauche/brokermogger`.
 
 ## Continuous integration
 
-GitHub Actions runs on every push to `main` and on pull requests:
+GitHub Actions runs on every push to `main` and on pull requests. Node is installed from `.nvmrc`.
 
-1. `npm ci` (lockfile must match `package.json`; no `--legacy-peer-deps`)
+1. `npm ci --include=dev` (lockfile must match `package.json`; no `--legacy-peer-deps`)
 2. Prisma generate + migrate against a Postgres 16 service on port 5433
 3. `npm run check:env`, `typecheck`, `lint`, `format:check`, `test`, `test:integration`
 4. Production build and Playwright (`npm run test:e2e`)

@@ -42,15 +42,23 @@ describe("lib architecture boundaries", () => {
     expect(offenders.map((file) => file.path)).toEqual([]);
   });
 
-  it("keeps Next.js and app imports out of domain lib except lib/auth", () => {
-    const offenders = files
-      .filter((file) => !file.path.startsWith("lib/auth/"))
-      .filter(
-        (file) =>
-          /from ["']next(?:\/[^"']*)?["']/.test(file.source) ||
-          /from ["']@\/app(?:\/[^"']*)?["']/.test(file.source) ||
-          /from ["'](?:\.\.\/)+app\//.test(file.source)
-      );
-    expect(offenders.map((file) => file.path)).toEqual([]);
+  it("keeps Next.js and app imports out of domain lib except the NextAuth adapters", () => {
+    const nextImporters = files.filter((file) =>
+      /from ["']next(?:\/[^"']*)?["']/.test(file.source)
+    );
+    // NextAuth v5 `auth()`, `headers()`, `cookies()` and `redirect()` are
+    // request-scoped. Fake-moving these modules out of lib/auth would break
+    // every server action and layout that calls requireActor().
+    expect(nextImporters.map((file) => file.path).sort()).toEqual([
+      "lib/auth/guards.ts",
+      "lib/auth/requestContext.ts",
+    ]);
+
+    const appImporters = files.filter(
+      (file) =>
+        /from ["']@\/app(?:\/[^"']*)?["']/.test(file.source) ||
+        /from ["'](?:\.\.\/)+app\//.test(file.source)
+    );
+    expect(appImporters.map((file) => file.path)).toEqual([]);
   });
 });

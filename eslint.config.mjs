@@ -93,7 +93,14 @@ const eslintConfig = defineConfig([
   },
   {
     files: ["lib/**/*.ts"],
-    ignores: ["lib/auth/**/*.ts", "lib/db/**/*.ts"],
+    ignores: [
+      // NextAuth v5 needs request-scoped Next.js APIs. Only these two files
+      // import `next/*`; moving them would break session guards. See
+      // lib/auth/requestContext.ts and lib/auth/guards.ts.
+      "lib/auth/requestContext.ts",
+      "lib/auth/guards.ts",
+      "lib/db/**/*.ts",
+    ],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -113,14 +120,14 @@ const eslintConfig = defineConfig([
             {
               name: "next",
               message:
-                "Domain logic in lib/** must not import Next.js. Keep framework adapters in app/** or lib/auth.",
+                "Domain logic in lib/** must not import Next.js. Keep framework adapters in app/** or the two NextAuth files in lib/auth.",
             },
           ],
           patterns: [
             {
               group: ["next/*", "next/dist/*", "@/app", "@/app/*"],
               message:
-                "Domain logic in lib/** must not import Next.js or app/**. Keep framework adapters in app/** or lib/auth.",
+                "Domain logic in lib/** must not import Next.js or app/**. Keep framework adapters in app/** or the two NextAuth files in lib/auth.",
             },
           ],
         },
