@@ -58,4 +58,11 @@ describe("Node toolchain pins", () => {
     ]);
     expect(dockerfile).toMatch(/npm_config_engine_strict=true/);
   });
+
+  it("forces NODE_ENV=test in Vitest so a leftover production build cannot hide React.act", () => {
+    const vitestConfig = readFileSync(resolve(root, "vitest.config.ts"), "utf8");
+    expect(vitestConfig).toMatch(
+      /Object\.assign\(process\.env,\s*\{\s*NODE_ENV:\s*["']test["']\s*\}\)/
+    );
+  });
 });
