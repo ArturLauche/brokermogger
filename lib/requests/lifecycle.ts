@@ -1034,9 +1034,10 @@ export async function applyDeliveryOutcome(
       return;
     }
     if (request.status === "WAITING_FOR_BROKER" || request.status === "FOLLOW_UP_SENT") {
-      if (!request.deliveredAt) {
-        await patchRequest(request.id, { deliveredAt: new Date() });
+      if (request.deliveredAt) {
+        return;
       }
+      await patchRequest(request.id, { deliveredAt: new Date() });
       await appendRequestEvent({
         removalRequestId: request.id,
         type: "EMAIL_DELIVERED",
