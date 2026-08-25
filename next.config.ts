@@ -35,7 +35,22 @@ const nextConfig: NextConfig = {
     },
   },
   async headers() {
+    const crawlerResource = [
+      { key: "Cross-Origin-Resource-Policy", value: "cross-origin" },
+    ];
     return [
+      {
+        source: "/:file(opengraph-image|twitter-image|icon|apple-icon)",
+        headers: crawlerResource,
+      },
+      {
+        source: "/:file(opengraph-image|twitter-image|icon|apple-icon)/:path*",
+        headers: crawlerResource,
+      },
+      {
+        source: "/favicon.ico",
+        headers: crawlerResource,
+      },
       {
         source: "/:path*",
         headers: securityHeaders,

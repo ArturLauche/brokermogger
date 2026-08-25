@@ -17,6 +17,10 @@ import { setActiveProfile } from "./actions";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  robots: { index: false, follow: false },
+};
+
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const actor = await requireActorOrRedirect();
   const user = await getSessionUser();

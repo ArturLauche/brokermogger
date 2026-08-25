@@ -170,9 +170,42 @@ export async function getWebhookEventById(id: string) {
   return prisma.emailWebhookEvent.findUnique({ where: { id } });
 }
 
-export async function markWebhookEventProcessed(id: string) {
+export async function listUnprocessedWebhookEvents(take = 50) {
+  return prisma.emailWebhookEvent.findMany({
+    where: { processedAt: null },
+    orderBy: { receivedAt: "asc" },
+    take,
+  });
+}
+
+export async function markWebhookEventProcessed(
+  id: string,
+  patch: { outboundEmailId?: string | null; processingError?: string | null } = {}
+) {
   return prisma.emailWebhookEvent.update({
     where: { id },
-    data: { processedAt: new Date() },
+    data: {
+      processedAt: new Date(),
+      ...(patch.outboundEmailId === undefined
+        ? {}
+        : { outboundEmailId: patch.outboundEmailId }),
+      ...(patch.processingError === undefined
+        ? {}
+        : { processingError: patch.processingError }),
+    },
+  });
+}
+
+export async function findOutboundEmailByProviderMessageId(providerMessageId: string) {
+  if (!providerMessageId) return null;
+  return prisma.outboundEmail.findFirst({
+    where: { providerMessageId },
+    select: {
+      id: true,
+      status: true,
+      purpose: true,
+      removalRequestId: true,
+      userId: true,
+    },
   });
 }

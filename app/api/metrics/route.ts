@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 
 import { env } from "@/lib/config/env";
 import { readOperationalMetrics } from "@/lib/db/repositories/metrics";
+import { hasValidBearerToken } from "@/lib/security/timingSafe";
 
 export const dynamic = "force-dynamic";
 
@@ -10,8 +11,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   if (!token) {
     return Response.json({ error: "Metrics are disabled." }, { status: 404 });
   }
-  const header = request.headers.get("authorization") ?? "";
-  if (header !== `Bearer ${token}`) {
+  if (!hasValidBearerToken(request.headers.get("authorization"), token)) {
     return Response.json({ error: "Unauthorized." }, { status: 401 });
   }
 

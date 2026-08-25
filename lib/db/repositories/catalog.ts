@@ -1,57 +1,88 @@
 /**
  * Read-only catalogue: jurisdictions, published legal rules, templates, brokers.
+ *
+ * Catalogue rows are public instance configuration, not personal data. They are
+ * cached in-process for a short TTL because almost every authenticated page
+ * loads them. Writes from the admin console must call `invalidateCatalogCache`.
  */
-import type { RequestType } from "@prisma/client";
+import type { BrokerCategory, RequestType } from "@prisma/client";
 
+import { createKeyedTtlCache, createTtlCache } from "@/lib/cache/ttl";
 import { prisma } from "@/lib/db/client";
 import type { JurisdictionRecord, LegalRuleSnapshot } from "@/lib/jurisdiction/types";
+import { brokerCategorySchema } from "@/lib/validation/enums";
+
+const CATALOG_TTL_MS = 60_000;
+const jurisdictionsCache = createTtlCache<JurisdictionRecord[]>(CATALOG_TTL_MS);
+const legalRulesCache = createTtlCache<LegalRuleSnapshot[]>(CATALOG_TTL_MS);
+const brokerDirectoryCache = createKeyedTtlCache<
+  Awaited<ReturnType<typeof loadBrokersForDirectory>>
+>(CATALOG_TTL_MS, 32);
+
+const DIRECTORY_TAKE = 500;
+
+export function invalidateCatalogCache(): void {
+  jurisdictionsCache.clear();
+  legalRulesCache.clear();
+  brokerDirectoryCache.clear();
+}
+
+/** Test helper. Never call this from application code. */
+export function resetCatalogCacheForTests(): void {
+  invalidateCatalogCache();
+}
 
 export async function listActiveJurisdictions(): Promise<JurisdictionRecord[]> {
-  const rows = await prisma.jurisdiction.findMany({
-    where: { isActive: true },
-    orderBy: { sortOrder: "asc" },
+  return jurisdictionsCache.getOrLoad(async () => {
+    const rows = await prisma.jurisdiction.findMany({
+      where: { isActive: true },
+      orderBy: { sortOrder: "asc" },
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      code: row.code,
+      name: row.name,
+      countryCode: row.countryCode,
+      region: row.region,
+      isActive: row.isActive,
+    }));
   });
-  return rows.map((row) => ({
-    id: row.id,
-    code: row.code,
-    name: row.name,
-    countryCode: row.countryCode,
-    region: row.region,
-    isActive: row.isActive,
-  }));
 }
 
 export async function listPublishedLegalRules(): Promise<LegalRuleSnapshot[]> {
-  const versions = await prisma.legalRuleVersion.findMany({
-    where: { status: "PUBLISHED" },
-    include: { legalRule: true },
-    orderBy: [{ legalRuleId: "asc" }, { version: "desc" }],
-  });
+  return legalRulesCache.getOrLoad(async () => {
+    const versions = await prisma.legalRuleVersion.findMany({
+      where: { status: "PUBLISHED" },
+      include: { legalRule: true },
+      orderBy: [{ legalRuleId: "asc" }, { version: "desc" }],
+      distinct: ["legalRuleId"],
+    });
 
-  return versions.map((version) => ({
-    legalRuleId: version.legalRuleId,
-    legalRuleVersionId: version.id,
-    legalRuleKey: version.legalRule.key,
-    jurisdictionId: version.legalRule.jurisdictionId,
-    lawName: version.legalRule.lawName,
-    version: version.version,
-    supportedRequestTypes: version.supportedRequestTypes,
-    legalBasisText: version.legalBasisText,
-    deadlineDays: version.deadlineDays,
-    deadlineRule: version.deadlineRule,
-    verificationRequirements: version.verificationRequirements,
-    escalationPath: version.escalationPath,
-    escalationAuthority: version.escalationAuthority,
-    escalationUrl: version.escalationUrl,
-    templateClauses: version.templateClauses,
-    riskNotes: version.riskNotes,
-    requiresLegalReview: version.requiresLegalReview,
-    confidence: version.confidence,
-    sourceUrl: version.sourceUrl,
-    sourceTitle: version.sourceTitle,
-    lastReviewedAt: version.lastReviewedAt,
-    reviewedBy: version.reviewedBy,
-  }));
+    return versions.map((version) => ({
+      legalRuleId: version.legalRuleId,
+      legalRuleVersionId: version.id,
+      legalRuleKey: version.legalRule.key,
+      jurisdictionId: version.legalRule.jurisdictionId,
+      lawName: version.legalRule.lawName,
+      version: version.version,
+      supportedRequestTypes: version.supportedRequestTypes,
+      legalBasisText: version.legalBasisText,
+      deadlineDays: version.deadlineDays,
+      deadlineRule: version.deadlineRule,
+      verificationRequirements: version.verificationRequirements,
+      escalationPath: version.escalationPath,
+      escalationAuthority: version.escalationAuthority,
+      escalationUrl: version.escalationUrl,
+      templateClauses: version.templateClauses,
+      riskNotes: version.riskNotes,
+      requiresLegalReview: version.requiresLegalReview,
+      confidence: version.confidence,
+      sourceUrl: version.sourceUrl,
+      sourceTitle: version.sourceTitle,
+      lastReviewedAt: version.lastReviewedAt,
+      reviewedBy: version.reviewedBy,
+    }));
+  });
 }
 
 export async function findPublishedTemplate(input: {
@@ -98,20 +129,29 @@ export async function findPublishedTemplate(input: {
   return { template, version };
 }
 
-export async function listBrokersForDirectory(filters: {
+function parseBrokerCategory(value: string | undefined): BrokerCategory | undefined {
+  if (!value) return undefined;
+  const parsed = brokerCategorySchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
+async function loadBrokersForDirectory(filters: {
   jurisdictionId?: string;
   category?: string;
   search?: string;
 }) {
+  const category = parseBrokerCategory(filters.category);
+  const search = filters.search?.trim().slice(0, 80);
+
   return prisma.broker.findMany({
     where: {
       deletedAt: null,
-      ...(filters.category ? { category: filters.category as never } : {}),
-      ...(filters.search
+      ...(category ? { category } : {}),
+      ...(search
         ? {
             OR: [
-              { legalName: { contains: filters.search, mode: "insensitive" } },
-              { slug: { contains: filters.search, mode: "insensitive" } },
+              { legalName: { contains: search, mode: "insensitive" } },
+              { slug: { contains: search, mode: "insensitive" } },
             ],
           }
         : {}),
@@ -128,12 +168,37 @@ export async function listBrokersForDirectory(filters: {
       jurisdictionCoverage: { where: { isActive: true } },
     },
     orderBy: { legalName: "asc" },
+    take: DIRECTORY_TAKE,
   });
+}
+
+export async function listBrokersForDirectory(filters: {
+  jurisdictionId?: string;
+  category?: string;
+  search?: string;
+}) {
+  const cacheKey = JSON.stringify({
+    jurisdictionId: filters.jurisdictionId ?? "",
+    category: filters.category ?? "",
+    search: filters.search?.trim().slice(0, 80) ?? "",
+  });
+  return brokerDirectoryCache.getOrLoad(cacheKey, () => loadBrokersForDirectory(filters));
 }
 
 export async function getBrokerWithContacts(brokerId: string) {
   return prisma.broker.findFirst({
     where: { id: brokerId, deletedAt: null },
+    include: {
+      contactMethods: { where: { deletedAt: null } },
+      jurisdictionCoverage: true,
+    },
+  });
+}
+
+export async function getBrokersWithContacts(brokerIds: readonly string[]) {
+  if (brokerIds.length === 0) return [];
+  return prisma.broker.findMany({
+    where: { id: { in: [...brokerIds] }, deletedAt: null },
     include: {
       contactMethods: { where: { deletedAt: null } },
       jurisdictionCoverage: true,

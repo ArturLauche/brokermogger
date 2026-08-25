@@ -7,7 +7,7 @@ import {
   markAccountDeletionRequested,
 } from "@/lib/db/repositories/account";
 import { listProfilesForActor } from "@/lib/db/repositories/profiles";
-import { listOwnedRequests } from "@/lib/db/repositories/requests";
+import { listOwnedRequestExportRows } from "@/lib/db/repositories/requests";
 import { enqueueJob } from "@/lib/jobs/queue";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
@@ -16,7 +16,7 @@ export async function exportAccountData(actor: ActorContext): Promise<Buffer> {
   requirePermission(actor, "account:export", { ownerUserId: actor.userId });
   const account = await getOwnedAccount(actor);
   const profiles = await listProfilesForActor(actor);
-  const requests = await listOwnedRequests(actor, null);
+  const requests = await listOwnedRequestExportRows(actor);
 
   await recordAudit({
     actor,

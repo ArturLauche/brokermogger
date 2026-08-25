@@ -18,6 +18,7 @@ export async function listOwnedEvidence(actor: ActorContext, profileId: string |
     },
     include: { removalRequest: { include: { broker: true } } },
     orderBy: { createdAt: "desc" },
+    take: 100,
   });
 }
 

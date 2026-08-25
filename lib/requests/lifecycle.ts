@@ -17,13 +17,14 @@ import { addDays } from "date-fns";
 import { recordAudit } from "@/lib/audit/service";
 import { evaluateBrokerSendable, preferredContact } from "@/lib/brokers/sendable";
 import { env } from "@/lib/config/env";
-import { SETTINGS } from "@/lib/config/systemSettings";
+import { getEffectiveFairUse, getSetting } from "@/lib/config/runtimeSettings";
 import { assertConsentAllowsRequests } from "@/lib/consent/status";
 import { AppError } from "@/lib/core/errors";
+import { findAccountCreatedAt } from "@/lib/db/repositories/account";
 import { decryptField, sha256Hex } from "@/lib/security/crypto";
 import {
   findPublishedTemplate,
-  getBrokerWithContacts,
+  getBrokersWithContacts,
   listActiveJurisdictions,
   listPublishedLegalRules,
 } from "@/lib/db/repositories/catalog";
@@ -32,16 +33,18 @@ import { createNotification } from "@/lib/db/repositories/notifications";
 import { getOwnedProfile } from "@/lib/db/repositories/profiles";
 import {
   appendRequestEvent,
+  applyRequestStatus,
   countOpenRequests,
-  countRequestsForBroker,
+  countRequestsForBrokers,
   createDraftRequest,
   getOwnedRequest,
-  hasRejectedSimilar,
   insertSnapshot,
-  updateRequestStatus,
+  listRejectedBrokerIds,
+  patchRequest,
 } from "@/lib/db/repositories/requests";
-import { getEmailProvider } from "@/lib/email";
+import { assertAdminSendingEnabled, getEmailProvider } from "@/lib/email";
 import { hasAlreadySent, recordQueuedEmail, recordSendResult } from "@/lib/email/ledger";
+import { consumeBrokerSendThrottles } from "@/lib/email/throttles";
 import { enqueueJob } from "@/lib/jobs/queue";
 import {
   primaryRuleForType,
@@ -53,10 +56,14 @@ import { createLogger } from "@/lib/observability/logger";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
 import { consumePolicy, requestCreatePerUserDay } from "@/lib/rateLimit";
-import { assertTransition } from "@/lib/requests/stateMachine";
+import {
+  BULK_CREATE_WITHOUT_AGE_LIMIT,
+  isAccountTooNewForBulk,
+} from "@/lib/requests/fairUse";
+import { canTransition } from "@/lib/requests/stateMachine";
 import { evaluateManualReview } from "@/lib/requests/manualReview";
 import { renderTemplate } from "@/lib/templates/renderer";
-import { IDENTIFIER_TYPE_LABELS } from "@/lib/requests/labels";
+import { IDENTIFIER_TYPE_LABELS, REQUEST_TYPE_LABELS } from "@/lib/requests/labels";
 
 const log = createLogger("requests.lifecycle");
 
@@ -96,8 +103,12 @@ async function transition(
   message: string
 ): Promise<void> {
   const actorKind = actor.isSystem ? "SYSTEM" : "USER";
-  assertTransition(from, to, actorKind);
-  await updateRequestStatus(requestId, { status: to });
+  await applyRequestStatus({
+    requestId,
+    from,
+    to,
+    actor: actorKind,
+  });
   await appendRequestEvent({
     removalRequestId: requestId,
     type: "STATUS_CHANGE",
@@ -112,22 +123,36 @@ async function transition(
 export async function generateRequests(actor: ActorContext, input: GenerateInput) {
   requirePermission(actor, "request:create", { ownerUserId: actor.userId });
 
-  const quota = await consumePolicy(requestCreatePerUserDay, actor.userId);
-  if (!quota.allowed) {
-    throw new AppError({
-      code: "QUOTA_EXCEEDED",
-      message: `Fair use limit reached: ${quota.limit} new requests per day.`,
-      details: { retryAfterSeconds: quota.retryAfterSeconds },
-    });
-  }
-
   const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const fairUse = await getEffectiveFairUse(actor.userId);
   const monthly = await countOpenRequests(actor.userId, monthAgo);
-  if (monthly >= SETTINGS.fairUseRequestsPerMonth.defaultValue) {
+  if (monthly >= fairUse.requestsPerMonth) {
     throw new AppError({
       code: "QUOTA_EXCEEDED",
       message: "Fair use limit reached: monthly request budget is exhausted.",
     });
+  }
+
+  const quotaLimit = await consumePolicy(requestCreatePerUserDay, actor.userId, {
+    limit: fairUse.requestsPerDay,
+  });
+  if (!quotaLimit.allowed) {
+    throw new AppError({
+      code: "QUOTA_EXCEEDED",
+      message: `Fair use limit reached: ${quotaLimit.limit} new requests per day.`,
+      details: { retryAfterSeconds: quotaLimit.retryAfterSeconds },
+    });
+  }
+
+  if (input.brokerIds.length > BULK_CREATE_WITHOUT_AGE_LIMIT) {
+    const minimumAgeHours = await getSetting("fairUseAccountAgeHoursForBulk");
+    const createdAt = await findAccountCreatedAt(actor.userId);
+    if (isAccountTooNewForBulk({ createdAt, minimumAgeHours })) {
+      throw new AppError({
+        code: "QUOTA_EXCEEDED",
+        message: `New accounts can select at most ${BULK_CREATE_WITHOUT_AGE_LIMIT} brokers at once until the account is ${minimumAgeHours} hours old. This protects the instance. It is not a paid limit.`,
+      });
+    }
   }
 
   const profile = await getOwnedProfile(actor, input.profileId);
@@ -227,9 +252,21 @@ export async function generateRequests(actor: ActorContext, input: GenerateInput
   }
 
   const createdIds: string[] = [];
+  const brokers = await getBrokersWithContacts(input.brokerIds);
+  const brokersById = new Map(brokers.map((broker) => [broker.id, broker]));
+  const volumeByBroker = await countRequestsForBrokers(
+    actor.userId,
+    input.brokerIds,
+    monthAgo
+  );
+  const rejectedBrokerIds = await listRejectedBrokerIds(
+    actor.userId,
+    input.brokerIds,
+    input.requestType
+  );
 
   for (const brokerId of input.brokerIds) {
-    const broker = await getBrokerWithContacts(brokerId);
+    const broker = brokersById.get(brokerId);
     if (!broker) {
       throw new AppError({
         code: "NOT_FOUND",
@@ -283,11 +320,7 @@ export async function generateRequests(actor: ActorContext, input: GenerateInput
       );
 
     const unusualVolume =
-      (await countRequestsForBroker(
-        actor.userId,
-        broker.id,
-        new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-      )) >= SETTINGS.fairUseRequestsPerBrokerPer30Days.defaultValue;
+      (volumeByBroker.get(broker.id) ?? 0) >= fairUse.requestsPerBrokerPer30Days;
 
     const review = evaluateManualReview({
       confidence: rule.confidence,
@@ -299,11 +332,7 @@ export async function generateRequests(actor: ActorContext, input: GenerateInput
         (item) => item.sensitivity === "SENSITIVE"
       ),
       hasVerifiedContactMethod: broker.contactMethods.some((method) => method.isVerified),
-      brokerPreviouslyRejected: await hasRejectedSimilar(
-        actor.userId,
-        broker.id,
-        input.requestType
-      ),
+      brokerPreviouslyRejected: rejectedBrokerIds.has(broker.id),
       hasCustomText: false,
       targetsRestrictedSource: broker.riskTier === "RESTRICTED",
       riskTier: broker.riskTier,
@@ -387,7 +416,7 @@ export async function generateRequests(actor: ActorContext, input: GenerateInput
       createdByUserId: actor.userId,
     });
 
-    await updateRequestStatus(request.id, {
+    await patchRequest(request.id, {
       currentSnapshotId: snapshot.id,
       externalReference: reference,
       metadata: { sendableReasons: sendable.reasons, suspicious: rendered.suspicious },
@@ -505,7 +534,7 @@ export async function approveRequest(
       "AWAITING_USER_APPROVAL",
       "Self-service review completed."
     );
-    await updateRequestStatus(request.id, {
+    await patchRequest(request.id, {
       manualReviewResolvedAt: new Date(),
       manualReviewResolvedBy: actor.userId,
     });
@@ -520,7 +549,7 @@ export async function approveRequest(
     "Approved by the account holder."
   );
 
-  await updateRequestStatus(current.id, {
+  await patchRequest(current.id, {
     approvedAt: new Date(),
     approvedByUserId: actor.userId,
   });
@@ -561,10 +590,15 @@ export async function approveRequest(
     resourceId: current.id,
   });
 
+  const sendAttempt = Math.max(current.followUpCount, 1);
   await enqueueJob({
     type: "SEND_REQUEST",
-    payload: { removalRequestId: current.id, snapshotId: snapshot.id, attempt: 1 },
-    idempotencyKey: `send:${current.id}:${snapshot.id}:1`,
+    payload: {
+      removalRequestId: current.id,
+      snapshotId: snapshot.id,
+      attempt: sendAttempt,
+    },
+    idempotencyKey: `send:${current.id}:${snapshot.id}:${sendAttempt}`,
     relatedUserId: actor.userId,
     relatedRequestId: current.id,
   });
@@ -653,13 +687,22 @@ export async function sendApprovedRequest(
     }
   }
 
-  if (await hasAlreadySent(request.id, "BROKER_REQUEST", attempt)) {
+  const isFollowUp = request.followUpCount > 0;
+  const purpose = isFollowUp ? "BROKER_FOLLOW_UP" : "BROKER_REQUEST";
+
+  if (await hasAlreadySent(request.id, purpose, attempt)) {
     return { message: "Broker email already recorded for this attempt." };
   }
 
+  assertAdminSendingEnabled(purpose, await getSetting("sendingEnabledByAdmin"));
+  await consumeBrokerSendThrottles({
+    brokerId: request.brokerId,
+    destination,
+  });
+
   const provider = getEmailProvider();
   const ledger = await recordQueuedEmail({
-    purpose: "BROKER_REQUEST",
+    purpose,
     provider: provider.kind,
     toAddress: destination,
     subject: snapshot.subject,
@@ -680,7 +723,7 @@ export async function sendApprovedRequest(
     removalRequestId: request.id,
     brokerId: request.brokerId,
     attempt,
-    isFollowUp: false,
+    isFollowUp,
   });
 
   await recordSendResult(ledger.id, result);
@@ -696,7 +739,7 @@ export async function sendApprovedRequest(
       "SENT",
       "Queued with the email provider."
     );
-    await updateRequestStatus(request.id, { sentAt: result.sentAt });
+    await patchRequest(request.id, { sentAt: result.sentAt });
     await transition(
       actor,
       request.id,
@@ -708,6 +751,19 @@ export async function sendApprovedRequest(
           : "Message handed to the provider. Awaiting a broker reply."
         : "Provider suppressed the message."
     );
+  } else if (request.status === "SENT") {
+    const next = sentOk ? "WAITING_FOR_BROKER" : "FAILED";
+    if (canTransition("SENT", next, "SYSTEM")) {
+      await transition(
+        actor,
+        request.id,
+        "SENT",
+        next,
+        sentOk
+          ? "Message already handed to the provider. Awaiting a broker reply."
+          : "Provider suppressed the message."
+      );
+    }
   }
 
   await createNotification({
@@ -731,6 +787,17 @@ export async function sendApprovedRequest(
     resourceType: "removal_request",
     resourceId: request.id,
   });
+
+  if (sentOk && request.deadlineAt) {
+    await enqueueJob({
+      type: "RECHECK_REMINDER",
+      payload: { removalRequestId: request.id },
+      idempotencyKey: `recheck:${request.id}`,
+      runAt: request.deadlineAt,
+      relatedUserId: request.userId,
+      relatedRequestId: request.id,
+    });
+  }
 
   return {
     message: sentOk
@@ -806,6 +873,7 @@ export async function prepareFollowUp(actor: ActorContext, requestId: string) {
   requirePermission(actor, "request:update", { ownerUserId: actor.userId });
   const request = await getOwnedRequest(actor, requestId);
   requirePermission(actor, "request:update", { ownerUserId: request.userId });
+  const followUpNumber = request.followUpCount + 1;
   await transition(
     actor,
     request.id,
@@ -815,8 +883,8 @@ export async function prepareFollowUp(actor: ActorContext, requestId: string) {
   );
   await enqueueJob({
     type: "PREPARE_FOLLOW_UP",
-    payload: { removalRequestId: request.id, followUpNumber: 1 },
-    idempotencyKey: `follow-up:${request.id}:1`,
+    payload: { removalRequestId: request.id, followUpNumber },
+    idempotencyKey: `follow-up:${request.id}:${followUpNumber}`,
     relatedUserId: actor.userId,
     relatedRequestId: request.id,
   });
@@ -827,4 +895,277 @@ export async function prepareFollowUp(actor: ActorContext, requestId: string) {
     resourceId: request.id,
   });
   return { requestId: request.id };
+}
+
+export async function markNoResponse(
+  actor: ActorContext,
+  requestId: string
+): Promise<void> {
+  const request = await getOwnedRequest(actor, requestId);
+  if (request.status === "NO_RESPONSE") {
+    return;
+  }
+  if (!canTransition(request.status, "NO_RESPONSE", "SYSTEM")) {
+    return;
+  }
+  await transition(
+    actor,
+    request.id,
+    request.status,
+    "NO_RESPONSE",
+    "The recorded response date passed without a broker reply."
+  );
+}
+
+export async function applyDeliveryOutcome(
+  actor: ActorContext,
+  requestId: string,
+  outcome: "delivered" | "bounced"
+): Promise<void> {
+  const request = await getOwnedRequest(actor, requestId);
+
+  if (outcome === "delivered") {
+    if (request.status === "SENT" && canTransition("SENT", "DELIVERED", "SYSTEM")) {
+      await transition(
+        actor,
+        request.id,
+        "SENT",
+        "DELIVERED",
+        "The email provider confirmed delivery."
+      );
+      await transition(
+        actor,
+        request.id,
+        "DELIVERED",
+        "WAITING_FOR_BROKER",
+        "Awaiting a broker reply."
+      );
+      return;
+    }
+    if (
+      request.status === "DELIVERED" &&
+      canTransition("DELIVERED", "WAITING_FOR_BROKER", "SYSTEM")
+    ) {
+      await transition(
+        actor,
+        request.id,
+        "DELIVERED",
+        "WAITING_FOR_BROKER",
+        "Awaiting a broker reply."
+      );
+    }
+    return;
+  }
+
+  if (request.status === "SENT" && canTransition("SENT", "FAILED", "SYSTEM")) {
+    await transition(
+      actor,
+      request.id,
+      "SENT",
+      "FAILED",
+      "The email provider reported a bounce."
+    );
+    return;
+  }
+
+  if (
+    request.status === "WAITING_FOR_BROKER" &&
+    canTransition("WAITING_FOR_BROKER", "NEEDS_USER_ACTION", "SYSTEM")
+  ) {
+    await transition(
+      actor,
+      request.id,
+      "WAITING_FOR_BROKER",
+      "NEEDS_USER_ACTION",
+      "Delivery failed after the request was already waiting for a broker reply."
+    );
+  }
+}
+
+export async function prepareFollowUpDraft(
+  actor: ActorContext,
+  requestId: string,
+  followUpNumber: number
+): Promise<{ message: string }> {
+  const request = await getOwnedRequest(actor, requestId);
+  if (
+    request.status === "AWAITING_USER_APPROVAL" &&
+    request.followUpCount >= followUpNumber
+  ) {
+    return { message: "Follow up draft already awaits approval." };
+  }
+
+  const maxFollowUps = await getSetting("followUpMaxAttempts");
+  if (followUpNumber > maxFollowUps) {
+    if (canTransition(request.status, "ESCALATION_RECOMMENDED", "SYSTEM")) {
+      await transition(
+        actor,
+        request.id,
+        request.status,
+        "ESCALATION_RECOMMENDED",
+        "Maximum follow ups prepared. Escalation is never filed automatically."
+      );
+    }
+    return {
+      message: "Follow up limit reached. Escalation was recommended to the user.",
+    };
+  }
+
+  if (request.status !== "FOLLOW_UP_SCHEDULED") {
+    if (!canTransition(request.status, "FOLLOW_UP_SCHEDULED", "SYSTEM")) {
+      return { message: `Nothing to prepare from status ${request.status}.` };
+    }
+    await transition(
+      actor,
+      request.id,
+      request.status,
+      "FOLLOW_UP_SCHEDULED",
+      "Follow up scheduled. Escalation is never filed automatically."
+    );
+  }
+
+  const profile = await getOwnedProfile(actor, request.profileId);
+  const contactEmail = profile.contactEmailEnc
+    ? decryptField(profile.contactEmailEnc, {
+        table: "UserProfile",
+        column: "contactEmailEnc",
+        recordId: profile.id,
+      })
+    : null;
+  const legalName = profile.legalNameEnc
+    ? decryptField(profile.legalNameEnc, {
+        table: "UserProfile",
+        column: "legalNameEnc",
+        recordId: profile.id,
+      })
+    : profile.displayName;
+
+  if (!contactEmail) {
+    throw new AppError({
+      code: "VALIDATION_FAILED",
+      message: "This profile needs a contact email before a follow up can be prepared.",
+    });
+  }
+
+  const selectedIdentifiers = profile.identifiers.filter((identifier) =>
+    request.includedIdentifierIds.includes(identifier.id)
+  );
+  const decryptedIdentifiers = selectedIdentifiers.map((identifier) => ({
+    id: identifier.id,
+    type: identifier.type,
+    value: decryptField(identifier.valueEnc, {
+      table: "ProfileIdentifier",
+      column: "valueEnc",
+      recordId: identifier.id,
+    }),
+  }));
+
+  const template = await findPublishedTemplate({
+    requestType: "FOLLOW_UP",
+    jurisdictionId: request.jurisdictionId,
+  });
+  if (!template) {
+    throw new AppError({
+      code: "TEMPLATE_RENDER_FAILED",
+      message: "No published follow-up template exists.",
+    });
+  }
+
+  const reference = request.externalReference ?? requestReference(request.id);
+  const rendered = renderTemplate(
+    template.version.subjectTemplate,
+    template.version.bodyTemplate,
+    {
+      "profile.fullName": legalName,
+      "profile.email": contactEmail,
+      "profile.region": profile.region ?? "",
+      "profile.country": countryDisplayName(profile.countryCode),
+      "request.type": REQUEST_TYPE_LABELS[request.requestType],
+      "request.legalBasis": request.legalBasisText,
+      "request.deadlineDate": request.deadlineAt
+        ? request.deadlineAt.toISOString().slice(0, 10)
+        : "",
+      "request.reference": reference,
+      "broker.name": request.broker.tradingNames[0] ?? request.broker.legalName,
+      "broker.legalName": request.broker.legalName,
+      "identifiers.list": formatIdentifierList(
+        decryptedIdentifiers.map((item) => ({ type: item.type, value: item.value }))
+      ),
+      "consent.statement":
+        profile.kind === "SELF"
+          ? ""
+          : `This follow up is submitted on behalf of the named individual with their documented consent (reference ${reference}).`,
+      "reply.address": contactEmail,
+      today: new Date().toISOString().slice(0, 10),
+    }
+  );
+
+  const nextVersion = (request.snapshots[0]?.version ?? 0) + 1;
+  const snapshot = await insertSnapshot({
+    removalRequestId: request.id,
+    version: nextVersion,
+    subject: rendered.subject,
+    body: rendered.body,
+    templateVersionId: template.version.id,
+    legalRuleVersionId: request.legalRuleVersionId,
+    variables: {
+      "request.reference": reference,
+      "broker.name": request.broker.tradingNames[0] ?? request.broker.legalName,
+      followUpNumber: String(followUpNumber),
+    },
+    identifierDigest: sha256Hex(
+      decryptedIdentifiers
+        .map((item) => item.id)
+        .sort()
+        .join("|")
+    ),
+    createdByUserId: actor.isSystem ? null : actor.userId,
+  });
+
+  await patchRequest(request.id, {
+    currentSnapshotId: snapshot.id,
+    followUpCount: followUpNumber,
+    nextFollowUpAt: null,
+  });
+
+  await transition(
+    actor,
+    request.id,
+    "FOLLOW_UP_SCHEDULED",
+    "AWAITING_USER_APPROVAL",
+    "Follow up draft ready for the account holder to approve. Nothing will be sent automatically."
+  );
+
+  const notification = await createNotification({
+    user: { connect: { id: request.userId } },
+    profile: { connect: { id: request.profileId } },
+    removalRequest: { connect: { id: request.id } },
+    type: "APPROVAL_NEEDED",
+    channel: "EMAIL",
+    severity: "ACTION_REQUIRED",
+    title: "Follow up ready to review",
+    body: "A follow up draft is waiting for your approval. Nothing will be sent until you review the exact text.",
+    actionUrl: `/requests/${request.id}/review`,
+    dedupeKey: `follow-up-approval:${request.id}:${followUpNumber}`,
+  });
+  await enqueueJob({
+    type: "DISPATCH_NOTIFICATION",
+    payload: { notificationId: notification.id },
+    idempotencyKey: `notify:${notification.id}`,
+    relatedUserId: request.userId,
+    relatedRequestId: request.id,
+  });
+
+  await recordAudit({
+    actor,
+    action: "request.follow_up_prepared",
+    resourceType: "removal_request",
+    resourceId: request.id,
+    metadata: { followUpNumber },
+  });
+
+  return {
+    message:
+      "Follow up drafts are prepared for user approval. Escalation is never filed automatically.",
+  };
 }

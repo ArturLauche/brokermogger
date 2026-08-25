@@ -7,7 +7,10 @@ import { CONSENT_STATEMENT, resolveConsentInvitation } from "@/lib/household/ser
 
 import { decideConsentAction } from "./actions";
 
-export const metadata = { title: "Household consent" };
+export const metadata = {
+  title: "Household consent",
+  robots: { index: false, follow: false },
+};
 export const dynamic = "force-dynamic";
 
 export default async function HouseholdConsentPage({

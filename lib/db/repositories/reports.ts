@@ -18,6 +18,7 @@ export async function listOwnedReports(actor: ActorContext, profileId: string | 
     },
     include: { evidenceFile: true },
     orderBy: { createdAt: "desc" },
+    take: 100,
   });
 }
 

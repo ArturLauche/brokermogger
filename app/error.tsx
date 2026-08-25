@@ -23,6 +23,7 @@ export default function GlobalRouteError({
 }) {
   return (
     <>
+      <meta name="robots" content="noindex, nofollow" />
       <PublicHeader links={[]} />
       <main
         id="main-content"

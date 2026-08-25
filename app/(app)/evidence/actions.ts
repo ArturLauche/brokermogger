@@ -4,7 +4,9 @@ import { redirect } from "next/navigation";
 
 import { requireActor } from "@/lib/auth";
 import { deleteEvidence, uploadEvidence } from "@/lib/evidence/service";
-import type { EvidenceKind } from "@prisma/client";
+import { evidenceKindSchema } from "@/lib/validation/enums";
+import { formString, parseWithSchema } from "@/lib/validation/form";
+import { entityIdSchema, optionalEntityIdSchema } from "@/lib/validation/ids";
 
 export async function uploadEvidenceAction(formData: FormData): Promise<void> {
   const actor = await requireActor();
@@ -13,9 +15,15 @@ export async function uploadEvidenceAction(formData: FormData): Promise<void> {
     redirect("/evidence?error=validation");
   }
   const buffer = Buffer.from(await file.arrayBuffer());
-  const requestId = String(formData.get("requestId") ?? "") || null;
-  const kind = String(formData.get("kind") ?? "SCREENSHOT") as EvidenceKind;
   try {
+    const requestId = parseWithSchema(
+      optionalEntityIdSchema,
+      formString(formData, "requestId")
+    );
+    const kind = parseWithSchema(
+      evidenceKindSchema,
+      formString(formData, "kind") || "SCREENSHOT"
+    );
     await uploadEvidence(actor, {
       kind,
       requestId,
@@ -31,6 +39,13 @@ export async function uploadEvidenceAction(formData: FormData): Promise<void> {
 
 export async function deleteEvidenceAction(formData: FormData): Promise<void> {
   const actor = await requireActor();
-  await deleteEvidence(actor, String(formData.get("evidenceId") ?? ""));
+  try {
+    await deleteEvidence(
+      actor,
+      parseWithSchema(entityIdSchema, formString(formData, "evidenceId"))
+    );
+  } catch {
+    redirect("/evidence?error=delete");
+  }
   redirect("/evidence");
 }

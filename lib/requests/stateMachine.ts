@@ -3,7 +3,8 @@
  *
  * Every status change in the product goes through `assertTransition` and
  * produces a RemovalRequestEvent. Arbitrary status writes are not possible:
- * repositories reject any update that did not pass this module.
+ * `applyRequestStatus` in the request repository is the only writer and it
+ * requires a current-status match plus a rule from this module.
  */
 import { type RequestStatus } from "@prisma/client";
 

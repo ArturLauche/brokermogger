@@ -14,6 +14,7 @@ import { anonymousAuditActor, recordSecurityEvent } from "@/lib/audit/service";
 import { readRequestContext } from "@/lib/auth/requestContext";
 import { env } from "@/lib/config/env";
 import { recordWebhookEvent } from "@/lib/db/repositories/outboundEmail";
+import { enqueueJob } from "@/lib/jobs/queue";
 import { createLogger } from "@/lib/observability/logger";
 
 const log = createLogger("webhook.resend");
@@ -84,6 +85,14 @@ export async function POST(request: Request): Promise<Response> {
     { eventType: parsed.data.type, duplicate: stored.duplicate },
     "Stored an email webhook event for the worker"
   );
+
+  if (!stored.duplicate) {
+    await enqueueJob({
+      type: "PROCESS_EMAIL_WEBHOOK",
+      payload: { webhookEventId: stored.id },
+      idempotencyKey: `webhook:${stored.id}`,
+    });
+  }
 
   // 202: accepted for later processing, deliberately not processed here.
   return jsonResponse({ received: true, duplicate: stored.duplicate }, 202);
