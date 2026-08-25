@@ -11,7 +11,7 @@ describe("buildSecurityTxt", () => {
       policyUrl: "https://github.com/ArturLauche/brokermogger/blob/main/SECURITY.md",
     });
     expect(body).toContain("Contact: mailto:security@example.invalid");
-    expect(body).toContain("Expires: 2027-08-25T00:00:00.000Z");
+    expect(body).toContain("Expires: Wed, 25 Aug 2027 00:00:00 GMT");
     expect(body).toContain("Canonical: https://example.invalid/.well-known/security.txt");
     expect(body).toContain("Preferred-Languages: en");
     expect(body).toContain(

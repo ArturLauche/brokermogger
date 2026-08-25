@@ -1031,6 +1031,21 @@ export async function applyDeliveryOutcome(
         "WAITING_FOR_BROKER",
         "Awaiting a broker reply."
       );
+      return;
+    }
+    if (request.status === "WAITING_FOR_BROKER" || request.status === "FOLLOW_UP_SENT") {
+      if (!request.deliveredAt) {
+        await patchRequest(request.id, { deliveredAt: new Date() });
+      }
+      await appendRequestEvent({
+        removalRequestId: request.id,
+        type: "EMAIL_DELIVERED",
+        fromStatus: request.status,
+        toStatus: request.status,
+        actorType: "SYSTEM",
+        actorUserId: actor.userId,
+        message: "The email provider confirmed delivery.",
+      });
     }
     return;
   }
@@ -1083,9 +1098,12 @@ export async function prepareFollowUpDraft(
         "ESCALATION_RECOMMENDED",
         "Maximum follow ups prepared. Escalation is never filed automatically."
       );
+      return {
+        message: "Follow up limit reached. Escalation was recommended to the user.",
+      };
     }
     return {
-      message: "Follow up limit reached. Escalation was recommended to the user.",
+      message: `Follow up limit reached. Escalation cannot be recommended from status ${request.status}.`,
     };
   }
 

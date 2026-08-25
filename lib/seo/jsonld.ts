@@ -46,11 +46,6 @@ export function buildLandingJsonLd(input: {
       isAccessibleForFree: true,
       url: pageUrl,
       description: SITE_DESCRIPTION,
-      offers: {
-        "@type": "Offer",
-        price: "0",
-        priceCurrency: "USD",
-      },
       codeRepository: repositoryUrl,
       featureList: [
         SITE_TAGLINE,

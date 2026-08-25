@@ -1,8 +1,9 @@
 /**
- * Pure helpers for provider webhook event types.
+ * Date windows for jobs, plus Resend webhook event classification.
  *
- * The HTTP route only stores the payload. Classification lives here so the
- * worker can apply it without re-implementing Resend's vocabulary inline.
+ * Classification lives here so the worker can apply provider vocabulary
+ * without keeping it in the HTTP route. Retention and deadline jobs reuse the
+ * same calendar helpers.
  */
 export type EmailDeliveryOutcome = "delivered" | "bounced" | "complained" | "ignored";
 

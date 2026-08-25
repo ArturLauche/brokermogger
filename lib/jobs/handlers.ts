@@ -33,6 +33,15 @@ import { systemActor } from "@/lib/permissions/actor";
 import { prepareFollowUpDraft, sendApprovedRequest } from "@/lib/requests/lifecycle";
 import { getStorage } from "@/lib/storage";
 
+function recurringRepeat(
+  job: { idempotencyKey: string },
+  seconds: number
+): { repeatAfterSeconds: number } | Record<string, never> {
+  return job.idempotencyKey.startsWith("recurring:")
+    ? { repeatAfterSeconds: seconds }
+    : {};
+}
+
 export function createJobHandlers(): JobHandlerRegistry {
   return {
     async SEND_REQUEST(job): Promise<JobResult> {
@@ -108,7 +117,7 @@ export function createJobHandlers(): JobHandlerRegistry {
       return { message: "Account identifiers anonymised and pending jobs cancelled." };
     },
 
-    async PURGE_EVIDENCE(): Promise<JobResult> {
+    async PURGE_EVIDENCE(job): Promise<JobResult> {
       const months = await getSetting("retentionEvidenceMonths");
       const cutoff = monthsAgo(new Date(), months);
       const files = await listRetentionDueEvidence(cutoff, 100);
@@ -119,11 +128,11 @@ export function createJobHandlers(): JobHandlerRegistry {
       });
       return {
         message: `Purged ${files.length} evidence files.`,
-        repeatAfterSeconds: RECURRING_INTERVAL_SECONDS.PURGE_EVIDENCE,
+        ...recurringRepeat(job, RECURRING_INTERVAL_SECONDS.PURGE_EVIDENCE),
       };
     },
 
-    async PURGE_TEMP_ID_FILES(): Promise<JobResult> {
+    async PURGE_TEMP_ID_FILES(job): Promise<JobResult> {
       const files = await listExpiredTemporaryEvidence(100);
       const storage = getStorage();
       await mapPool(files, 5, async (file) => {
@@ -132,12 +141,16 @@ export function createJobHandlers(): JobHandlerRegistry {
       });
       return {
         message: `Purged ${files.length} temporary identity files.`,
-        repeatAfterSeconds: RECURRING_INTERVAL_SECONDS.PURGE_TEMP_ID_FILES,
+        ...recurringRepeat(job, RECURRING_INTERVAL_SECONDS.PURGE_TEMP_ID_FILES),
       };
     },
 
     async DEADLINE_WATCH(job): Promise<JobResult> {
-      return runDeadlineWatch(job.payload.windowDays);
+      const result = await runDeadlineWatch(job.payload.windowDays);
+      return {
+        ...result,
+        ...recurringRepeat(job, RECURRING_INTERVAL_SECONDS.DEADLINE_WATCH),
+      };
     },
 
     async RECHECK_REMINDER(job): Promise<JobResult> {
@@ -151,7 +164,7 @@ export function createJobHandlers(): JobHandlerRegistry {
       }
       return {
         ...result,
-        repeatAfterSeconds: RECURRING_INTERVAL_SECONDS.RETENTION_SWEEP,
+        ...recurringRepeat(job, RECURRING_INTERVAL_SECONDS.RETENTION_SWEEP),
       };
     },
   };

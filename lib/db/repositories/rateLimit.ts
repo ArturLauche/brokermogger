@@ -69,3 +69,9 @@ export async function deleteExpiredBuckets(now = new Date()): Promise<number> {
   });
   return result.count;
 }
+
+export async function countExpiredBuckets(now = new Date()): Promise<number> {
+  return prisma.rateLimitBucket.count({
+    where: { expiresAt: { lt: now } },
+  });
+}

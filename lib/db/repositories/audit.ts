@@ -179,6 +179,13 @@ export async function listAuditChainWindow(limit?: number): Promise<AuditChainWi
   return { rows, previousHash: predecessor?.hash ?? null };
 }
 
+export async function findAuditLogByHash(hash: string): Promise<{ id: string } | null> {
+  return prisma.auditLog.findFirst({
+    where: { hash },
+    select: { id: true },
+  });
+}
+
 export async function countAuditLogs(): Promise<number> {
   return prisma.auditLog.count();
 }

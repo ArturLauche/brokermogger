@@ -22,56 +22,68 @@ import { systemActor } from "@/lib/permissions/actor";
 import { markNoResponse } from "@/lib/requests/lifecycle";
 
 import { daysFromNow } from "./datetime";
-import { RECURRING_INTERVAL_SECONDS } from "./recurring";
 import type { JobResult } from "./types";
 
 const log = createLogger("jobs.deadlines");
+const BATCH = 50;
+const MAX_BATCHES = 20;
 
 export async function runDeadlineWatch(windowDays: number): Promise<JobResult> {
   const now = new Date();
   const warningDays = await getSetting("followUpDeadlineWarningDays");
   const firstReminderDays = await getSetting("followUpFirstReminderDays");
-  const maxFollowUps = await getSetting("followUpMaxAttempts");
   const actor = systemActor("deadline-watch");
   const warningBefore = daysFromNow(now, Math.min(windowDays, warningDays));
 
-  const warnings = await listDeadlineWarningRequests({ now, warningBefore, take: 50 });
   let warned = 0;
-  for (const request of warnings) {
-    const notification = await createNotification({
-      user: { connect: { id: request.userId } },
-      profile: { connect: { id: request.profileId } },
-      removalRequest: { connect: { id: request.id } },
-      type: "DEADLINE_APPROACHING",
-      channel: "EMAIL",
-      severity: "WARNING",
-      title: "Response date approaching",
-      body: "A broker request is approaching the response date recorded for it. This is a reminder, not a guarantee that the broker will answer.",
-      actionUrl: `/requests/${request.id}`,
-      dedupeKey: `deadline-warning:${request.id}`,
+  for (let i = 0; i < MAX_BATCHES; i += 1) {
+    const warnings = await listDeadlineWarningRequests({
+      now,
+      warningBefore,
+      take: BATCH,
     });
-    if (notification.emailedAt === null && notification.channel === "EMAIL") {
-      await enqueueJob({
-        type: "DISPATCH_NOTIFICATION",
-        payload: { notificationId: notification.id },
-        idempotencyKey: `notify:${notification.id}`,
-        relatedUserId: request.userId,
-        relatedRequestId: request.id,
+    if (warnings.length === 0) break;
+    for (const request of warnings) {
+      const notification = await createNotification({
+        user: { connect: { id: request.userId } },
+        profile: { connect: { id: request.profileId } },
+        removalRequest: { connect: { id: request.id } },
+        type: "DEADLINE_APPROACHING",
+        channel: "EMAIL",
+        severity: "WARNING",
+        title: "Response date approaching",
+        body: "A broker request is approaching the response date recorded for it. This is a reminder, not a guarantee that the broker will answer.",
+        actionUrl: `/requests/${request.id}`,
+        dedupeKey: `deadline-warning:${request.id}`,
       });
+      if (notification.emailedAt === null && notification.channel === "EMAIL") {
+        await enqueueJob({
+          type: "DISPATCH_NOTIFICATION",
+          payload: { notificationId: notification.id },
+          idempotencyKey: `notify:${notification.id}`,
+          relatedUserId: request.userId,
+          relatedRequestId: request.id,
+        });
+      }
+      warned += 1;
     }
-    warned += 1;
+    if (warnings.length < BATCH) break;
   }
 
-  const overdue = await listOverdueWaitingRequests(now, 50);
+  const seenOverdue = new Set<string>();
   let marked = 0;
   let followUpsQueued = 0;
-  for (const request of overdue) {
-    try {
-      await markNoResponse(actor, request.id);
-      marked += 1;
+  for (let i = 0; i < MAX_BATCHES; i += 1) {
+    const overdue = await listOverdueWaitingRequests(now, BATCH);
+    const fresh = overdue.filter((request) => !seenOverdue.has(request.id));
+    if (fresh.length === 0) break;
+    for (const request of fresh) {
+      seenOverdue.add(request.id);
+      try {
+        await markNoResponse(actor, request.id);
+        marked += 1;
 
-      const followUpNumber = request.followUpCount + 1;
-      if (followUpNumber <= maxFollowUps) {
+        const followUpNumber = request.followUpCount + 1;
         const created = await enqueueJob({
           type: "PREPARE_FOLLOW_UP",
           payload: { removalRequestId: request.id, followUpNumber },
@@ -81,24 +93,24 @@ export async function runDeadlineWatch(windowDays: number): Promise<JobResult> {
           relatedRequestId: request.id,
         });
         if (created.created) followUpsQueued += 1;
-      }
 
-      await enqueueJob({
-        type: "RECHECK_REMINDER",
-        payload: { removalRequestId: request.id },
-        idempotencyKey: `recheck:${request.id}`,
-        runAt: daysFromNow(now, firstReminderDays),
-        relatedUserId: request.userId,
-        relatedRequestId: request.id,
-      });
-    } catch (error) {
-      log.warn(
-        {
-          requestId: request.id,
-          code: isAppError(error) ? error.code : "INTERNAL_ERROR",
-        },
-        "Deadline watch skipped a request"
-      );
+        await enqueueJob({
+          type: "RECHECK_REMINDER",
+          payload: { removalRequestId: request.id },
+          idempotencyKey: `recheck:${request.id}`,
+          runAt: daysFromNow(now, firstReminderDays),
+          relatedUserId: request.userId,
+          relatedRequestId: request.id,
+        });
+      } catch (error) {
+        log.warn(
+          {
+            requestId: request.id,
+            code: isAppError(error) ? error.code : "INTERNAL_ERROR",
+          },
+          "Deadline watch skipped a request"
+        );
+      }
     }
   }
 
@@ -106,7 +118,6 @@ export async function runDeadlineWatch(windowDays: number): Promise<JobResult> {
   return {
     message: "Deadline watch pass complete.",
     metadata: { warned, marked, followUpsQueued },
-    repeatAfterSeconds: RECURRING_INTERVAL_SECONDS.DEADLINE_WATCH,
   };
 }
 

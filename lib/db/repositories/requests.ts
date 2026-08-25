@@ -362,16 +362,44 @@ export async function listRequestsForUser(
   profileId: string | null,
   range?: { from: Date; to: Date }
 ) {
+  const rows: Awaited<ReturnType<typeof loadRequestReportPage>> = [];
+  let cursor: string | undefined;
+
+  for (let page = 0; page < EXPORT_MAX_PAGES; page += 1) {
+    const batch = await loadRequestReportPage({
+      userId,
+      profileId,
+      ...(range ? { range } : {}),
+      ...(cursor ? { cursor } : {}),
+    });
+    rows.push(...batch);
+    if (batch.length < EXPORT_PAGE_SIZE) break;
+    cursor = batch[batch.length - 1]?.id;
+    if (!cursor) break;
+  }
+
+  return rows;
+}
+
+async function loadRequestReportPage(input: {
+  userId: string;
+  profileId: string | null;
+  range?: { from: Date; to: Date };
+  cursor?: string;
+}) {
   return prisma.removalRequest.findMany({
     where: {
-      userId,
+      userId: input.userId,
       deletedAt: null,
-      ...(profileId ? { profileId } : {}),
-      ...(range ? { createdAt: { gte: range.from, lte: range.to } } : {}),
+      ...(input.profileId ? { profileId: input.profileId } : {}),
+      ...(input.range
+        ? { createdAt: { gte: input.range.from, lte: input.range.to } }
+        : {}),
     },
     include: { broker: true, profile: true, jurisdiction: true },
-    orderBy: { createdAt: "asc" },
-    take: MAX_LIST_LIMIT,
+    orderBy: { id: "asc" },
+    take: EXPORT_PAGE_SIZE,
+    ...(input.cursor ? { skip: 1, cursor: { id: input.cursor } } : {}),
   });
 }
 
@@ -446,6 +474,7 @@ export async function listOverdueWaitingRequests(now: Date, take = 50) {
       deadlineAt: true,
       followUpCount: true,
     },
+    orderBy: { deadlineAt: "asc" },
     take,
   });
 }
@@ -460,6 +489,7 @@ export async function listDeadlineWarningRequests(input: {
       deletedAt: null,
       status: { in: WAITING_FOR_DEADLINE },
       deadlineAt: { gt: input.now, lte: input.warningBefore },
+      notifications: { none: { type: "DEADLINE_APPROACHING" } },
     },
     select: {
       id: true,
@@ -467,6 +497,7 @@ export async function listDeadlineWarningRequests(input: {
       profileId: true,
       deadlineAt: true,
     },
+    orderBy: { deadlineAt: "asc" },
     take: input.take ?? 50,
   });
 }
@@ -483,6 +514,17 @@ export async function listClosedRequestsDueForRetention(cutoff: Date, take = 50)
   });
 }
 
+export async function countClosedRequestsDueForRetention(cutoff: Date): Promise<number> {
+  return prisma.removalRequest.count({
+    where: {
+      status: "CLOSED",
+      deletedAt: null,
+      OR: [{ closedAt: { lte: cutoff } }, { closedAt: null, updatedAt: { lte: cutoff } }],
+    },
+  });
+}
+
+/** Soft-hides the parent row. Callers must purge snapshots/events first. */
 export async function softDeleteClosedRequests(ids: readonly string[]): Promise<number> {
   if (ids.length === 0) return 0;
   const result = await prisma.removalRequest.updateMany({

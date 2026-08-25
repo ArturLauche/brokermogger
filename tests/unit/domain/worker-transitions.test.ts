@@ -9,6 +9,9 @@ describe("state machine coverage for worker outcomes", () => {
     expect(canTransition("FOLLOW_UP_SCHEDULED", "AWAITING_USER_APPROVAL", "SYSTEM")).toBe(
       true
     );
+    expect(canTransition("FOLLOW_UP_SCHEDULED", "ESCALATION_RECOMMENDED", "SYSTEM")).toBe(
+      true
+    );
     expect(canTransition("SENT", "NO_RESPONSE", "SYSTEM")).toBe(false);
   });
 });

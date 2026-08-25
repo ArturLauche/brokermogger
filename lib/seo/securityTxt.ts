@@ -10,7 +10,7 @@ export function buildSecurityTxt(input: {
 }): string {
   const lines = [
     `Contact: mailto:${input.contactEmail}`,
-    `Expires: ${input.expiresAt.toISOString()}`,
+    `Expires: ${input.expiresAt.toUTCString()}`,
     `Canonical: ${input.canonicalUrl}`,
     `Preferred-Languages: ${input.preferredLanguages ?? "en"}`,
   ];

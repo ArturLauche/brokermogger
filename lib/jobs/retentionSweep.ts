@@ -8,15 +8,24 @@
 import { recordAudit } from "@/lib/audit/service";
 import { getSetting } from "@/lib/config/runtimeSettings";
 import {
+  countExpiredTemporaryEvidence,
+  countRetentionDueEvidence,
   listExpiredTemporaryEvidence,
   listRetentionDueEvidence,
   markEvidencePurged,
 } from "@/lib/db/repositories/evidence";
 import {
+  countClosedRequestsDueForRetention,
   listClosedRequestsDueForRetention,
   softDeleteClosedRequests,
 } from "@/lib/db/repositories/requests";
 import {
+  countAuditLogsOlderThan,
+  countConsentRecordsOlderThan,
+  countJobLogsOlderThan,
+  countNotificationsOlderThan,
+  countOutboundEmailsOlderThan,
+  countProcessedWebhookEventsOlderThan,
   deleteAuditLogsOlderThan,
   deleteConsentRecordsOlderThan,
   deleteJobLogsOlderThan,
@@ -27,7 +36,7 @@ import {
 } from "@/lib/db/repositories/retention";
 import { createLogger } from "@/lib/observability/logger";
 import { systemActor } from "@/lib/permissions/actor";
-import { purgeExpiredBuckets } from "@/lib/rateLimit";
+import { countExpiredRateLimitBuckets, purgeExpiredBuckets } from "@/lib/rateLimit";
 import { getStorage } from "@/lib/storage";
 import { mapPool } from "@/lib/async/pool";
 
@@ -82,11 +91,41 @@ export async function runRetentionSweep(input: { dryRun: boolean }): Promise<Job
   };
 
   if (input.dryRun) {
-    counts.evidence = (await listRetentionDueEvidence(evidenceCutoff, BATCH)).length;
-    counts.temporaryIdentity = (await listExpiredTemporaryEvidence(BATCH)).length;
-    counts.closedRequests = (
-      await listClosedRequestsDueForRetention(closedCutoff, BATCH)
-    ).length;
+    const [
+      evidence,
+      temporaryIdentity,
+      closedRequests,
+      jobLogs,
+      notifications,
+      outboundEmail,
+      webhookEvents,
+      auditLogs,
+      consentRecords,
+      rateLimitBuckets,
+    ] = await Promise.all([
+      countRetentionDueEvidence(evidenceCutoff),
+      countExpiredTemporaryEvidence(),
+      countClosedRequestsDueForRetention(closedCutoff),
+      countJobLogsOlderThan(jobLogCutoff),
+      countNotificationsOlderThan(notificationCutoff),
+      countOutboundEmailsOlderThan(emailCutoff),
+      countProcessedWebhookEventsOlderThan(emailCutoff),
+      countAuditLogsOlderThan(auditCutoff),
+      countConsentRecordsOlderThan(consentCutoff),
+      countExpiredRateLimitBuckets(now),
+    ]);
+    Object.assign(counts, {
+      evidence,
+      temporaryIdentity,
+      closedRequests,
+      jobLogs,
+      notifications,
+      outboundEmail,
+      webhookEvents,
+      auditLogs,
+      consentRecords,
+      rateLimitBuckets,
+    });
     log.info({ dryRun: true, ...counts }, "Retention dry run");
     return {
       message: "Retention dry run.",

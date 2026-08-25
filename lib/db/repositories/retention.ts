@@ -19,6 +19,10 @@ export async function deleteJobLogsOlderThan(
   return result.count;
 }
 
+export async function countJobLogsOlderThan(cutoff: Date): Promise<number> {
+  return prisma.backgroundJobLog.count({ where: { createdAt: { lt: cutoff } } });
+}
+
 export async function deleteNotificationsOlderThan(
   cutoff: Date,
   take: number
@@ -33,6 +37,10 @@ export async function deleteNotificationsOlderThan(
     where: { id: { in: rows.map((row) => row.id) } },
   });
   return result.count;
+}
+
+export async function countNotificationsOlderThan(cutoff: Date): Promise<number> {
+  return prisma.notification.count({ where: { createdAt: { lt: cutoff } } });
 }
 
 export async function deleteOutboundEmailsOlderThan(
@@ -51,6 +59,10 @@ export async function deleteOutboundEmailsOlderThan(
   return result.count;
 }
 
+export async function countOutboundEmailsOlderThan(cutoff: Date): Promise<number> {
+  return prisma.outboundEmail.count({ where: { createdAt: { lt: cutoff } } });
+}
+
 export async function deleteProcessedWebhookEventsOlderThan(
   cutoff: Date,
   take: number
@@ -65,6 +77,14 @@ export async function deleteProcessedWebhookEventsOlderThan(
     where: { id: { in: rows.map((row) => row.id) } },
   });
   return result.count;
+}
+
+export async function countProcessedWebhookEventsOlderThan(
+  cutoff: Date
+): Promise<number> {
+  return prisma.emailWebhookEvent.count({
+    where: { processedAt: { not: null, lt: cutoff } },
+  });
 }
 
 export async function deleteAuditLogsOlderThan(
@@ -86,6 +106,10 @@ export async function deleteAuditLogsOlderThan(
   });
 }
 
+export async function countAuditLogsOlderThan(cutoff: Date): Promise<number> {
+  return prisma.auditLog.count({ where: { createdAt: { lt: cutoff } } });
+}
+
 export async function deleteConsentRecordsOlderThan(
   cutoff: Date,
   take: number
@@ -102,6 +126,10 @@ export async function deleteConsentRecordsOlderThan(
     });
     return result.count;
   });
+}
+
+export async function countConsentRecordsOlderThan(cutoff: Date): Promise<number> {
+  return prisma.consentRecord.count({ where: { createdAt: { lt: cutoff } } });
 }
 
 /**

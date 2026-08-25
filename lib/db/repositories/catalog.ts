@@ -56,10 +56,15 @@ export async function listPublishedLegalRules(): Promise<LegalRuleSnapshot[]> {
       where: { status: "PUBLISHED" },
       include: { legalRule: true },
       orderBy: [{ legalRuleId: "asc" }, { version: "desc" }],
-      distinct: ["legalRuleId"],
+    });
+    const seen = new Set<string>();
+    const latest = versions.filter((version) => {
+      if (seen.has(version.legalRuleId)) return false;
+      seen.add(version.legalRuleId);
+      return true;
     });
 
-    return versions.map((version) => ({
+    return latest.map((version) => ({
       legalRuleId: version.legalRuleId,
       legalRuleVersionId: version.id,
       legalRuleKey: version.legalRule.key,

@@ -33,6 +33,8 @@ describe("landing JSON-LD", () => {
     expect(types).toEqual(["WebSite", "Organization", "SoftwareApplication", "FAQPage"]);
     const software = graph.find((node) => node["@type"] === "SoftwareApplication");
     expect(software?.isAccessibleForFree).toBe(true);
+    expect(software).not.toHaveProperty("offers");
+    expect(JSON.stringify(software)).not.toMatch(/price/i);
     expect(software?.license).toBe("AGPL-3.0-or-later");
     const organization = graph.find((node) => node["@type"] === "Organization");
     expect(organization?.sameAs).toEqual(["https://github.com/ArturLauche/brokermogger"]);

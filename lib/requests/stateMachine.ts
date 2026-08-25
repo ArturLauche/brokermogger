@@ -207,6 +207,11 @@ export const TRANSITIONS: Readonly<Record<RequestStatus, readonly TransitionRule
       actors: ["SYSTEM", "USER"],
       description: "Follow up cancelled",
     },
+    {
+      to: "ESCALATION_RECOMMENDED",
+      actors: ["SYSTEM"],
+      description: "Follow-up cap reached before approval",
+    },
     { to: "CLOSED", actors: ["USER"], description: "Closed by user" },
   ],
   FOLLOW_UP_SENT: [

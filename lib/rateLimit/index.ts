@@ -13,6 +13,7 @@
 import { env } from "@/lib/config/env";
 import { RateLimitError } from "@/lib/core/errors";
 import {
+  countExpiredBuckets,
   deleteExpiredBuckets,
   incrementBucket,
   readBucketCount,
@@ -209,6 +210,10 @@ export async function purgeExpiredBuckets(now = new Date()): Promise<number> {
   const removed = await deleteExpiredBuckets(now);
   log.debug({ removed }, "Purged expired rate limit buckets");
   return removed;
+}
+
+export async function countExpiredRateLimitBuckets(now = new Date()): Promise<number> {
+  return countExpiredBuckets(now);
 }
 
 export {
