@@ -23,3 +23,9 @@ export const DEFAULT_DOCUMENTATION_URL =
 export const LICENSE_NAME = "AGPL-3.0-or-later";
 
 export const DEFAULT_SECURITY_CONTACT = "security@example.invalid";
+
+export const DEFAULT_SECURITY_ADVISORIES_URL = `${DEFAULT_REPOSITORY_URL}/security/advisories`;
+
+export function isPlaceholderSecurityContact(email: string): boolean {
+  return email.endsWith(".invalid");
+}

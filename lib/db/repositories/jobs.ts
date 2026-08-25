@@ -9,6 +9,7 @@ import type { JobStatus, JobType, Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db/client";
 import { env } from "@/lib/config/env";
+import { jobStatusAfterStaleLock } from "@/lib/jobs/lockExpiry";
 import { parseJobPayload } from "@/lib/jobs/payloads";
 import type { ClaimedJob, EnqueueOptions, JobResult } from "@/lib/jobs/types";
 
@@ -254,19 +255,52 @@ export async function markJobCancelled(jobId: string, reason: string): Promise<v
 }
 
 export async function expireStaleLocks(): Promise<number> {
-  const result = await prisma.backgroundJob.updateMany({
+  const expired = await prisma.backgroundJob.findMany({
     where: {
       status: "RUNNING",
-      lockExpiresAt: { lt: new Date() },
+      lockExpiresAt: { not: null, lt: new Date() },
     },
-    data: {
-      status: "RETRYABLE",
-      lockedAt: null,
-      lockedBy: null,
-      lockExpiresAt: null,
-    },
+    select: { id: true, attemptCount: true, maxAttempts: true },
   });
-  return result.count;
+  if (expired.length === 0) return 0;
+
+  const failedIds: string[] = [];
+  const retryIds: string[] = [];
+  for (const job of expired) {
+    if (jobStatusAfterStaleLock(job.attemptCount, job.maxAttempts) === "FAILED") {
+      failedIds.push(job.id);
+    } else {
+      retryIds.push(job.id);
+    }
+  }
+
+  let expiredCount = 0;
+  if (failedIds.length > 0) {
+    const failed = await prisma.backgroundJob.updateMany({
+      where: { id: { in: failedIds }, status: "RUNNING" },
+      data: {
+        status: "FAILED",
+        lastError: "Lock expired on the last attempt.",
+        lockedAt: null,
+        lockedBy: null,
+        lockExpiresAt: null,
+      },
+    });
+    expiredCount += failed.count;
+  }
+  if (retryIds.length > 0) {
+    const retryable = await prisma.backgroundJob.updateMany({
+      where: { id: { in: retryIds }, status: "RUNNING" },
+      data: {
+        status: "RETRYABLE",
+        lockedAt: null,
+        lockedBy: null,
+        lockExpiresAt: null,
+      },
+    });
+    expiredCount += retryable.count;
+  }
+  return expiredCount;
 }
 
 export async function findJobByIdempotency(
@@ -280,8 +314,9 @@ export async function findJobByIdempotency(
 
 /**
  * Enqueue a recurring job, or revive it when the previous pass completed,
- * failed or was cancelled. Active (pending/running/retryable) rows are left
- * alone so two workers starting at once cannot double-schedule.
+ * failed, was cancelled, or exhausted its retries. Pending and running rows,
+ * and retryable rows that still have attempts left, are left alone so two
+ * workers starting at once cannot double-schedule.
  */
 export async function ensureRecurringJob<T extends JobType>(
   options: EnqueueOptions<T>
@@ -290,18 +325,18 @@ export async function ensureRecurringJob<T extends JobType>(
 
   const existing = await prisma.backgroundJob.findUnique({
     where: { idempotencyKey: options.idempotencyKey },
-    select: { id: true, status: true },
+    select: { id: true, status: true, attemptCount: true, maxAttempts: true },
   });
 
   if (!existing) {
     return insertJob(options);
   }
 
-  if (
-    existing.status === "PENDING" ||
-    existing.status === "RUNNING" ||
-    existing.status === "RETRYABLE"
-  ) {
+  if (existing.status === "PENDING" || existing.status === "RUNNING") {
+    return { id: existing.id, created: false };
+  }
+
+  if (existing.status === "RETRYABLE" && existing.attemptCount < existing.maxAttempts) {
     return { id: existing.id, created: false };
   }
 

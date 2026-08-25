@@ -4,6 +4,7 @@
  * Catalogue rows are public instance configuration, not personal data. They are
  * cached in-process for a short TTL because almost every authenticated page
  * loads them. Writes from the admin console must call `invalidateCatalogCache`.
+ * Directory searches are not cached: the key would be unbounded free text.
  */
 import type { BrokerCategory, RequestType } from "@prisma/client";
 
@@ -177,10 +178,13 @@ export async function listBrokersForDirectory(filters: {
   category?: string;
   search?: string;
 }) {
+  const search = filters.search?.trim().slice(0, 80);
+  if (search) {
+    return loadBrokersForDirectory(filters);
+  }
   const cacheKey = JSON.stringify({
     jurisdictionId: filters.jurisdictionId ?? "",
     category: filters.category ?? "",
-    search: filters.search?.trim().slice(0, 80) ?? "",
   });
   return brokerDirectoryCache.getOrLoad(cacheKey, () => loadBrokersForDirectory(filters));
 }

@@ -26,7 +26,13 @@ import { blindIndex, encryptField, sha256Hex } from "@/lib/security/crypto";
 import { maskEmail } from "@/lib/security/masking";
 import { assertValidEmailAddress } from "@/lib/security/sanitize";
 
+import { isOutboundAttemptComplete } from "./outboundStatus";
 import type { SendResult } from "./types";
+
+export {
+  isOutboundAttemptComplete,
+  outboundAttemptLeftTheInstance,
+} from "./outboundStatus";
 
 const log = createLogger("email.ledger");
 
@@ -145,10 +151,19 @@ export async function recordSendFailure(
   });
 }
 
+/** Puts a failed ledger row back to QUEUED so the unique tuple can be retried. */
+export async function reopenFailedOutboundEmail(id: string): Promise<void> {
+  await updateOutboundEmail(id, {
+    status: "QUEUED",
+    failedAt: null,
+    lastError: null,
+  });
+}
+
 /**
  * Send deduplication for broker correspondence. True when the tuple
- * `(removalRequestId, purpose, attempt)` already left the instance or is in
- * flight, so the caller must not send again.
+ * `(removalRequestId, purpose, attempt)` already reached a terminal provider
+ * outcome, so the caller must not send again.
  */
 export async function hasAlreadySent(
   removalRequestId: string,
@@ -160,7 +175,7 @@ export async function hasAlreadySent(
     return false;
   }
 
-  return existing.status !== "FAILED";
+  return isOutboundAttemptComplete(existing.status);
 }
 
 export async function findSendAttempt(

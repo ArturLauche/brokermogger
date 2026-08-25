@@ -12,7 +12,9 @@ import Link from "next/link";
 import {
   DEFAULT_DOCUMENTATION_URL,
   DEFAULT_REPOSITORY_URL,
+  DEFAULT_SECURITY_ADVISORIES_URL,
   DEFAULT_SECURITY_CONTACT,
+  isPlaceholderSecurityContact,
   LICENSE_NAME,
   SITE_NAME,
 } from "@/lib/config/site";
@@ -40,6 +42,7 @@ export function PublicFooter({
   licenseName = LICENSE_NAME,
   className,
 }: PublicFooterProps) {
+  const securityIsPlaceholder = isPlaceholderSecurityContact(securityContactEmail);
   return (
     <footer className={cn("border-t bg-muted/40", className)}>
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-10">
@@ -76,12 +79,18 @@ export function PublicFooter({
             <ul className="flex flex-col gap-1.5 text-sm text-muted-foreground">
               <li>
                 Report a vulnerability:{" "}
-                <a
-                  href={`mailto:${securityContactEmail}`}
-                  className="underline underline-offset-4 hover:text-primary"
-                >
-                  {securityContactEmail}
-                </a>
+                {securityIsPlaceholder ? (
+                  <ExternalLink href={DEFAULT_SECURITY_ADVISORIES_URL}>
+                    GitHub security advisories
+                  </ExternalLink>
+                ) : (
+                  <a
+                    href={`mailto:${securityContactEmail}`}
+                    className="underline underline-offset-4 hover:text-primary"
+                  >
+                    {securityContactEmail}
+                  </a>
+                )}
               </li>
               <li>
                 <Link

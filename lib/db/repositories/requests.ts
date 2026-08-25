@@ -48,6 +48,23 @@ export async function getOwnedRequest(actor: ActorContext, requestId: string) {
   return request;
 }
 
+/** Snapshot pinned at approval. Callers must not fall back to the latest version. */
+export async function getSnapshotForRequest(
+  removalRequestId: string,
+  snapshotId: string
+) {
+  return prisma.requestSnapshot.findFirst({
+    where: { id: snapshotId, removalRequestId },
+    select: {
+      id: true,
+      subject: true,
+      body: true,
+      contentHash: true,
+      version: true,
+    },
+  });
+}
+
 export async function listOwnedRequests(
   actor: ActorContext,
   profileId: string | null,

@@ -40,6 +40,12 @@ const nextConfig: NextConfig = {
     ];
     return [
       {
+        source: "/:path*",
+        headers: securityHeaders,
+      },
+      // CORP overrides must follow the catch-all. Next keeps the last matching
+      // value for a given header, so crawlers would otherwise still see same-origin.
+      {
         source: "/:file(opengraph-image|twitter-image|icon|apple-icon)",
         headers: crawlerResource,
       },
@@ -50,10 +56,6 @@ const nextConfig: NextConfig = {
       {
         source: "/favicon.ico",
         headers: crawlerResource,
-      },
-      {
-        source: "/:path*",
-        headers: securityHeaders,
       },
     ];
   },

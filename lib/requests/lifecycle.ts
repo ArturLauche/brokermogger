@@ -38,12 +38,23 @@ import {
   countRequestsForBrokers,
   createDraftRequest,
   getOwnedRequest,
+  getSnapshotForRequest,
   insertSnapshot,
   listRejectedBrokerIds,
   patchRequest,
 } from "@/lib/db/repositories/requests";
 import { assertAdminSendingEnabled, getEmailProvider } from "@/lib/email";
-import { hasAlreadySent, recordQueuedEmail, recordSendResult } from "@/lib/email/ledger";
+import {
+  findSendAttempt,
+  recordQueuedEmail,
+  recordSendFailure,
+  recordSendResult,
+  reopenFailedOutboundEmail,
+} from "@/lib/email/ledger";
+import {
+  isOutboundAttemptComplete,
+  outboundAttemptLeftTheInstance,
+} from "@/lib/email/outboundStatus";
 import { consumeBrokerSendThrottles } from "@/lib/email/throttles";
 import { enqueueJob } from "@/lib/jobs/queue";
 import {
@@ -608,20 +619,22 @@ export async function approveRequest(
 
 /**
  * Dispatches an approved request. Called from the SEND_REQUEST job. Retries are
- * safe: `hasAlreadySent` plus the unique constraint prevent a second broker
- * email for the same attempt.
+ * safe: a terminal ledger row is not sent again, and the unique constraint
+ * pins one row per `(request, purpose, attempt)`. The snapshot is the one
+ * captured at approval, never the latest version (a later follow-up draft).
  */
 export async function sendApprovedRequest(
   actor: ActorContext,
   removalRequestId: string,
-  attempt: number
+  attempt: number,
+  snapshotId: string
 ): Promise<{ message: string }> {
   const request = await getOwnedRequest(actor, removalRequestId);
-  const snapshot = request.snapshots[0];
+  const snapshot = await getSnapshotForRequest(request.id, snapshotId);
   if (!snapshot) {
     throw new AppError({
       code: "CONFLICT",
-      message: "Approved request is missing its snapshot.",
+      message: "Approved request is missing the snapshot that was queued to send.",
     });
   }
 
@@ -689,47 +702,106 @@ export async function sendApprovedRequest(
 
   const isFollowUp = request.followUpCount > 0;
   const purpose = isFollowUp ? "BROKER_FOLLOW_UP" : "BROKER_REQUEST";
+  const existing = await findSendAttempt(request.id, purpose, attempt);
 
-  if (await hasAlreadySent(request.id, purpose, attempt)) {
-    return { message: "Broker email already recorded for this attempt." };
+  if (existing && isOutboundAttemptComplete(existing.status)) {
+    const sentOk = outboundAttemptLeftTheInstance(existing.status);
+    return concludeApprovedSend({
+      actor,
+      request,
+      attempt,
+      sentOk,
+      capturedLocally: false,
+      sentAt: existing.sentAt ?? new Date(),
+      alreadyRecorded: true,
+    });
   }
 
   assertAdminSendingEnabled(purpose, await getSetting("sendingEnabledByAdmin"));
-  await consumeBrokerSendThrottles({
-    brokerId: request.brokerId,
-    destination,
-  });
+
+  const resumingQueued = existing?.status === "QUEUED";
+  if (!resumingQueued) {
+    await consumeBrokerSendThrottles({
+      brokerId: request.brokerId,
+      destination,
+    });
+  }
 
   const provider = getEmailProvider();
-  const ledger = await recordQueuedEmail({
-    purpose,
-    provider: provider.kind,
-    toAddress: destination,
-    subject: snapshot.subject,
-    body: snapshot.body,
-    fromAddress: env.EMAIL_FROM,
-    replyTo: env.EMAIL_REPLY_TO ?? null,
-    removalRequestId: request.id,
-    userId: request.userId,
-    profileId: request.profileId,
-    attempt,
-  });
+  let ledgerId: string;
+  if (existing?.status === "QUEUED") {
+    ledgerId = existing.id;
+  } else if (existing?.status === "FAILED") {
+    await reopenFailedOutboundEmail(existing.id);
+    ledgerId = existing.id;
+  } else {
+    const queued = await recordQueuedEmail({
+      purpose,
+      provider: provider.kind,
+      toAddress: destination,
+      subject: snapshot.subject,
+      body: snapshot.body,
+      fromAddress: env.EMAIL_FROM,
+      replyTo: env.EMAIL_REPLY_TO ?? null,
+      removalRequestId: request.id,
+      userId: request.userId,
+      profileId: request.profileId,
+      attempt,
+    });
+    ledgerId = queued.id;
+  }
 
-  const result = await provider.sendBrokerRequestEmail({
-    to: { address: destination },
-    replyTo: env.EMAIL_REPLY_TO ?? env.EMAIL_FROM,
-    subject: snapshot.subject,
-    text: snapshot.body,
-    removalRequestId: request.id,
-    brokerId: request.brokerId,
-    attempt,
-    isFollowUp,
-  });
+  let result;
+  try {
+    result = await provider.sendBrokerRequestEmail({
+      to: { address: destination },
+      replyTo: env.EMAIL_REPLY_TO ?? env.EMAIL_FROM,
+      subject: snapshot.subject,
+      text: snapshot.body,
+      removalRequestId: request.id,
+      brokerId: request.brokerId,
+      attempt,
+      isFollowUp,
+    });
+  } catch (error) {
+    await recordSendFailure(
+      ledgerId,
+      error instanceof AppError ? error.code : "send_failed"
+    );
+    throw error;
+  }
 
-  await recordSendResult(ledger.id, result);
+  await recordSendResult(ledgerId, result);
 
   const capturedLocally = result.provider === "MOCK";
   const sentOk = result.dispatched || capturedLocally;
+  return concludeApprovedSend({
+    actor,
+    request,
+    attempt,
+    sentOk,
+    capturedLocally,
+    sentAt: result.sentAt,
+    alreadyRecorded: false,
+  });
+}
+
+async function concludeApprovedSend(input: {
+  actor: ActorContext;
+  request: {
+    id: string;
+    status: RequestStatus;
+    userId: string;
+    profileId: string;
+    deadlineAt: Date | null;
+  };
+  attempt: number;
+  sentOk: boolean;
+  capturedLocally: boolean;
+  sentAt: Date;
+  alreadyRecorded: boolean;
+}): Promise<{ message: string }> {
+  const { actor, request, attempt, sentOk, capturedLocally, sentAt } = input;
 
   if (request.status === "APPROVED") {
     await transition(
@@ -739,7 +811,7 @@ export async function sendApprovedRequest(
       "SENT",
       "Queued with the email provider."
     );
-    await patchRequest(request.id, { sentAt: result.sentAt });
+    await patchRequest(request.id, { sentAt });
     await transition(
       actor,
       request.id,
@@ -781,12 +853,14 @@ export async function sendApprovedRequest(
     dedupeKey: `request-sent:${request.id}:${attempt}`,
   });
 
-  await recordAudit({
-    actor,
-    action: "request.sent",
-    resourceType: "removal_request",
-    resourceId: request.id,
-  });
+  if (!input.alreadyRecorded) {
+    await recordAudit({
+      actor,
+      action: "request.sent",
+      resourceType: "removal_request",
+      resourceId: request.id,
+    });
+  }
 
   if (sentOk && request.deadlineAt) {
     await enqueueJob({
@@ -797,6 +871,10 @@ export async function sendApprovedRequest(
       relatedUserId: request.userId,
       relatedRequestId: request.id,
     });
+  }
+
+  if (input.alreadyRecorded) {
+    return { message: "Broker email already recorded for this attempt." };
   }
 
   return {

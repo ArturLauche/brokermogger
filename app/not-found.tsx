@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { ErrorState } from "@/components/common/error-state";
-import { PublicFooter } from "@/components/layout/public-footer";
+import { InstancePublicFooter } from "@/components/layout/instance-public-footer";
 import { PublicHeader } from "@/components/layout/public-header";
 import { Button } from "@/components/ui/button";
 
@@ -33,7 +33,7 @@ export default function NotFound() {
           }
         />
       </main>
-      <PublicFooter />
+      <InstancePublicFooter />
     </>
   );
 }

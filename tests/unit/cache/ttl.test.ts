@@ -60,4 +60,21 @@ describe("createKeyedTtlCache", () => {
     expect(cache.get("c")).toBe("3");
     expect(cache.size()).toBe(2);
   });
+
+  it("does not store extra inflight keys past the entry bound", async () => {
+    const cache = createKeyedTtlCache<number>(60_000, 1);
+    let resolveA: (value: number) => void = () => undefined;
+    const pendingA = cache.getOrLoad(
+      "a",
+      () =>
+        new Promise<number>((resolve) => {
+          resolveA = resolve;
+        })
+    );
+
+    await expect(cache.getOrLoad("b", async () => 2)).resolves.toBe(2);
+
+    resolveA(1);
+    await expect(pendingA).resolves.toBe(1);
+  });
 });

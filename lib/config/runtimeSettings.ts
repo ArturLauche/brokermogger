@@ -85,7 +85,11 @@ export async function getPublicInstanceLinks(): Promise<{
   return { repositoryUrl, documentationUrl, displayName };
 }
 
+export function invalidateRuntimeSettingsCache(): void {
+  cache.clear();
+}
+
 /** Test helper. Never call this from application code. */
 export function resetRuntimeSettingsCacheForTests(): void {
-  cache.clear();
+  invalidateRuntimeSettingsCache();
 }

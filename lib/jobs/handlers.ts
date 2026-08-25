@@ -40,7 +40,8 @@ export function createJobHandlers(): JobHandlerRegistry {
       const result = await sendApprovedRequest(
         actor,
         job.payload.removalRequestId,
-        job.payload.attempt
+        job.payload.attempt,
+        job.payload.snapshotId
       );
       return { message: result.message };
     },

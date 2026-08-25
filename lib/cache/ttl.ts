@@ -81,6 +81,8 @@ export interface KeyedTtlCache<T> {
 /**
  * Bounded key/value TTL cache. Oldest keys are dropped when `maxEntries` is
  * exceeded so a unique-filter flood cannot grow the process without limit.
+ * In-flight loaders are capped the same way: extra keys run uncached rather
+ * than growing the coalescing map.
  */
 export function createKeyedTtlCache<T>(
   ttlMs: number,
@@ -128,6 +130,9 @@ export function createKeyedTtlCache<T>(
       if (cached !== undefined) return Promise.resolve(cached);
       const existing = inflight.get(key);
       if (existing) return existing;
+      if (inflight.size >= maxEntries) {
+        return loader();
+      }
 
       const gen = generation;
       const pending = loader()

@@ -103,3 +103,33 @@ export async function deleteConsentRecordsOlderThan(
     return result.count;
   });
 }
+
+/**
+ * Removes snapshot bodies, lifecycle events and stored broker replies for
+ * closed requests that have reached the retention window. Snapshots and
+ * events are append-only; this must run inside the hatch.
+ */
+export async function deleteRequestHistoryForRetention(
+  requestIds: readonly string[]
+): Promise<{ snapshots: number; events: number; responses: number }> {
+  if (requestIds.length === 0) {
+    return { snapshots: 0, events: 0, responses: 0 };
+  }
+  const ids = [...requestIds];
+  return withAppendOnlyDeletes(async (tx) => {
+    const snapshots = await tx.requestSnapshot.deleteMany({
+      where: { removalRequestId: { in: ids } },
+    });
+    const events = await tx.removalRequestEvent.deleteMany({
+      where: { removalRequestId: { in: ids } },
+    });
+    const responses = await tx.brokerResponse.deleteMany({
+      where: { removalRequestId: { in: ids } },
+    });
+    return {
+      snapshots: snapshots.count,
+      events: events.count,
+      responses: responses.count,
+    };
+  });
+}

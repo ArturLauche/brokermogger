@@ -63,8 +63,21 @@ export async function softDeleteEvidence(actor: ActorContext, evidenceId: string
 }
 
 export async function listRetentionDueEvidence(cutoff: Date, take = 50) {
+  const closedPastCutoff = [
+    { closedAt: { lte: cutoff } },
+    { closedAt: null, updatedAt: { lte: cutoff } },
+  ];
+
   return prisma.evidenceFile.findMany({
-    where: { deletedAt: null, createdAt: { lt: cutoff }, isTemporary: false },
+    where: {
+      deletedAt: null,
+      isTemporary: false,
+      OR: [
+        { removalRequestId: null, createdAt: { lt: cutoff } },
+        { removalRequest: { status: "CLOSED", OR: closedPastCutoff } },
+        { removalRequest: { deletedAt: { not: null }, OR: closedPastCutoff } },
+      ],
+    },
     take,
   });
 }

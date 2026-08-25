@@ -23,6 +23,7 @@ import {
   deleteNotificationsOlderThan,
   deleteOutboundEmailsOlderThan,
   deleteProcessedWebhookEventsOlderThan,
+  deleteRequestHistoryForRetention,
 } from "@/lib/db/repositories/retention";
 import { createLogger } from "@/lib/observability/logger";
 import { systemActor } from "@/lib/permissions/actor";
@@ -69,6 +70,8 @@ export async function runRetentionSweep(input: { dryRun: boolean }): Promise<Job
     evidence: 0,
     temporaryIdentity: 0,
     closedRequests: 0,
+    closedRequestSnapshots: 0,
+    closedRequestEvents: 0,
     jobLogs: 0,
     notifications: 0,
     outboundEmail: 0,
@@ -97,7 +100,13 @@ export async function runRetentionSweep(input: { dryRun: boolean }): Promise<Job
   counts.temporaryIdentity = await purgeTemporaryIdentity(storage);
   counts.closedRequests = await drain(
     () => listClosedRequestsDueForRetention(closedCutoff, BATCH),
-    (rows) => softDeleteClosedRequests(rows.map((row) => row.id))
+    async (rows) => {
+      const ids = rows.map((row) => row.id);
+      const history = await deleteRequestHistoryForRetention(ids);
+      counts.closedRequestSnapshots += history.snapshots;
+      counts.closedRequestEvents += history.events;
+      return softDeleteClosedRequests(ids);
+    }
   );
   counts.jobLogs = await drainCount((take) => deleteJobLogsOlderThan(jobLogCutoff, take));
   counts.notifications = await drainCount((take) =>

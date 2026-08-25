@@ -1,5 +1,5 @@
 import { PageHeader } from "@/components/common/page-header";
-import { PublicFooter } from "@/components/layout/public-footer";
+import { InstancePublicFooter } from "@/components/layout/instance-public-footer";
 import { PublicHeader } from "@/components/layout/public-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -75,7 +75,7 @@ export default async function HouseholdConsentPage({
           </>
         ) : null}
       </main>
-      <PublicFooter />
+      <InstancePublicFooter />
     </>
   );
 }
