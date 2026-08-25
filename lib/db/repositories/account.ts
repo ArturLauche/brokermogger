@@ -3,7 +3,7 @@
  */
 import type { Prisma } from "@prisma/client";
 
-import { prisma } from "@/lib/db/client";
+import { prisma, withAppendOnlyDeletes } from "@/lib/db/client";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
 
@@ -45,5 +45,40 @@ export async function markAccountDeletionRequested(actor: ActorContext) {
   return prisma.user.update({
     where: { id: actor.userId },
     data: { deletionRequestedAt: new Date() },
+  });
+}
+
+/**
+ * Worker-only: anonymise identifiers after the owner requested deletion.
+ * Uses the append-only escape hatch so the database triggers allow the update.
+ */
+export async function anonymiseDeletedAccount(userId: string): Promise<void> {
+  await withAppendOnlyDeletes(async (tx) => {
+    await tx.profileIdentifier.updateMany({
+      where: { profile: { ownerUserId: userId } },
+      data: { deletedAt: new Date() },
+    });
+    await tx.userProfile.updateMany({
+      where: { ownerUserId: userId },
+      data: {
+        deletedAt: new Date(),
+        legalNameEnc: null,
+        contactEmailEnc: null,
+        displayName: "Deleted profile",
+      },
+    });
+    await tx.user.update({
+      where: { id: userId },
+      data: {
+        status: "DELETED",
+        anonymizedAt: new Date(),
+        name: null,
+        email: `deleted-${userId}@anonymised.invalid`,
+      },
+    });
+    await tx.backgroundJob.updateMany({
+      where: { relatedUserId: userId, status: { in: ["PENDING", "RETRYABLE"] } },
+      data: { status: "CANCELLED", cancelledAt: new Date() },
+    });
   });
 }

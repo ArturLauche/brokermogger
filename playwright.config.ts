@@ -47,6 +47,7 @@ export default defineConfig({
           env: {
             EMAIL_PROVIDER: "mock",
             ALLOW_EXTERNAL_SENDING: "false",
+            APP_ENV: process.env.APP_ENV ?? "development",
             PORT: "3000",
             HOSTNAME: "127.0.0.1",
           },

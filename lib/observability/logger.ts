@@ -9,7 +9,7 @@
  */
 import pino, { type Logger, type LoggerOptions } from "pino";
 
-import { env } from "@/lib/config/env";
+import { env, type AppEnv } from "@/lib/config/env";
 
 const REDACTED = "[redacted]";
 
@@ -48,6 +48,16 @@ const REDACT_PATHS = [
   "req.headers.cookie",
 ];
 
+export function shouldUsePrettyTransport(config: {
+  APP_ENV: AppEnv["APP_ENV"];
+  NODE_ENV: AppEnv["NODE_ENV"];
+}): boolean {
+  // pino-pretty is a local-dev convenience and a devDependency. Docker compose
+  // and CI e2e run NODE_ENV=production with APP_ENV=development; pretty
+  // transport would crash those processes if the package is omitted.
+  return config.APP_ENV === "development" && config.NODE_ENV === "development";
+}
+
 function buildOptions(): LoggerOptions {
   const base: LoggerOptions = {
     level: env.LOG_LEVEL,
@@ -61,7 +71,7 @@ function buildOptions(): LoggerOptions {
     },
   };
 
-  if (env.APP_ENV === "development" && !env.isTest) {
+  if (shouldUsePrettyTransport(env)) {
     return {
       ...base,
       transport: {

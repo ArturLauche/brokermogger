@@ -103,5 +103,8 @@
     "esbuild": true,
     "unrs-resolver": true,
     "msw": true
+  },
+  "overrides": {
+    "deepmerge-ts": "8.0.2"
   }
 }

@@ -1,48 +1,30 @@
 #!/usr/bin/env tsx
 /**
- * Fails when a documented environment variable is missing from `.env.example`
- * or when `lib/config/env.ts` introduces a key that is not listed there.
+ * Fails when documented environment variables drift between `.env.example`,
+ * `lib/config/env.ts`, docker compose, CI and the README.
  */
-import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { checkEnvConsistency } from "../lib/config/envConsistency";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const example = readFileSync(resolve(root, ".env.example"), "utf8");
-const envSource = readFileSync(resolve(root, "lib/config/env.ts"), "utf8");
 
-const exampleKeys = new Set(
-  example
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith("#") && line.includes("="))
-    .map((line) => line.slice(0, line.indexOf("=")))
-);
+const report = checkEnvConsistency({
+  example: readFileSync(resolve(root, ".env.example"), "utf8"),
+  envTs: readFileSync(resolve(root, "lib/config/env.ts"), "utf8"),
+  compose: readFileSync(resolve(root, "docker-compose.yml"), "utf8"),
+  ciWorkflow: readFileSync(resolve(root, ".github/workflows/ci.yml"), "utf8"),
+  readme: readFileSync(resolve(root, "README.md"), "utf8"),
+});
 
-const schemaBlock = envSource.slice(
-  envSource.indexOf("const rawSchema"),
-  envSource.indexOf("export type RawEnv")
-);
-const schemaKeys = new Set(
-  [...schemaBlock.matchAll(/\b([A-Z][A-Z0-9_]+):/g)].map((match) => match[1] ?? "")
-);
-schemaKeys.delete("");
-
-const missingFromExample = [...schemaKeys].filter((key) => !exampleKeys.has(key));
-const extraInExample = [...exampleKeys].filter((key) => !schemaKeys.has(key));
-
-if (missingFromExample.length > 0 || extraInExample.length > 0) {
+if (report.issues.length > 0) {
   console.error("Environment documentation is out of sync.");
-  if (missingFromExample.length > 0) {
-    console.error(
-      "In env.ts but missing from .env.example:",
-      missingFromExample.join(", ")
-    );
-  }
-  if (extraInExample.length > 0) {
-    console.error("In .env.example but not in env.ts:", extraInExample.join(", "));
+  for (const issue of report.issues) {
+    console.error(`  - ${issue}`);
   }
   process.exitCode = 1;
 } else {
-  console.log(`Checked ${schemaKeys.size} environment variables.`);
+  console.log(`Checked ${report.schemaKeys.length} environment variables.`);
 }

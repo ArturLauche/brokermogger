@@ -80,7 +80,6 @@ const eslintConfig = defineConfig([
   {
     files: [
       "lib/db/**/*.ts",
-      "lib/jobs/handlers.ts",
       "workers/**/*.ts",
       "prisma/**/*.ts",
       "scripts/**/*.ts",
@@ -94,7 +93,7 @@ const eslintConfig = defineConfig([
   },
   {
     files: ["lib/**/*.ts"],
-    ignores: ["lib/auth/**/*.ts", "lib/db/**/*.ts", "lib/jobs/handlers.ts"],
+    ignores: ["lib/auth/**/*.ts", "lib/db/**/*.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
