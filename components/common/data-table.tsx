@@ -157,6 +157,8 @@ export function DataTable<TData>({
     return [selectionColumn, ...columns];
   }, [columns, enableRowSelection, getRowLabel]);
 
+  // TanStack Table returns function identities that the React Compiler cannot memoize.
+  // eslint-disable-next-line react-hooks/incompatible-library -- upstream table API
   const table = useReactTable({
     data,
     columns: resolvedColumns,

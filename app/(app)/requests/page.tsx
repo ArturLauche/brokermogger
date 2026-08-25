@@ -14,9 +14,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { resolveActiveProfileForRequest } from "@/app/_lib/active-profile";
 import { requireActorOrRedirect } from "@/lib/auth";
 import { listOwnedRequests } from "@/lib/db/repositories/requests";
-import { resolveActiveProfile } from "@/lib/profiles/resolveActive";
 
 export const metadata = { title: "Requests" };
 export const dynamic = "force-dynamic";
@@ -27,7 +27,7 @@ export default async function RequestsPage({
   searchParams: Promise<{ created?: string }>;
 }) {
   const actor = await requireActorOrRedirect();
-  const { active } = await resolveActiveProfile(actor);
+  const { active } = await resolveActiveProfileForRequest(actor);
   const requests = await listOwnedRequests(actor, active?.id ?? null);
   const { created } = await searchParams;
 

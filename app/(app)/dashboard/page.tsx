@@ -8,9 +8,9 @@ import { Timeline } from "@/components/common/timeline";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { resolveActiveProfileForRequest } from "@/app/_lib/active-profile";
 import { requireActorOrRedirect } from "@/lib/auth";
 import { listOwnedRequests } from "@/lib/db/repositories/requests";
-import { resolveActiveProfile } from "@/lib/profiles/resolveActive";
 import {
   NEEDS_USER_ACTION_STATUSES,
   WAITING_STATUSES,
@@ -21,7 +21,7 @@ export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const actor = await requireActorOrRedirect();
-  const { active } = await resolveActiveProfile(actor);
+  const { active } = await resolveActiveProfileForRequest(actor);
   const requests = active
     ? await listOwnedRequests(actor, active.id)
     : await listOwnedRequests(actor, null);

@@ -15,7 +15,7 @@ It is not a law firm. It does not guarantee removal. The shipped broker director
 
 ## Requirements
 
-- Node.js 20.9 or later
+- Node.js 22.22 or later
 - PostgreSQL 16
 - An email provider for production (`resend` or `sandbox`). Development uses `mock`.
 
@@ -83,6 +83,17 @@ docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 Image registry: `ghcr.io/arturlauche/brokermogger`.
+
+## Continuous integration
+
+GitHub Actions runs on every push to `main` and on pull requests:
+
+1. `npm ci` (lockfile must match `package.json`; no `--legacy-peer-deps`)
+2. Prisma generate + migrate against a Postgres 16 service on port 5433
+3. `npm run check:env`, `typecheck`, `lint`, `format:check`, `test`, `test:integration`
+4. Production build and Playwright (`npm run test:e2e`)
+
+No GitHub secrets are required for CI. The Docker workflow builds the image on pull requests and pushes to GHCR only from `main` and `v*` tags, using `GITHUB_TOKEN`.
 
 ## Security
 

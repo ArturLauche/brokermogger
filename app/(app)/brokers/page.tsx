@@ -15,6 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { resolveActiveProfileForRequest } from "@/app/_lib/active-profile";
 import { requireActorOrRedirect } from "@/lib/auth";
 import {
   listBrokersForDirectory,
@@ -22,14 +23,13 @@ import {
   listPublishedLegalRules,
 } from "@/lib/db/repositories/catalog";
 import { resolveJurisdiction } from "@/lib/jurisdiction/resolve";
-import { resolveActiveProfile } from "@/lib/profiles/resolveActive";
 
 export const metadata = { title: "Brokers" };
 export const dynamic = "force-dynamic";
 
 export default async function BrokersPage() {
   const actor = await requireActorOrRedirect();
-  const { active } = await resolveActiveProfile(actor);
+  const { active } = await resolveActiveProfileForRequest(actor);
   const jurisdictions = await listActiveJurisdictions();
   const rules = await listPublishedLegalRules();
 

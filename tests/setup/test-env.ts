@@ -13,6 +13,10 @@ const defaults: Record<string, string> = {
   NODE_ENV: "test",
   APP_BASE_URL: "http://localhost:3000",
   LOG_LEVEL: "silent",
+  DATABASE_URL:
+    "postgresql://brokermogger:brokermogger@127.0.0.1:5433/brokermogger_test?schema=public",
+  TEST_DATABASE_URL:
+    "postgresql://brokermogger:brokermogger@127.0.0.1:5433/brokermogger_test?schema=public",
   AUTH_SECRET: "test-auth-secret-000000000000000000000000",
   AUTH_URL: "http://localhost:3000",
   AUTH_TRUST_HOST: "true",

@@ -38,13 +38,17 @@ export default defineConfig({
     ? {}
     : {
         webServer: {
-          command: isCI ? "npm run start" : "npm run dev",
+          command: isCI
+            ? "npm run prepare:standalone && npm run start:standalone"
+            : "npm run dev",
           url: baseURL,
           reuseExistingServer: !isCI,
           timeout: 180_000,
           env: {
             EMAIL_PROVIDER: "mock",
             ALLOW_EXTERNAL_SENDING: "false",
+            PORT: "3000",
+            HOSTNAME: "127.0.0.1",
           },
         },
       }),

@@ -93,6 +93,42 @@ const eslintConfig = defineConfig([
     },
   },
   {
+    files: ["lib/**/*.ts"],
+    ignores: ["lib/auth/**/*.ts", "lib/db/**/*.ts", "lib/jobs/handlers.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@/lib/db/client",
+              message:
+                "Import repositories from @/lib/db/repositories instead. Direct Prisma access bypasses ActorContext authorization.",
+            },
+            {
+              name: "@prisma/client",
+              importNames: ["PrismaClient"],
+              message:
+                "Use the shared client from lib/db/client.ts inside lib/db only. Types and enums may be imported freely.",
+            },
+            {
+              name: "next",
+              message:
+                "Domain logic in lib/** must not import Next.js. Keep framework adapters in app/** or lib/auth.",
+            },
+          ],
+          patterns: [
+            {
+              group: ["next/*", "next/dist/*", "@/app", "@/app/*"],
+              message:
+                "Domain logic in lib/** must not import Next.js or app/**. Keep framework adapters in app/** or lib/auth.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: [
       "lib/config/env.ts",
       "next.config.ts",

@@ -3,8 +3,9 @@
  *
  * This is one of the few modules under `lib/**` that touches `next/*`: building
  * an `ActorContext` requires the incoming request headers, and only the
- * framework can provide them. Everything derived from a header is hashed
- * immediately, so no raw IP address or user agent string is ever passed on.
+ * framework can provide them. ESLint allows `next/*` only inside `lib/auth/**`
+ * for that reason. Everything derived from a header is hashed immediately, so
+ * no raw IP address or user agent string is ever passed on.
  */
 import { headers } from "next/headers";
 

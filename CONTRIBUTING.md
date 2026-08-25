@@ -20,4 +20,8 @@ English for product UI, code and docs. Keep the tone calm and factual.
 4. Make a small change.
 5. `npm run typecheck && npm run lint && npm run format && npm run test`
 
+`package.json` and `package-lock.json` must stay in sync. GitHub Actions runs `npm ci`, which fails if they drift (this is what took CI down when `lucide-react` was pinned to `0.31.0` while the lockfile expected `1.31.0`).
+
+CI also runs `npm run check:env`, `npm run test:integration`, `npm run build` and `npm run test:e2e`. Integration tests need `postgres-test` on port 5433. The workflow needs no GitHub secrets.
+
 UI screens must match `docs/ui-spec.md`.
