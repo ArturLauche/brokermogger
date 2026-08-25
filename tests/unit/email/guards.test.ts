@@ -8,7 +8,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { resetEnvCacheForTests } from "@/lib/config/env";
 import { isAppError } from "@/lib/core/errors";
-import { assertOutboundAllowed, isExternalPurpose } from "@/lib/email";
+import {
+  assertAdminSendingEnabled,
+  assertOutboundAllowed,
+  isExternalPurpose,
+} from "@/lib/email";
 import { MockEmailProvider } from "@/lib/email/providers/mock";
 
 function withExternalSending(enabled: boolean): void {
@@ -97,5 +101,22 @@ describe("assertOutboundAllowed", () => {
     expect(result.dispatched).toBe(false);
     expect(result.suppressionReason).toBe("mock_provider");
     expect(result.provider).toBe("MOCK");
+  });
+});
+
+describe("assertAdminSendingEnabled", () => {
+  it("lets the mock provider ignore the admin sending switch", () => {
+    withExternalSending(false);
+    expect(() => assertAdminSendingEnabled("BROKER_REQUEST", false)).not.toThrow();
+  });
+
+  it("blocks a real provider when the admin sending switch is off", () => {
+    withExternalSending(true);
+    expect(() => assertAdminSendingEnabled("BROKER_REQUEST", false)).toThrow();
+  });
+
+  it("allows a real provider when both operator switches are on", () => {
+    withExternalSending(true);
+    expect(() => assertAdminSendingEnabled("BROKER_REQUEST", true)).not.toThrow();
   });
 });

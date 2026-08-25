@@ -92,6 +92,8 @@ export async function runClaimedJob(
     )) as JobResult;
     const durationMs = Date.now() - started;
 
+    // Recurring success uses `repeatAfterSeconds` inside markJobCompleted.
+    // `retryAfterSeconds` is a failed attempt that should run again later.
     if (result.retryAfterSeconds && result.retryAfterSeconds > 0) {
       await markJobRetryable({
         jobId: job.id,

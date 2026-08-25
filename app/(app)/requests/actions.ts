@@ -11,67 +11,78 @@ import {
   prepareFollowUp,
   returnRequestToDraft,
 } from "@/lib/requests/lifecycle";
+import { formCheckbox, formString, parseWithSchema } from "@/lib/validation/form";
+import { entityIdSchema } from "@/lib/validation/ids";
+import { z } from "zod";
 
 function bounce(requestId: string, error: unknown, fallback: string): never {
   if (isAppError(error)) {
-    redirect(`${fallback}?error=${error.code}`);
+    const target = requestId ? fallback : "/requests";
+    redirect(`${target}?error=${error.code}`);
   }
   throw error;
 }
 
+const requestIdSchema = z.object({ requestId: entityIdSchema });
+
 export async function approveRequestAction(formData: FormData): Promise<void> {
   const actor = await requireActor();
-  const requestId = String(formData.get("requestId") ?? "");
-  const contentHash = String(formData.get("contentHash") ?? "");
-  const confirmationAccepted = formData.get("confirmationAccepted") === "on";
+  const rawId = formString(formData, "requestId");
   try {
+    const { requestId } = parseWithSchema(requestIdSchema, { requestId: rawId });
+    const contentHash = formString(formData, "contentHash");
+    const confirmationAccepted = formCheckbox(formData, "confirmationAccepted");
     await approveRequest(actor, { requestId, contentHash, confirmationAccepted });
   } catch (error) {
-    bounce(requestId, error, `/requests/${requestId}/review`);
+    bounce(rawId, error, `/requests/${rawId}/review`);
   }
-  redirect(`/requests/${requestId}`);
+  redirect(`/requests/${rawId}`);
 }
 
 export async function returnToDraftAction(formData: FormData): Promise<void> {
   const actor = await requireActor();
-  const requestId = String(formData.get("requestId") ?? "");
+  const rawId = formString(formData, "requestId");
   try {
+    const { requestId } = parseWithSchema(requestIdSchema, { requestId: rawId });
     await returnRequestToDraft(actor, requestId);
   } catch (error) {
-    bounce(requestId, error, `/requests/${requestId}/review`);
+    bounce(rawId, error, `/requests/${rawId}/review`);
   }
-  redirect(`/requests/${requestId}`);
+  redirect(`/requests/${rawId}`);
 }
 
 export async function closeRequestAction(formData: FormData): Promise<void> {
   const actor = await requireActor();
-  const requestId = String(formData.get("requestId") ?? "");
+  const rawId = formString(formData, "requestId");
   try {
+    const { requestId } = parseWithSchema(requestIdSchema, { requestId: rawId });
     await closeRequest(actor, requestId);
   } catch (error) {
-    bounce(requestId, error, `/requests/${requestId}`);
+    bounce(rawId, error, `/requests/${rawId}`);
   }
-  redirect(`/requests/${requestId}`);
+  redirect(`/requests/${rawId}`);
 }
 
 export async function markCompletedAction(formData: FormData): Promise<void> {
   const actor = await requireActor();
-  const requestId = String(formData.get("requestId") ?? "");
+  const rawId = formString(formData, "requestId");
   try {
+    const { requestId } = parseWithSchema(requestIdSchema, { requestId: rawId });
     await markRequestCompleted(actor, requestId);
   } catch (error) {
-    bounce(requestId, error, `/requests/${requestId}`);
+    bounce(rawId, error, `/requests/${rawId}`);
   }
-  redirect(`/requests/${requestId}`);
+  redirect(`/requests/${rawId}`);
 }
 
 export async function prepareFollowUpAction(formData: FormData): Promise<void> {
   const actor = await requireActor();
-  const requestId = String(formData.get("requestId") ?? "");
+  const rawId = formString(formData, "requestId");
   try {
+    const { requestId } = parseWithSchema(requestIdSchema, { requestId: rawId });
     await prepareFollowUp(actor, requestId);
   } catch (error) {
-    bounce(requestId, error, `/requests/${requestId}`);
+    bounce(rawId, error, `/requests/${rawId}`);
   }
-  redirect(`/requests/${requestId}`);
+  redirect(`/requests/${rawId}`);
 }

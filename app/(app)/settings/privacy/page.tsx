@@ -3,14 +3,27 @@ import Link from "next/link";
 import { DefinitionList } from "@/components/common/definition-list";
 import { PageHeader } from "@/components/common/page-header";
 import { Button } from "@/components/ui/button";
-import { SETTINGS } from "@/lib/config/systemSettings";
 import { requireActorOrRedirect } from "@/lib/auth";
+import { getSetting } from "@/lib/config/runtimeSettings";
 
 export const metadata = { title: "Privacy settings" };
 export const dynamic = "force-dynamic";
 
 export default async function PrivacySettingsPage() {
   await requireActorOrRedirect();
+  const [
+    evidenceMonths,
+    temporaryIdDays,
+    closedRequestMonths,
+    auditMonths,
+    consentMonths,
+  ] = await Promise.all([
+    getSetting("retentionEvidenceMonths"),
+    getSetting("retentionTemporaryIdFileDays"),
+    getSetting("retentionClosedRequestMonths"),
+    getSetting("retentionAuditLogMonths"),
+    getSetting("retentionConsentRecordMonths"),
+  ]);
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6">
@@ -23,23 +36,23 @@ export default async function PrivacySettingsPage() {
         items={[
           {
             term: "Evidence files",
-            description: `${SETTINGS.retentionEvidenceMonths.defaultValue} months after the related request closes.`,
+            description: `${evidenceMonths} months after the related request closes.`,
           },
           {
             term: "Temporary identity files",
-            description: `${SETTINGS.retentionTemporaryIdFileDays.defaultValue} days, then deleted.`,
+            description: `${temporaryIdDays} days, then deleted.`,
           },
           {
             term: "Closed requests",
-            description: `${SETTINGS.retentionClosedRequestMonths.defaultValue} months.`,
+            description: `${closedRequestMonths} months.`,
           },
           {
             term: "Audit log",
-            description: `${SETTINGS.retentionAuditLogMonths.defaultValue} months.`,
+            description: `${auditMonths} months.`,
           },
           {
             term: "Consent records",
-            description: `${SETTINGS.retentionConsentRecordMonths.defaultValue} months.`,
+            description: `${consentMonths} months.`,
           },
         ]}
       />

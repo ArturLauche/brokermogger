@@ -230,7 +230,7 @@ describe("outbound email ledger", () => {
       attempt: 1,
     });
 
-    expect(await hasAlreadySent(removalRequest.id, "BROKER_REQUEST", 1)).toBe(true);
+    expect(await hasAlreadySent(removalRequest.id, "BROKER_REQUEST", 1)).toBe(false);
     expect(await hasAlreadySent(removalRequest.id, "BROKER_REQUEST", 2)).toBe(false);
     expect(await hasAlreadySent(removalRequest.id, "BROKER_FOLLOW_UP", 1)).toBe(false);
 
@@ -247,6 +247,14 @@ describe("outbound email ledger", () => {
         attempt: 1,
       })
     ).rejects.toThrow();
+
+    await recordSendResult(first.id, {
+      provider: "SANDBOX",
+      providerMessageId: "sandbox-1",
+      dispatched: true,
+      sentAt: new Date("2026-08-15T12:00:00.000Z"),
+    });
+    expect(await hasAlreadySent(removalRequest.id, "BROKER_REQUEST", 1)).toBe(true);
 
     // A failed attempt may be retried.
     await recordSendFailure(first.id, "temporary provider error");

@@ -9,7 +9,9 @@ import type { JobStatus, JobType, Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db/client";
 import { env } from "@/lib/config/env";
-import type { ClaimedJob, EnqueueOptions, JobPayload, JobResult } from "@/lib/jobs/types";
+import { jobStatusAfterStaleLock } from "@/lib/jobs/lockExpiry";
+import { parseJobPayload } from "@/lib/jobs/payloads";
+import type { ClaimedJob, EnqueueOptions, JobResult } from "@/lib/jobs/types";
 
 interface JobRow {
   id: string;
@@ -26,7 +28,7 @@ function toClaimed(row: JobRow): ClaimedJob {
   return {
     id: row.id,
     type: row.type,
-    payload: (row.payloadJson ?? {}) as JobPayload<typeof row.type>,
+    payload: parseJobPayload(row.type, row.payloadJson ?? {}),
     attemptCount: row.attemptCount,
     maxAttempts: row.maxAttempts,
     idempotencyKey: row.idempotencyKey,
@@ -38,6 +40,8 @@ function toClaimed(row: JobRow): ClaimedJob {
 export async function insertJob<T extends JobType>(
   options: EnqueueOptions<T>
 ): Promise<{ id: string; created: boolean }> {
+  parseJobPayload(options.type, options.payload);
+
   const existing = await prisma.backgroundJob.findUnique({
     where: { idempotencyKey: options.idempotencyKey },
     select: { id: true, status: true },
@@ -112,7 +116,22 @@ export async function claimDueJobs(
       job."relatedRequestId"
   `;
 
-  return rows.map(toClaimed);
+  const claimed: ClaimedJob[] = [];
+  for (const row of rows) {
+    try {
+      claimed.push(toClaimed(row));
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message.slice(0, 2000) : "Invalid job payload";
+      await markJobFailed({
+        jobId: row.id,
+        attemptCount: row.attemptCount,
+        errorMessage: message,
+        durationMs: 0,
+      });
+    }
+  }
+  return claimed;
 }
 
 export async function markJobCompleted(
@@ -120,17 +139,33 @@ export async function markJobCompleted(
   result: JobResult,
   durationMs: number
 ): Promise<void> {
+  const repeatAt =
+    result.repeatAfterSeconds && result.repeatAfterSeconds > 0
+      ? new Date(Date.now() + result.repeatAfterSeconds * 1000)
+      : null;
+
   await prisma.$transaction([
     prisma.backgroundJob.update({
       where: { id: jobId },
-      data: {
-        status: "COMPLETED",
-        completedAt: new Date(),
-        lockedAt: null,
-        lockedBy: null,
-        lockExpiresAt: null,
-        lastError: null,
-      },
+      data: repeatAt
+        ? {
+            status: "PENDING",
+            runAt: repeatAt,
+            attemptCount: 0,
+            completedAt: null,
+            lastError: null,
+            lockedAt: null,
+            lockedBy: null,
+            lockExpiresAt: null,
+          }
+        : {
+            status: "COMPLETED",
+            completedAt: new Date(),
+            lockedAt: null,
+            lockedBy: null,
+            lockExpiresAt: null,
+            lastError: null,
+          },
     }),
     prisma.backgroundJobLog.create({
       data: {
@@ -220,19 +255,52 @@ export async function markJobCancelled(jobId: string, reason: string): Promise<v
 }
 
 export async function expireStaleLocks(): Promise<number> {
-  const result = await prisma.backgroundJob.updateMany({
+  const expired = await prisma.backgroundJob.findMany({
     where: {
       status: "RUNNING",
-      lockExpiresAt: { lt: new Date() },
+      lockExpiresAt: { not: null, lt: new Date() },
     },
-    data: {
-      status: "RETRYABLE",
-      lockedAt: null,
-      lockedBy: null,
-      lockExpiresAt: null,
-    },
+    select: { id: true, attemptCount: true, maxAttempts: true },
   });
-  return result.count;
+  if (expired.length === 0) return 0;
+
+  const failedIds: string[] = [];
+  const retryIds: string[] = [];
+  for (const job of expired) {
+    if (jobStatusAfterStaleLock(job.attemptCount, job.maxAttempts) === "FAILED") {
+      failedIds.push(job.id);
+    } else {
+      retryIds.push(job.id);
+    }
+  }
+
+  let expiredCount = 0;
+  if (failedIds.length > 0) {
+    const failed = await prisma.backgroundJob.updateMany({
+      where: { id: { in: failedIds }, status: "RUNNING" },
+      data: {
+        status: "FAILED",
+        lastError: "Lock expired on the last attempt.",
+        lockedAt: null,
+        lockedBy: null,
+        lockExpiresAt: null,
+      },
+    });
+    expiredCount += failed.count;
+  }
+  if (retryIds.length > 0) {
+    const retryable = await prisma.backgroundJob.updateMany({
+      where: { id: { in: retryIds }, status: "RUNNING" },
+      data: {
+        status: "RETRYABLE",
+        lockedAt: null,
+        lockedBy: null,
+        lockExpiresAt: null,
+      },
+    });
+    expiredCount += retryable.count;
+  }
+  return expiredCount;
 }
 
 export async function findJobByIdempotency(
@@ -242,4 +310,56 @@ export async function findJobByIdempotency(
     where: { idempotencyKey: key },
     select: { id: true, status: true },
   });
+}
+
+/**
+ * Enqueue a recurring job, or revive it when the previous pass completed,
+ * failed, was cancelled, or exhausted its retries. Pending and running rows,
+ * and retryable rows that still have attempts left, are left alone so two
+ * workers starting at once cannot double-schedule.
+ */
+export async function ensureRecurringJob<T extends JobType>(
+  options: EnqueueOptions<T>
+): Promise<{ id: string; created: boolean }> {
+  parseJobPayload(options.type, options.payload);
+
+  const existing = await prisma.backgroundJob.findUnique({
+    where: { idempotencyKey: options.idempotencyKey },
+    select: { id: true, status: true, attemptCount: true, maxAttempts: true },
+  });
+
+  if (!existing) {
+    return insertJob(options);
+  }
+
+  if (existing.status === "PENDING" || existing.status === "RUNNING") {
+    return { id: existing.id, created: false };
+  }
+
+  if (existing.status === "RETRYABLE" && existing.attemptCount < existing.maxAttempts) {
+    return { id: existing.id, created: false };
+  }
+
+  await prisma.backgroundJob.update({
+    where: { id: existing.id },
+    data: {
+      type: options.type,
+      status: "PENDING",
+      runAt: options.runAt ?? new Date(),
+      attemptCount: 0,
+      maxAttempts: options.maxAttempts ?? env.JOB_MAX_ATTEMPTS,
+      payloadJson: options.payload as Prisma.InputJsonValue,
+      lastError: null,
+      cancelledAt: null,
+      completedAt: null,
+      lockedAt: null,
+      lockedBy: null,
+      lockExpiresAt: null,
+      relatedUserId: options.relatedUserId ?? null,
+      relatedRequestId: options.relatedRequestId ?? null,
+      priority: options.priority ?? 50,
+    },
+  });
+
+  return { id: existing.id, created: false };
 }

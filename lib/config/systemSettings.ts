@@ -174,6 +174,21 @@ export const SETTINGS = {
     schema: z.string().max(400),
     defaultValue: "",
   }),
+  instanceRepositoryUrl: define({
+    key: "instance.repository_url",
+    category: "instance",
+    description:
+      "Public source code URL shown in the footer. Operators of a fork should point this at their repository.",
+    schema: z.url().or(z.literal("")),
+    defaultValue: "https://github.com/ArturLauche/brokermogger",
+  }),
+  instanceDocumentationUrl: define({
+    key: "instance.documentation_url",
+    category: "instance",
+    description: "Documentation URL shown in the footer of public pages.",
+    schema: z.url().or(z.literal("")),
+    defaultValue: "https://github.com/ArturLauche/brokermogger#readme",
+  }),
 } as const;
 
 export type SettingKey = (typeof SETTINGS)[keyof typeof SETTINGS]["key"];

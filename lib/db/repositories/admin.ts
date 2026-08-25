@@ -168,7 +168,10 @@ export async function retryJobRow(jobId: string) {
     data: {
       status: "RETRYABLE",
       runAt: new Date(),
+      attemptCount: 0,
       lastError: null,
+      completedAt: null,
+      cancelledAt: null,
       lockedAt: null,
       lockedBy: null,
       lockExpiresAt: null,

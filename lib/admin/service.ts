@@ -5,6 +5,7 @@ import { addHours } from "date-fns";
 
 import { recordAudit, verifyAuditChain } from "@/lib/audit/service";
 import { ValidationError } from "@/lib/core/errors";
+import { invalidateCatalogCache } from "@/lib/db/repositories/catalog";
 import {
   countAdminOverview,
   createAdminAction,
@@ -45,6 +46,7 @@ export async function changeBrokerVerification(
 ) {
   requirePermission(actor, "admin:broker:manage");
   const broker = await updateBrokerAdmin(brokerId, { verificationStatus });
+  invalidateCatalogCache();
   await recordAudit({
     actor,
     action: "admin.broker_verification_changed",
@@ -61,6 +63,7 @@ export async function changeBrokerProductionSending(
 ) {
   requirePermission(actor, "admin:broker:manage");
   const broker = await updateBrokerAdmin(brokerId, { productionSendingEnabled: enabled });
+  invalidateCatalogCache();
   await recordAudit({
     actor,
     action: "admin.broker_production_sending_changed",

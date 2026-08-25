@@ -8,7 +8,7 @@
  */
 import { randomUUID } from "node:crypto";
 
-import { prisma } from "@/lib/db/client";
+import { prisma, type PrismaTransaction } from "@/lib/db/client";
 
 export interface BucketIdentity {
   scope: string;
@@ -16,6 +16,28 @@ export interface BucketIdentity {
   key: string;
   windowStart: Date;
   windowSeconds: number;
+}
+
+type Queryable = Pick<PrismaTransaction, "$queryRaw">;
+
+export interface BucketReservation {
+  reserved: boolean;
+  count: number;
+}
+
+export interface RequestCreateQuotaReservation {
+  reserved: boolean;
+  rejectedBucket: "daily" | "monthly" | null;
+  rollingCount: number;
+}
+
+class MonthlyQuotaRollback extends Error {
+  readonly bucket = "monthly" as const;
+
+  constructor() {
+    super("monthly_quota_reservation_rejected");
+    this.name = "MonthlyQuotaRollback";
+  }
 }
 
 /** Atomically increments the counter for one window and returns the new value. */
@@ -40,6 +62,147 @@ export async function incrementBucket(identity: BucketIdentity): Promise<number>
   `;
 
   return rows[0]?.count ?? 1;
+}
+
+/**
+ * Atomically adds `weight` only when `max(storedCount, baseline) + weight`
+ * still fits in `limit`. A rejection does not increment the counter.
+ *
+ * `baseline` is the number of already persisted rows that this quota should
+ * cover (for example requests created in the rolling window). That closes the
+ * gap where the bucket starts at 0 while the account already has many rows.
+ */
+export async function reserveBucket(
+  identity: BucketIdentity,
+  weight: number,
+  limit: number,
+  baseline = 0
+): Promise<BucketReservation> {
+  return reserveBucketOn(prisma, identity, weight, limit, baseline);
+}
+
+async function reserveBucketOn(
+  db: Queryable,
+  identity: BucketIdentity,
+  weight: number,
+  limit: number,
+  baseline: number
+): Promise<BucketReservation> {
+  if (!Number.isInteger(weight) || weight < 1) {
+    throw new Error("reserveBucket weight must be a positive integer");
+  }
+
+  const floor = Math.max(baseline, 0);
+  const proposed = floor + weight;
+  if (proposed > limit) {
+    return { reserved: false, count: floor };
+  }
+
+  const expiresAt = new Date(
+    identity.windowStart.getTime() + identity.windowSeconds * 1000
+  );
+
+  const rows = await db.$queryRaw<{ count: number }[]>`
+    INSERT INTO "RateLimitBucket" (
+      "id", "scope", "key", "windowStart", "windowSeconds", "count", "expiresAt",
+      "createdAt", "updatedAt"
+    )
+    VALUES (
+      ${randomUUID()}, ${identity.scope}, ${identity.key},
+      ${identity.windowStart}, ${identity.windowSeconds}, ${proposed}, ${expiresAt},
+      now(), now()
+    )
+    ON CONFLICT ("scope", "key", "windowStart")
+    DO UPDATE SET
+      "count" = GREATEST("RateLimitBucket"."count", ${floor}) + ${weight},
+      "updatedAt" = now()
+    WHERE GREATEST("RateLimitBucket"."count", ${floor}) + ${weight} <= ${limit}
+    RETURNING "count"
+  `;
+
+  if (rows[0]) {
+    return { reserved: true, count: rows[0].count };
+  }
+
+  return { reserved: false, count: floor };
+}
+
+/**
+ * Reserves `requestedCount` against the daily and monthly request-create
+ * buckets in one transaction. The per-user advisory lock plus a GREATEST
+ * against the live request count make concurrent generate calls share one
+ * budget instead of each consuming a single workflow increment.
+ */
+export async function reserveWeightedRequestCreate(input: {
+  userId: string;
+  requestedCount: number;
+  daily: BucketIdentity & { limit: number };
+  monthly: BucketIdentity & { limit: number };
+  rollingSince: Date;
+}): Promise<RequestCreateQuotaReservation> {
+  try {
+    return await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `SELECT pg_advisory_xact_lock(hashtext($1))`,
+        `brokermogger_request_create_${input.userId}`
+      );
+
+      const rollingCount = await tx.removalRequest.count({
+        where: {
+          userId: input.userId,
+          createdAt: { gte: input.rollingSince },
+          deletedAt: null,
+        },
+      });
+      const dailyBaseline = await tx.removalRequest.count({
+        where: {
+          userId: input.userId,
+          createdAt: { gte: input.daily.windowStart },
+          deletedAt: null,
+        },
+      });
+
+      const daily = await reserveBucketOn(
+        tx,
+        input.daily,
+        input.requestedCount,
+        input.daily.limit,
+        dailyBaseline
+      );
+      if (!daily.reserved) {
+        return {
+          reserved: false,
+          rejectedBucket: "daily" as const,
+          rollingCount,
+        };
+      }
+
+      const monthly = await reserveBucketOn(
+        tx,
+        input.monthly,
+        input.requestedCount,
+        input.monthly.limit,
+        rollingCount
+      );
+      if (!monthly.reserved) {
+        throw new MonthlyQuotaRollback();
+      }
+
+      return { reserved: true, rejectedBucket: null, rollingCount };
+    });
+  } catch (error) {
+    if (error instanceof MonthlyQuotaRollback) {
+      const rollingCount = await prisma.removalRequest.count({
+        where: {
+          userId: input.userId,
+          createdAt: { gte: input.rollingSince },
+          deletedAt: null,
+        },
+      });
+      return { reserved: false, rejectedBucket: "monthly", rollingCount };
+    }
+    throw error;
+  }
 }
 
 /** Reads the current counter without incrementing it. */
@@ -68,4 +231,10 @@ export async function deleteExpiredBuckets(now = new Date()): Promise<number> {
     where: { expiresAt: { lt: now } },
   });
   return result.count;
+}
+
+export async function countExpiredBuckets(now = new Date()): Promise<number> {
+  return prisma.rateLimitBucket.count({
+    where: { expiresAt: { lt: now } },
+  });
 }

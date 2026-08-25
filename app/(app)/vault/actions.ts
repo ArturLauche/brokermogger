@@ -6,39 +6,60 @@ import { exportAccountData, requestAccountDeletion } from "@/lib/account/service
 import { requireActor } from "@/lib/auth";
 import {
   addIdentifier,
+  revealOwnedIdentifier,
   softDeleteIdentifier,
   softDeleteProfile,
-  revealOwnedIdentifier,
 } from "@/lib/db/repositories/profiles";
-import type { IdentifierType } from "@prisma/client";
+import { identifierTypeSchema } from "@/lib/validation/enums";
+import { formString, parseWithSchema } from "@/lib/validation/form";
+import { entityIdSchema } from "@/lib/validation/ids";
+import { z } from "zod";
 
 export async function revealIdentifierAction(identifierId: string): Promise<string> {
   const actor = await requireActor();
-  const revealed = await revealOwnedIdentifier(actor, identifierId);
+  const id = parseWithSchema(entityIdSchema, identifierId);
+  const revealed = await revealOwnedIdentifier(actor, id);
   return revealed.value;
 }
 
 export async function addIdentifierAction(formData: FormData): Promise<void> {
   const actor = await requireActor();
-  const profileId = String(formData.get("profileId") ?? "");
-  const type = String(formData.get("type") ?? "OTHER") as IdentifierType;
-  const value = String(formData.get("value") ?? "").trim();
-  if (!profileId || !value) {
+  const parsed = z
+    .object({
+      profileId: entityIdSchema,
+      type: identifierTypeSchema,
+      value: z.string().trim().min(1).max(200),
+    })
+    .safeParse({
+      profileId: formString(formData, "profileId"),
+      type: formString(formData, "type") || "OTHER",
+      value: formString(formData, "value").trim(),
+    });
+  if (!parsed.success) {
     redirect("/vault?error=validation");
   }
-  await addIdentifier(actor, profileId, { type, value });
+  await addIdentifier(actor, parsed.data.profileId, {
+    type: parsed.data.type,
+    value: parsed.data.value,
+  });
   redirect("/vault");
 }
 
 export async function deleteIdentifierAction(formData: FormData): Promise<void> {
   const actor = await requireActor();
-  await softDeleteIdentifier(actor, String(formData.get("identifierId") ?? ""));
+  await softDeleteIdentifier(
+    actor,
+    parseWithSchema(entityIdSchema, formString(formData, "identifierId"))
+  );
   redirect("/vault");
 }
 
 export async function deleteProfileAction(formData: FormData): Promise<void> {
   const actor = await requireActor();
-  await softDeleteProfile(actor, String(formData.get("profileId") ?? ""));
+  await softDeleteProfile(
+    actor,
+    parseWithSchema(entityIdSchema, formString(formData, "profileId"))
+  );
   redirect("/dashboard");
 }
 

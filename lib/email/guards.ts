@@ -54,3 +54,36 @@ export function assertOutboundAllowed(purpose: EmailPurpose): void {
     },
   });
 }
+
+/**
+ * Second operator switch, stored in `sending.enabled_by_admin`. A real
+ * provider still needs this even when `ALLOW_EXTERNAL_SENDING` is true. The
+ * mock adapter never leaves the machine, so it is exempt.
+ */
+export function assertAdminSendingEnabled(
+  purpose: EmailPurpose,
+  sendingEnabledByAdmin: boolean
+): void {
+  if (!isExternalPurpose(purpose)) {
+    return;
+  }
+  if (env.EMAIL_PROVIDER === "mock") {
+    return;
+  }
+  if (sendingEnabledByAdmin) {
+    return;
+  }
+
+  throw new AppError({
+    code: "EXTERNAL_SENDING_DISABLED",
+    message:
+      "External sending is switched off in instance settings. Set " +
+      "sending.enabled_by_admin to true in addition to ALLOW_EXTERNAL_SENDING=true " +
+      "before broker requests can leave this instance.",
+    details: {
+      purpose,
+      sendingEnabledByAdmin,
+      emailProvider: env.EMAIL_PROVIDER,
+    },
+  });
+}

@@ -61,6 +61,14 @@ export async function findAccountEmailById(userId: string): Promise<string | nul
   return row?.email ?? null;
 }
 
+export async function findAccountCreatedAt(userId: string): Promise<Date | null> {
+  const row = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { createdAt: true },
+  });
+  return row?.createdAt ?? null;
+}
+
 /**
  * Anonymise identifiers after the owner requested deletion.
  * Requires an authorized actor (the worker passes `systemActor`) and only

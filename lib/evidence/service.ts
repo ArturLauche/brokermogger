@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import type { EvidenceKind } from "@prisma/client";
 
 import { recordAudit } from "@/lib/audit/service";
-import { SETTINGS } from "@/lib/config/systemSettings";
+import { getSetting } from "@/lib/config/runtimeSettings";
 import { AppError, ValidationError } from "@/lib/core/errors";
 import {
   createEvidenceFile,
@@ -76,12 +76,10 @@ export async function uploadEvidence(
     temporary: input.kind === "IDENTITY_DOCUMENT",
   });
 
+  const temporaryIdDays = await getSetting("retentionTemporaryIdFileDays");
   const expiresAt =
     input.kind === "IDENTITY_DOCUMENT"
-      ? new Date(
-          Date.now() +
-            SETTINGS.retentionTemporaryIdFileDays.defaultValue * 24 * 60 * 60 * 1000
-        )
+      ? new Date(Date.now() + temporaryIdDays * 24 * 60 * 60 * 1000)
       : null;
 
   const file = await createEvidenceFile({

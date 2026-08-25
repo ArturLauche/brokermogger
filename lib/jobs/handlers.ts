@@ -5,7 +5,8 @@
  * constraint so a retry cannot produce a second broker message. Persistence
  * goes through repositories so this module never imports the Prisma client.
  */
-import { env } from "@/lib/config/env";
+import { mapPool } from "@/lib/async/pool";
+import { getSetting } from "@/lib/config/runtimeSettings";
 import {
   anonymiseDeletedAccount,
   findAccountEmailById,
@@ -19,18 +20,27 @@ import {
   getNotification,
   markNotificationEmailed,
 } from "@/lib/db/repositories/notifications";
-import {
-  getWebhookEventById,
-  markWebhookEventProcessed,
-} from "@/lib/db/repositories/outboundEmail";
+import { listUnprocessedWebhookEvents } from "@/lib/db/repositories/outboundEmail";
 import { getEmailProvider } from "@/lib/email";
+import { monthsAgo } from "@/lib/jobs/datetime";
+import { runDeadlineWatch, runRecheckReminder } from "@/lib/jobs/deadlineWatch";
+import { processStoredEmailWebhook } from "@/lib/jobs/emailWebhook";
+import { RECURRING_INTERVAL_SECONDS } from "@/lib/jobs/recurring";
+import { runRetentionSweep } from "@/lib/jobs/retentionSweep";
+import { enqueueJob } from "@/lib/jobs/queue";
 import type { JobHandlerRegistry, JobResult } from "@/lib/jobs/types";
-import { createLogger } from "@/lib/observability/logger";
 import { systemActor } from "@/lib/permissions/actor";
-import { sendApprovedRequest } from "@/lib/requests/lifecycle";
+import { prepareFollowUpDraft, sendApprovedRequest } from "@/lib/requests/lifecycle";
 import { getStorage } from "@/lib/storage";
 
-const log = createLogger("jobs.handlers");
+function recurringRepeat(
+  job: { idempotencyKey: string },
+  seconds: number
+): { repeatAfterSeconds: number } | Record<string, never> {
+  return job.idempotencyKey.startsWith("recurring:")
+    ? { repeatAfterSeconds: seconds }
+    : {};
+}
 
 export function createJobHandlers(): JobHandlerRegistry {
   return {
@@ -39,20 +49,20 @@ export function createJobHandlers(): JobHandlerRegistry {
       const result = await sendApprovedRequest(
         actor,
         job.payload.removalRequestId,
-        job.payload.attempt
+        job.payload.attempt,
+        job.payload.snapshotId
       );
       return { message: result.message };
     },
 
     async PREPARE_FOLLOW_UP(job): Promise<JobResult> {
-      log.info(
-        { requestId: job.payload.removalRequestId },
-        "Follow up preparation requested"
+      const actor = systemActor(job.id);
+      const result = await prepareFollowUpDraft(
+        actor,
+        job.payload.removalRequestId,
+        job.payload.followUpNumber
       );
-      return {
-        message:
-          "Follow up drafts are prepared for user approval. Escalation is never filed automatically.",
-      };
+      return { message: result.message };
     },
 
     async DISPATCH_NOTIFICATION(job): Promise<JobResult> {
@@ -83,15 +93,17 @@ export function createJobHandlers(): JobHandlerRegistry {
     },
 
     async PROCESS_EMAIL_WEBHOOK(job): Promise<JobResult> {
-      const event = await getWebhookEventById(job.payload.webhookEventId);
-      if (!event) {
-        return { message: "Webhook event not found." };
+      const result = await processStoredEmailWebhook(job.payload.webhookEventId);
+      const leftover = await listUnprocessedWebhookEvents(1);
+      const next = leftover[0];
+      if (next && next.id !== job.payload.webhookEventId) {
+        await enqueueJob({
+          type: "PROCESS_EMAIL_WEBHOOK",
+          payload: { webhookEventId: next.id },
+          idempotencyKey: `webhook:${next.id}`,
+        });
       }
-      if (event.processedAt) {
-        return { message: "Webhook event already processed." };
-      }
-      await markWebhookEventProcessed(event.id);
-      return { message: `Processed ${event.eventType}.` };
+      return result;
     },
 
     async GENERATE_REPORT(job): Promise<JobResult> {
@@ -105,40 +117,54 @@ export function createJobHandlers(): JobHandlerRegistry {
       return { message: "Account identifiers anonymised and pending jobs cancelled." };
     },
 
-    async PURGE_EVIDENCE(): Promise<JobResult> {
-      const cutoff = new Date();
-      cutoff.setMonth(cutoff.getMonth() - 24);
-      const files = await listRetentionDueEvidence(cutoff);
+    async PURGE_EVIDENCE(job): Promise<JobResult> {
+      const months = await getSetting("retentionEvidenceMonths");
+      const cutoff = monthsAgo(new Date(), months);
+      const files = await listRetentionDueEvidence(cutoff, 100);
       const storage = getStorage();
-      for (const file of files) {
+      await mapPool(files, 5, async (file) => {
         await storage.delete(file.storageKey);
         await markEvidencePurged(file.id);
-      }
-      return { message: `Purged ${files.length} evidence files.` };
+      });
+      return {
+        message: `Purged ${files.length} evidence files.`,
+        ...recurringRepeat(job, RECURRING_INTERVAL_SECONDS.PURGE_EVIDENCE),
+      };
     },
 
-    async PURGE_TEMP_ID_FILES(): Promise<JobResult> {
-      const files = await listExpiredTemporaryEvidence();
+    async PURGE_TEMP_ID_FILES(job): Promise<JobResult> {
+      const files = await listExpiredTemporaryEvidence(100);
       const storage = getStorage();
-      for (const file of files) {
+      await mapPool(files, 5, async (file) => {
         await storage.delete(file.storageKey);
         await markEvidencePurged(file.id);
-      }
-      return { message: `Purged ${files.length} temporary identity files.` };
+      });
+      return {
+        message: `Purged ${files.length} temporary identity files.`,
+        ...recurringRepeat(job, RECURRING_INTERVAL_SECONDS.PURGE_TEMP_ID_FILES),
+      };
     },
 
-    async DEADLINE_WATCH(): Promise<JobResult> {
-      return { message: "Deadline watch pass complete." };
+    async DEADLINE_WATCH(job): Promise<JobResult> {
+      const result = await runDeadlineWatch(job.payload.windowDays);
+      return {
+        ...result,
+        ...recurringRepeat(job, RECURRING_INTERVAL_SECONDS.DEADLINE_WATCH),
+      };
     },
 
-    async RECHECK_REMINDER(): Promise<JobResult> {
-      return { message: "Recheck reminder recorded." };
+    async RECHECK_REMINDER(job): Promise<JobResult> {
+      return runRecheckReminder(job.payload.removalRequestId);
     },
 
     async RETENTION_SWEEP(job): Promise<JobResult> {
-      log.info({ dryRun: job.payload.dryRun, env: env.APP_ENV }, "Retention sweep");
+      const result = await runRetentionSweep({ dryRun: job.payload.dryRun });
+      if (job.payload.dryRun) {
+        return result;
+      }
       return {
-        message: job.payload.dryRun ? "Retention dry run." : "Retention sweep complete.",
+        ...result,
+        ...recurringRepeat(job, RECURRING_INTERVAL_SECONDS.RETENTION_SWEEP),
       };
     },
   };

@@ -13,14 +13,17 @@
 import { env } from "@/lib/config/env";
 import { RateLimitError } from "@/lib/core/errors";
 import {
+  countExpiredBuckets,
   deleteExpiredBuckets,
   incrementBucket,
   readBucketCount,
+  reserveWeightedRequestCreate,
 } from "@/lib/db/repositories/rateLimit";
 import { createLogger } from "@/lib/observability/logger";
 import { hashContextValue } from "@/lib/security/crypto";
 
 import type { RateLimitPolicy } from "./policies";
+import { requestCreatePerUserDay, requestCreatePerUserMonth } from "./policies";
 
 const log = createLogger("rate-limit");
 
@@ -209,6 +212,113 @@ export async function purgeExpiredBuckets(now = new Date()): Promise<number> {
   const removed = await deleteExpiredBuckets(now);
   log.debug({ removed }, "Purged expired rate limit buckets");
   return removed;
+}
+
+export async function countExpiredRateLimitBuckets(now = new Date()): Promise<number> {
+  return countExpiredBuckets(now);
+}
+
+/**
+ * Reserves `requestedCount` new removal requests against the daily and monthly
+ * fair-use budgets. Unlike `consume()`, a rejection does not increment the
+ * counter, and the weight is the number of requests rather than one workflow.
+ */
+export async function reserveRequestCreateQuota(input: {
+  userId: string;
+  requestedCount: number;
+  dailyLimit: number;
+  monthlyLimit: number;
+  rollingSince: Date;
+  now?: Date;
+}): Promise<RateLimitResult & { bucket: "daily" | "monthly" | null }> {
+  const now = input.now ?? new Date();
+  const dailyPolicy = requestCreatePerUserDay;
+  const monthlyPolicy = requestCreatePerUserMonth;
+  const dailyWindow = windowStartFor(now, dailyPolicy.windowSeconds);
+  const monthlyWindow = windowStartFor(now, monthlyPolicy.windowSeconds);
+
+  if (!env.RATE_LIMIT_ENABLED) {
+    log.debug(
+      { requestedCount: input.requestedCount, reason: "RATE_LIMIT_ENABLED=false" },
+      "Request-create quota not enforced"
+    );
+    if (input.requestedCount > input.dailyLimit) {
+      return {
+        allowed: false,
+        remaining: 0,
+        retryAfterSeconds: Math.max(
+          Math.ceil(
+            (dailyWindow.getTime() + dailyPolicy.windowSeconds * 1000 - now.getTime()) /
+              1000
+          ),
+          1
+        ),
+        limit: input.dailyLimit,
+        bucket: "daily",
+      };
+    }
+    if (input.requestedCount > input.monthlyLimit) {
+      return {
+        allowed: false,
+        remaining: 0,
+        retryAfterSeconds: 1,
+        limit: input.monthlyLimit,
+        bucket: "monthly",
+      };
+    }
+    return {
+      allowed: true,
+      remaining: Math.max(input.dailyLimit - input.requestedCount, 0),
+      retryAfterSeconds: 0,
+      limit: input.dailyLimit,
+      bucket: null,
+    };
+  }
+
+  const result = await reserveWeightedRequestCreate({
+    userId: input.userId,
+    requestedCount: input.requestedCount,
+    rollingSince: input.rollingSince,
+    daily: {
+      scope: dailyPolicy.scope,
+      key: hashKey(dailyPolicy.scope, input.userId),
+      windowStart: dailyWindow,
+      windowSeconds: dailyPolicy.windowSeconds,
+      limit: input.dailyLimit,
+    },
+    monthly: {
+      scope: monthlyPolicy.scope,
+      key: hashKey(monthlyPolicy.scope, input.userId),
+      windowStart: monthlyWindow,
+      windowSeconds: monthlyPolicy.windowSeconds,
+      limit: input.monthlyLimit,
+    },
+  });
+
+  if (result.reserved) {
+    return {
+      allowed: true,
+      remaining: Math.max(input.dailyLimit - input.requestedCount, 0),
+      retryAfterSeconds: 0,
+      limit: input.dailyLimit,
+      bucket: null,
+    };
+  }
+
+  const rejectedDaily = result.rejectedBucket === "daily";
+  const windowStart = rejectedDaily ? dailyWindow : monthlyWindow;
+  const windowSeconds = rejectedDaily
+    ? dailyPolicy.windowSeconds
+    : monthlyPolicy.windowSeconds;
+  const windowEnd = windowStart.getTime() + windowSeconds * 1000;
+
+  return {
+    allowed: false,
+    remaining: 0,
+    retryAfterSeconds: Math.max(Math.ceil((windowEnd - now.getTime()) / 1000), 1),
+    limit: rejectedDaily ? input.dailyLimit : input.monthlyLimit,
+    bucket: result.rejectedBucket,
+  };
 }
 
 export {

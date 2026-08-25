@@ -58,7 +58,11 @@ export function emailProviderKind(): EmailProviderKind {
   return getEmailProvider().kind;
 }
 
-export { assertOutboundAllowed, isExternalPurpose } from "./guards";
+export {
+  assertAdminSendingEnabled,
+  assertOutboundAllowed,
+  isExternalPurpose,
+} from "./guards";
 export {
   buildBrokerRequestMessage,
   buildConsentInviteMessage,

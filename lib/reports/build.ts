@@ -22,6 +22,7 @@ export interface ReportPayload {
   openActions: string[];
   limitations: string[];
   nextSteps: string[];
+  truncated: boolean;
 }
 
 export function buildReportPayload(input: {
@@ -29,8 +30,22 @@ export function buildReportPayload(input: {
   dateTo: Date;
   profileLabel: string;
   requests: ReportRequestRow[];
+  truncated?: boolean;
+  requestCountCap?: number;
 }): ReportPayload {
   const completed = input.requests.filter((row) => row.status === "COMPLETED").length;
+  const truncated = input.truncated === true;
+  const limitations = [
+    "This report lists what this instance prepared, approved and sent. It is not a measurement of remaining copies of your data.",
+    "Brokers can refuse, ignore or keep records they are legally allowed to keep.",
+    "Brokermogger is not a law firm and does not guarantee removal.",
+    `${completed} of ${input.requests.length} listed requests are marked completed.`,
+  ];
+  if (truncated) {
+    limitations.push(
+      `This report includes at most ${input.requestCountCap ?? input.requests.length} requests in the selected date range. Additional matching requests were omitted.`
+    );
+  }
   return {
     title: "Brokermogger privacy request report",
     generatedAt: new Date().toISOString(),
@@ -51,17 +66,13 @@ export function buildReportPayload(input: {
       .map(
         (row) => `${row.brokerName}: ${row.status.replaceAll("_", " ").toLowerCase()}`
       ),
-    limitations: [
-      "This report lists what this instance prepared, approved and sent. It is not a measurement of remaining copies of your data.",
-      "Brokers can refuse, ignore or keep records they are legally allowed to keep.",
-      "Brokermogger is not a law firm and does not guarantee removal.",
-      `${completed} of ${input.requests.length} listed requests are marked completed.`,
-    ],
+    limitations,
     nextSteps: [
       "Review requests that still need your approval or a manual channel.",
       "Keep evidence files only as long as you need them.",
       "Do not send identity documents unless a specific request asked for them.",
     ],
+    truncated,
   };
 }
 

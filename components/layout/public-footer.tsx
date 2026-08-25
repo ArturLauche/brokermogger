@@ -4,16 +4,26 @@
  * Says what the project is, under which licence it ships, where to report a
  * security problem and, plainly, that none of this is legal advice. The links
  * are props because a self hosted instance decides where its source and its
- * documentation live; the defaults are obvious placeholders.
+ * documentation live. Defaults point at the public Brokermogger repository
+ * until the operator overrides them.
  */
 import Link from "next/link";
 
+import {
+  DEFAULT_DOCUMENTATION_URL,
+  DEFAULT_REPOSITORY_URL,
+  DEFAULT_SECURITY_ADVISORIES_URL,
+  DEFAULT_SECURITY_CONTACT,
+  isPlaceholderSecurityContact,
+  LICENSE_NAME,
+  SITE_NAME,
+} from "@/lib/config/site";
 import { ExternalLink } from "@/components/common/external-link";
 import { cn } from "@/lib/utils";
 
-export const PLACEHOLDER_REPOSITORY_URL = "https://example.invalid/brokermogger";
-export const PLACEHOLDER_DOCUMENTATION_URL = "https://example.invalid/brokermogger/docs";
-export const PLACEHOLDER_SECURITY_CONTACT = "security@example.invalid";
+export const PLACEHOLDER_REPOSITORY_URL = DEFAULT_REPOSITORY_URL;
+export const PLACEHOLDER_DOCUMENTATION_URL = DEFAULT_DOCUMENTATION_URL;
+export const PLACEHOLDER_SECURITY_CONTACT = DEFAULT_SECURITY_CONTACT;
 
 export interface PublicFooterProps {
   instanceName?: string;
@@ -25,13 +35,14 @@ export interface PublicFooterProps {
 }
 
 export function PublicFooter({
-  instanceName = "Brokermogger",
-  repositoryUrl = PLACEHOLDER_REPOSITORY_URL,
-  documentationUrl = PLACEHOLDER_DOCUMENTATION_URL,
-  securityContactEmail = PLACEHOLDER_SECURITY_CONTACT,
-  licenseName = "AGPL-3.0-or-later",
+  instanceName = SITE_NAME,
+  repositoryUrl = DEFAULT_REPOSITORY_URL,
+  documentationUrl = DEFAULT_DOCUMENTATION_URL,
+  securityContactEmail = DEFAULT_SECURITY_CONTACT,
+  licenseName = LICENSE_NAME,
   className,
 }: PublicFooterProps) {
+  const securityIsPlaceholder = isPlaceholderSecurityContact(securityContactEmail);
   return (
     <footer className={cn("border-t bg-muted/40", className)}>
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-10">
@@ -68,12 +79,18 @@ export function PublicFooter({
             <ul className="flex flex-col gap-1.5 text-sm text-muted-foreground">
               <li>
                 Report a vulnerability:{" "}
-                <a
-                  href={`mailto:${securityContactEmail}`}
-                  className="underline underline-offset-4 hover:text-primary"
-                >
-                  {securityContactEmail}
-                </a>
+                {securityIsPlaceholder ? (
+                  <ExternalLink href={DEFAULT_SECURITY_ADVISORIES_URL}>
+                    GitHub security advisories
+                  </ExternalLink>
+                ) : (
+                  <a
+                    href={`mailto:${securityContactEmail}`}
+                    className="underline underline-offset-4 hover:text-primary"
+                  >
+                    {securityContactEmail}
+                  </a>
+                )}
               </li>
               <li>
                 <Link

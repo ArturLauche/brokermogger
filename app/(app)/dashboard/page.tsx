@@ -10,7 +10,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { resolveActiveProfileForRequest } from "@/app/_lib/active-profile";
 import { requireActorOrRedirect } from "@/lib/auth";
-import { listOwnedRequests } from "@/lib/db/repositories/requests";
+import { getEffectiveFairUse } from "@/lib/config/runtimeSettings";
+import {
+  countDistinctOwnedBrokers,
+  listRecentOwnedRequests,
+  listUpcomingDeadlines,
+  summarizeOwnedRequests,
+} from "@/lib/db/repositories/requests";
+import type { RequestStatus } from "@prisma/client";
 import {
   NEEDS_USER_ACTION_STATUSES,
   WAITING_STATUSES,
@@ -22,17 +29,17 @@ export const dynamic = "force-dynamic";
 export default async function DashboardPage() {
   const actor = await requireActorOrRedirect();
   const { active } = await resolveActiveProfileForRequest(actor);
-  const requests = active
-    ? await listOwnedRequests(actor, active.id)
-    : await listOwnedRequests(actor, null);
+  const profileId = active?.id ?? null;
+  const [summary, requests, upcoming, fairUse, brokerCount] = await Promise.all([
+    summarizeOwnedRequests(actor, profileId),
+    listRecentOwnedRequests(actor, profileId, 8),
+    listUpcomingDeadlines(actor, profileId, 5),
+    getEffectiveFairUse(actor.userId),
+    countDistinctOwnedBrokers(actor, profileId),
+  ]);
 
-  const count = (statuses: readonly string[]) =>
-    requests.filter((request) => statuses.includes(request.status)).length;
-
-  const upcoming = requests
-    .filter((request) => request.deadlineAt && request.deadlineAt > new Date())
-    .sort((a, b) => (a.deadlineAt?.getTime() ?? 0) - (b.deadlineAt?.getTime() ?? 0))
-    .slice(0, 5);
+  const count = (statuses: readonly RequestStatus[]) =>
+    statuses.reduce((sum, status) => sum + (summary.byStatus.get(status) ?? 0), 0);
 
   return (
     <div className="flex flex-col gap-6">
@@ -64,10 +71,7 @@ export default async function DashboardPage() {
       ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        <StatCard
-          label="Total brokers selected"
-          value={new Set(requests.map((r) => r.brokerId)).size}
-        />
+        <StatCard label="Total brokers selected" value={brokerCount} />
         <StatCard
           label="Requests prepared"
           value={count(["PREPARED", "AWAITING_USER_APPROVAL", "MANUAL_REVIEW_REQUIRED"])}
@@ -102,7 +106,7 @@ export default async function DashboardPage() {
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-muted-foreground">
           <p>
-            Estimate only: {count(["COMPLETED"])} of {requests.length || 0} requests are
+            Estimate only: {count(["COMPLETED"])} of {summary.total || 0} requests are
             marked completed. This is not a measurement of remaining copies of your data.
             Brokers can refuse, ignore or keep records they are legally allowed to keep.
           </p>
@@ -116,7 +120,8 @@ export default async function DashboardPage() {
         <CardContent className="text-sm text-muted-foreground">
           <p>
             Limits exist so this instance stays reliable. They are not a paid upgrade.
-            Default budget: 25 new requests per day and 200 per month.
+            Current budget: {fairUse.requestsPerDay} new requests per day and{" "}
+            {fairUse.requestsPerMonth} per month.
           </p>
         </CardContent>
       </Card>

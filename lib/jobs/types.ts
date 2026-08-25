@@ -16,7 +16,7 @@ export interface JobPayloadMap {
   GENERATE_REPORT: { reportId: string };
   DELETE_ACCOUNT_DATA: { userId: string; requestedAt: string };
   PURGE_EVIDENCE: { olderThanIso: string };
-  PURGE_TEMP_ID_FILES: { olderThanIso?: string };
+  PURGE_TEMP_ID_FILES: { olderThanIso?: string | undefined };
   DEADLINE_WATCH: { windowDays: number };
   RECHECK_REMINDER: { removalRequestId: string };
   RETENTION_SWEEP: { dryRun: boolean };
@@ -57,6 +57,12 @@ export interface JobResult {
   metadata?: Record<string, unknown>;
   /** Ask the queue to run this job again later instead of completing it. */
   retryAfterSeconds?: number;
+  /**
+   * Successful recurring pass: keep the same job row, reset attempts, and run
+   * again after this many seconds. Distinct from `retryAfterSeconds`, which
+   * counts as a failed attempt.
+   */
+  repeatAfterSeconds?: number;
 }
 
 export type JobHandler<T extends JobType> = (job: ClaimedJob<T>) => Promise<JobResult>;

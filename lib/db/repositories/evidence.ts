@@ -18,6 +18,7 @@ export async function listOwnedEvidence(actor: ActorContext, profileId: string |
     },
     include: { removalRequest: { include: { broker: true } } },
     orderBy: { createdAt: "desc" },
+    take: 100,
   });
 }
 
@@ -61,22 +62,50 @@ export async function softDeleteEvidence(actor: ActorContext, evidenceId: string
   });
 }
 
+function evidenceRetentionWhere(cutoff: Date): Prisma.EvidenceFileWhereInput {
+  const closedPastCutoff = [
+    { closedAt: { lte: cutoff } },
+    { closedAt: null, updatedAt: { lte: cutoff } },
+  ];
+  return {
+    deletedAt: null,
+    isTemporary: false,
+    OR: [
+      { removalRequestId: null, createdAt: { lt: cutoff } },
+      { removalRequest: { status: "CLOSED", OR: closedPastCutoff } },
+      { removalRequest: { deletedAt: { not: null }, OR: closedPastCutoff } },
+    ],
+  };
+}
+
 export async function listRetentionDueEvidence(cutoff: Date, take = 50) {
   return prisma.evidenceFile.findMany({
-    where: { deletedAt: null, createdAt: { lt: cutoff }, isTemporary: false },
+    where: evidenceRetentionWhere(cutoff),
     take,
   });
 }
 
+export async function countRetentionDueEvidence(cutoff: Date): Promise<number> {
+  return prisma.evidenceFile.count({ where: evidenceRetentionWhere(cutoff) });
+}
+
+function temporaryEvidenceWhere(): Prisma.EvidenceFileWhereInput {
+  return {
+    isTemporary: true,
+    deletedAt: null,
+    expiresAt: { lte: new Date() },
+  };
+}
+
 export async function listExpiredTemporaryEvidence(take = 50) {
   return prisma.evidenceFile.findMany({
-    where: {
-      isTemporary: true,
-      deletedAt: null,
-      expiresAt: { lte: new Date() },
-    },
+    where: temporaryEvidenceWhere(),
     take,
   });
+}
+
+export async function countExpiredTemporaryEvidence(): Promise<number> {
+  return prisma.evidenceFile.count({ where: temporaryEvidenceWhere() });
 }
 
 export async function markEvidencePurged(id: string) {

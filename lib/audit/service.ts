@@ -23,6 +23,7 @@ import type { ActorType, AuditOutcome, UserRole } from "@prisma/client";
 import { canonicalJson, chainHash } from "@/lib/security/crypto";
 import {
   appendAuditLog,
+  findAuditLogByHash,
   listAuditChainWindow,
   type AuditChainRow,
 } from "@/lib/db/repositories/audit";
@@ -465,6 +466,13 @@ export async function verifyAuditChain(limit?: number): Promise<AuditChainVerifi
   const { rows, previousHash } = await listAuditChainWindow(limit);
 
   let expectedPrevHash = previousHash;
+  const first = rows[0];
+  if (first?.prevHash && expectedPrevHash === null) {
+    const predecessor = await findAuditLogByHash(first.prevHash);
+    if (!predecessor) {
+      expectedPrevHash = first.prevHash;
+    }
+  }
 
   for (const [index, row] of rows.entries()) {
     if (row.prevHash !== expectedPrevHash) {

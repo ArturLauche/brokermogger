@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { ErrorState } from "@/components/common/error-state";
-import { PublicFooter } from "@/components/layout/public-footer";
+import { InstancePublicFooter } from "@/components/layout/instance-public-footer";
 import { PublicHeader } from "@/components/layout/public-header";
 import { Button } from "@/components/ui/button";
 
@@ -22,6 +22,7 @@ export default function NotFound() {
       >
         <ErrorState
           className="w-full"
+          headingLevel={1}
           title="This page does not exist"
           description="The address is wrong, or the page has been removed. If you followed a link inside the product, the item may have been deleted."
           errorCode="NOT_FOUND"
@@ -32,7 +33,7 @@ export default function NotFound() {
           }
         />
       </main>
-      <PublicFooter />
+      <InstancePublicFooter />
     </>
   );
 }

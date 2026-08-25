@@ -3,7 +3,8 @@
  *
  * Every status change in the product goes through `assertTransition` and
  * produces a RemovalRequestEvent. Arbitrary status writes are not possible:
- * repositories reject any update that did not pass this module.
+ * `applyRequestStatus` in the request repository is the only writer. It
+ * updates the row and appends the hash-chained event in one transaction.
  */
 import { type RequestStatus } from "@prisma/client";
 
@@ -205,6 +206,11 @@ export const TRANSITIONS: Readonly<Record<RequestStatus, readonly TransitionRule
       to: "WAITING_FOR_BROKER",
       actors: ["SYSTEM", "USER"],
       description: "Follow up cancelled",
+    },
+    {
+      to: "ESCALATION_RECOMMENDED",
+      actors: ["SYSTEM"],
+      description: "Follow-up cap reached before approval",
     },
     { to: "CLOSED", actors: ["USER"], description: "Closed by user" },
   ],

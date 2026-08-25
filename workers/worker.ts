@@ -10,16 +10,21 @@
 import { randomUUID } from "node:crypto";
 
 import { env } from "@/lib/config/env";
-import { createLogger } from "@/lib/observability/logger";
-import { processOnce } from "@/lib/jobs/queue";
-import type { JobHandlerRegistry } from "@/lib/jobs/types";
 import { createJobHandlers } from "@/lib/jobs/handlers";
+import { processOnce } from "@/lib/jobs/queue";
+import { ensureRecurringJobs } from "@/lib/jobs/recurring";
+import type { JobHandlerRegistry } from "@/lib/jobs/types";
+import { createLogger } from "@/lib/observability/logger";
 
 const log = createLogger("worker");
 
 async function main(): Promise<void> {
   const workerId = `worker-${process.pid}-${randomUUID().slice(0, 8)}`;
   const handlers: JobHandlerRegistry = createJobHandlers();
+
+  await ensureRecurringJobs();
+  let lastEnsureAt = Date.now();
+  const ensureEveryMs = 10 * 60 * 1000;
 
   log.info(
     {
@@ -39,6 +44,10 @@ async function main(): Promise<void> {
 
   while (!stopping) {
     try {
+      if (Date.now() - lastEnsureAt >= ensureEveryMs) {
+        await ensureRecurringJobs();
+        lastEnsureAt = Date.now();
+      }
       const processed = await processOnce(workerId, handlers);
       if (processed === 0) {
         await sleep(env.JOB_POLL_INTERVAL_MS);

@@ -1,5 +1,5 @@
 import { PageHeader } from "@/components/common/page-header";
-import { PublicFooter } from "@/components/layout/public-footer";
+import { InstancePublicFooter } from "@/components/layout/instance-public-footer";
 import { PublicHeader } from "@/components/layout/public-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,10 @@ import { CONSENT_STATEMENT, resolveConsentInvitation } from "@/lib/household/ser
 
 import { decideConsentAction } from "./actions";
 
-export const metadata = { title: "Household consent" };
+export const metadata = {
+  title: "Household consent",
+  robots: { index: false, follow: false },
+};
 export const dynamic = "force-dynamic";
 
 export default async function HouseholdConsentPage({
@@ -72,7 +75,7 @@ export default async function HouseholdConsentPage({
           </>
         ) : null}
       </main>
-      <PublicFooter />
+      <InstancePublicFooter />
     </>
   );
 }

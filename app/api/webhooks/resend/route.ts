@@ -1,11 +1,10 @@
 /**
  * Resend delivery webhook.
  *
- * This endpoint only authenticates and stores. Processing (bounce handling,
- * complaint handling, updating `OutboundEmail`) is done by the background worker
- * which polls `EmailWebhookEvent WHERE processedAt IS NULL`. Keeping the handler
- * free of side effects means a provider retry storm cannot cascade into the
- * domain logic, and a failed signature never reaches business code.
+ * This endpoint authenticates the provider, stores the event, and enqueues
+ * processing. Duplicate deliveries that are still unprocessed are enqueued
+ * again; `enqueueJob` is idempotent on `webhook:${id}`. Domain side effects
+ * (ledger, request status) stay in the worker.
  */
 import { Webhook } from "svix";
 import { z } from "zod";
@@ -13,7 +12,7 @@ import { z } from "zod";
 import { anonymousAuditActor, recordSecurityEvent } from "@/lib/audit/service";
 import { readRequestContext } from "@/lib/auth/requestContext";
 import { env } from "@/lib/config/env";
-import { recordWebhookEvent } from "@/lib/db/repositories/outboundEmail";
+import { storeAndQueueEmailWebhook } from "@/lib/jobs/emailWebhook";
 import { createLogger } from "@/lib/observability/logger";
 
 const log = createLogger("webhook.resend");
@@ -70,7 +69,7 @@ export async function POST(request: Request): Promise<Response> {
     return jsonResponse({ error: "invalid_payload" }, 400);
   }
 
-  const stored = await recordWebhookEvent({
+  const stored = await storeAndQueueEmailWebhook({
     provider: "resend",
     eventId: `resend:${svixId}`,
     eventType: parsed.data.type,
