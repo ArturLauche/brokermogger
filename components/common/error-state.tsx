@@ -21,7 +21,7 @@ export interface ErrorStateProps {
   retryLabel?: string;
   /** Additional action, for example a link back to a safe screen. */
   action?: ReactNode;
-  headingLevel?: 2 | 3 | 4;
+  headingLevel?: 1 | 2 | 3 | 4;
   className?: string;
 }
 

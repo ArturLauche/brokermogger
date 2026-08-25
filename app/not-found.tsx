@@ -22,6 +22,7 @@ export default function NotFound() {
       >
         <ErrorState
           className="w-full"
+          headingLevel={1}
           title="This page does not exist"
           description="The address is wrong, or the page has been removed. If you followed a link inside the product, the item may have been deleted."
           errorCode="NOT_FOUND"
