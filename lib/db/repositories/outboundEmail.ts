@@ -134,6 +134,7 @@ export interface WebhookEventResult {
   id: string;
   /** True when the provider replayed an event we already stored. */
   duplicate: boolean;
+  processedAt: Date | null;
 }
 
 /**
@@ -145,25 +146,40 @@ export async function recordWebhookEvent(
 ): Promise<WebhookEventResult> {
   const existing = await prisma.emailWebhookEvent.findUnique({
     where: { eventId: input.eventId },
-    select: { id: true },
+    select: { id: true, processedAt: true },
   });
 
   if (existing) {
-    return { id: existing.id, duplicate: true };
+    return {
+      id: existing.id,
+      duplicate: true,
+      processedAt: existing.processedAt,
+    };
   }
 
-  const created = await prisma.emailWebhookEvent.create({
-    data: {
-      provider: input.provider,
-      eventId: input.eventId,
-      eventType: input.eventType,
-      payloadJson: input.payloadJson as Prisma.InputJsonObject,
-      signatureVerified: input.signatureVerified,
-    },
-    select: { id: true },
-  });
+  try {
+    const created = await prisma.emailWebhookEvent.create({
+      data: {
+        provider: input.provider,
+        eventId: input.eventId,
+        eventType: input.eventType,
+        payloadJson: input.payloadJson as Prisma.InputJsonObject,
+        signatureVerified: input.signatureVerified,
+      },
+      select: { id: true, processedAt: true },
+    });
 
-  return { id: created.id, duplicate: false };
+    return { id: created.id, duplicate: false, processedAt: created.processedAt };
+  } catch (error) {
+    const again = await prisma.emailWebhookEvent.findUnique({
+      where: { eventId: input.eventId },
+      select: { id: true, processedAt: true },
+    });
+    if (again) {
+      return { id: again.id, duplicate: true, processedAt: again.processedAt };
+    }
+    throw error;
+  }
 }
 
 export async function getWebhookEventById(id: string) {

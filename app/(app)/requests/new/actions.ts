@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 
 import { requireActor } from "@/lib/auth";
 import { isAppError } from "@/lib/core/errors";
+import { MAX_BROKERS_PER_WORKFLOW } from "@/lib/requests/fairUse";
 import { generateRequests } from "@/lib/requests/lifecycle";
 import { requestTypeSchema } from "@/lib/validation/enums";
 import { formString, formStrings } from "@/lib/validation/form";
@@ -13,7 +14,11 @@ import { z } from "zod";
 const workflowSchema = z.object({
   profileId: entityIdSchema,
   requestType: requestTypeSchema,
-  brokerIds: z.array(entityIdSchema).min(1),
+  brokerIds: z
+    .array(entityIdSchema)
+    .min(1)
+    .max(MAX_BROKERS_PER_WORKFLOW)
+    .transform((ids) => [...new Set(ids)]),
   identifierIds: z.array(entityIdSchema).min(1),
 });
 

@@ -4,13 +4,14 @@
  */
 import type {
   ActorType,
+  JobType,
   Prisma,
   RequestEventType,
   RequestStatus,
   RequestType,
 } from "@prisma/client";
 
-import { prisma } from "@/lib/db/client";
+import { prisma, type PrismaTransaction } from "@/lib/db/client";
 import { AppError, NotFoundError } from "@/lib/core/errors";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
@@ -84,40 +85,85 @@ export async function listOwnedRequests(
 }
 
 const EXPORT_PAGE_SIZE = 200;
-const EXPORT_MAX_PAGES = 50;
+/** Fail an account export rather than returning a silently truncated file. */
+export const EXPORT_HARD_ROW_LIMIT = 250_000;
+/** Visible report cap. Larger result sets are marked truncated in the report. */
+export const REPORT_MAX_ROWS = 10_000;
 
-/** Paginated account-export rows. Does not cap at the UI list limit. */
-export async function listOwnedRequestExportRows(actor: ActorContext) {
-  requirePermission(actor, "request:read", { ownerUserId: actor.userId });
-  const rows: {
-    id: string;
-    status: RequestStatus;
-    requestType: RequestType;
-    createdAt: Date;
-    broker: { legalName: string };
-  }[] = [];
+async function paginateById<T extends { id: string }>(input: {
+  loadPage: (cursor: string | undefined) => Promise<T[]>;
+  maxRows: number;
+  onCap: "throw" | "truncate";
+}): Promise<{ rows: T[]; truncated: boolean }> {
+  const rows: T[] = [];
   let cursor: string | undefined;
 
-  for (let page = 0; page < EXPORT_MAX_PAGES; page += 1) {
-    const batch = await prisma.removalRequest.findMany({
-      where: { userId: actor.userId, deletedAt: null },
-      select: {
-        id: true,
-        status: true,
-        requestType: true,
-        createdAt: true,
-        broker: { select: { legalName: true } },
-      },
-      orderBy: { id: "asc" },
-      take: EXPORT_PAGE_SIZE,
-      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
-    });
+  while (rows.length < input.maxRows) {
+    const batch = await input.loadPage(cursor);
+    if (batch.length === 0) {
+      return { rows, truncated: false };
+    }
+
+    const room = input.maxRows - rows.length;
+    if (batch.length > room) {
+      rows.push(...batch.slice(0, room));
+      if (input.onCap === "throw") {
+        throw new AppError({
+          code: "INTERNAL_ERROR",
+          message:
+            "This account has too many requests to export as a single file. Contact the instance operator.",
+          details: { limit: input.maxRows },
+        });
+      }
+      return { rows, truncated: true };
+    }
+
     rows.push(...batch);
-    if (batch.length < EXPORT_PAGE_SIZE) break;
+    if (batch.length < EXPORT_PAGE_SIZE) {
+      return { rows, truncated: false };
+    }
     cursor = batch[batch.length - 1]?.id;
-    if (!cursor) break;
+    if (!cursor) {
+      return { rows, truncated: false };
+    }
   }
 
+  const peek = await input.loadPage(cursor);
+  if (peek.length === 0) {
+    return { rows, truncated: false };
+  }
+  if (input.onCap === "throw") {
+    throw new AppError({
+      code: "INTERNAL_ERROR",
+      message:
+        "This account has too many requests to export as a single file. Contact the instance operator.",
+      details: { limit: input.maxRows },
+    });
+  }
+  return { rows, truncated: true };
+}
+
+/** Paginated account-export rows. Iterates until the cursor is exhausted. */
+export async function listOwnedRequestExportRows(actor: ActorContext) {
+  requirePermission(actor, "request:read", { ownerUserId: actor.userId });
+  const { rows } = await paginateById({
+    maxRows: EXPORT_HARD_ROW_LIMIT,
+    onCap: "throw",
+    loadPage: (cursor) =>
+      prisma.removalRequest.findMany({
+        where: { userId: actor.userId, deletedAt: null },
+        select: {
+          id: true,
+          status: true,
+          requestType: true,
+          createdAt: true,
+          broker: { select: { legalName: true } },
+        },
+        orderBy: { id: "asc" },
+        take: EXPORT_PAGE_SIZE,
+        ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+      }),
+  });
   return rows;
 }
 
@@ -170,7 +216,7 @@ export async function createDraftRequest(data: Prisma.RemovalRequestCreateInput)
   return prisma.removalRequest.create({ data });
 }
 
-export async function appendRequestEvent(input: {
+export interface RequestEventInput {
   removalRequestId: string;
   type: RequestEventType;
   fromStatus: RequestStatus | null;
@@ -179,21 +225,41 @@ export async function appendRequestEvent(input: {
   actorUserId: string | null;
   message: string | null;
   payload?: Record<string, unknown>;
-}) {
-  return prisma.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe(
-      `SELECT pg_advisory_xact_lock(hashtext($1))`,
-      `brokermogger_request_events_${input.removalRequestId}`
-    );
+}
 
-    const previous = await tx.removalRequestEvent.findFirst({
-      where: { removalRequestId: input.removalRequestId },
-      orderBy: { createdAt: "desc" },
-      select: { hash: true },
-    });
+async function lockRequestEventChain(
+  tx: PrismaTransaction,
+  requestId: string
+): Promise<void> {
+  await tx.$executeRawUnsafe(
+    `SELECT pg_advisory_xact_lock(hashtext($1))`,
+    `brokermogger_request_events_${requestId}`
+  );
+}
 
-    const createdAt = new Date();
-    const canonical = canonicalJson({
+async function appendRequestEventInTx(tx: PrismaTransaction, input: RequestEventInput) {
+  const previous = await tx.removalRequestEvent.findFirst({
+    where: { removalRequestId: input.removalRequestId },
+    orderBy: { createdAt: "desc" },
+    select: { hash: true },
+  });
+
+  const createdAt = new Date();
+  const canonical = canonicalJson({
+    removalRequestId: input.removalRequestId,
+    type: input.type,
+    fromStatus: input.fromStatus,
+    toStatus: input.toStatus,
+    actorType: input.actorType,
+    actorUserId: input.actorUserId,
+    message: input.message,
+    payload: input.payload ?? {},
+    createdAt,
+  });
+  const hash = chainHash(previous?.hash ?? null, canonical);
+
+  return tx.removalRequestEvent.create({
+    data: {
       removalRequestId: input.removalRequestId,
       type: input.type,
       fromStatus: input.fromStatus,
@@ -201,26 +267,18 @@ export async function appendRequestEvent(input: {
       actorType: input.actorType,
       actorUserId: input.actorUserId,
       message: input.message,
-      payload: input.payload ?? {},
+      payload: (input.payload ?? {}) as Prisma.InputJsonValue,
+      prevHash: previous?.hash ?? null,
+      hash,
       createdAt,
-    });
-    const hash = chainHash(previous?.hash ?? null, canonical);
+    },
+  });
+}
 
-    return tx.removalRequestEvent.create({
-      data: {
-        removalRequestId: input.removalRequestId,
-        type: input.type,
-        fromStatus: input.fromStatus,
-        toStatus: input.toStatus,
-        actorType: input.actorType,
-        actorUserId: input.actorUserId,
-        message: input.message,
-        payload: (input.payload ?? {}) as Prisma.InputJsonValue,
-        prevHash: previous?.hash ?? null,
-        hash,
-        createdAt,
-      },
-    });
+export async function appendRequestEvent(input: RequestEventInput) {
+  return prisma.$transaction(async (tx) => {
+    await lockRequestEventChain(tx, input.removalRequestId);
+    return appendRequestEventInTx(tx, input);
   });
 }
 
@@ -265,13 +323,18 @@ export async function patchRequest(
 /**
  * The only function allowed to write `RemovalRequest.status`. The current
  * status must still be `from` (optimistic concurrency) and the pair must pass
- * `assertTransition`.
+ * `assertTransition`. The matching hash-chained event is inserted in the same
+ * transaction. Callers that also need to drop pending jobs (close, complete)
+ * pass `cancelPendingJobTypes` so those rows are cancelled atomically.
  */
 export async function applyRequestStatus(input: {
   requestId: string;
   from: RequestStatus;
   to: RequestStatus;
   actor: TransitionActor;
+  actorUserId: string | null;
+  message: string;
+  cancelPendingJobTypes?: readonly JobType[];
 }): Promise<void> {
   assertTransition(input.from, input.to, input.actor);
 
@@ -280,18 +343,50 @@ export async function applyRequestStatus(input: {
   if (input.to === "COMPLETED") extra.completedAt = new Date();
   if (input.to === "DELIVERED") extra.deliveredAt = new Date();
 
-  const updated = await prisma.removalRequest.updateMany({
-    where: { id: input.requestId, status: input.from, deletedAt: null },
-    data: { status: input.to, lastEventAt: new Date(), ...extra },
-  });
+  await prisma.$transaction(async (tx) => {
+    await lockRequestEventChain(tx, input.requestId);
 
-  if (updated.count !== 1) {
-    throw new AppError({
-      code: "CONFLICT",
-      message: "This request changed. Reload and try again.",
-      details: { from: input.from, to: input.to },
+    const updated = await tx.removalRequest.updateMany({
+      where: { id: input.requestId, status: input.from, deletedAt: null },
+      data: { status: input.to, lastEventAt: new Date(), ...extra },
     });
-  }
+
+    if (updated.count !== 1) {
+      throw new AppError({
+        code: "CONFLICT",
+        message: "This request changed. Reload and try again.",
+        details: { from: input.from, to: input.to },
+      });
+    }
+
+    await appendRequestEventInTx(tx, {
+      removalRequestId: input.requestId,
+      type: "STATUS_CHANGE",
+      fromStatus: input.from,
+      toStatus: input.to,
+      actorType: input.actor,
+      actorUserId: input.actorUserId,
+      message: input.message,
+    });
+
+    if (input.cancelPendingJobTypes && input.cancelPendingJobTypes.length > 0) {
+      await tx.backgroundJob.updateMany({
+        where: {
+          relatedRequestId: input.requestId,
+          type: { in: [...input.cancelPendingJobTypes] },
+          status: { in: ["PENDING", "RETRYABLE"] },
+        },
+        data: {
+          status: "CANCELLED",
+          cancelledAt: new Date(),
+          lastError: "Cancelled because the request left a waiting state.",
+          lockedAt: null,
+          lockedBy: null,
+          lockExpiresAt: null,
+        },
+      });
+    }
+  });
 }
 
 export async function countOpenRequests(userId: string, since: Date): Promise<number> {
@@ -361,24 +456,25 @@ export async function listRequestsForUser(
   userId: string,
   profileId: string | null,
   range?: { from: Date; to: Date }
-) {
-  const rows: Awaited<ReturnType<typeof loadRequestReportPage>> = [];
-  let cursor: string | undefined;
-
-  for (let page = 0; page < EXPORT_MAX_PAGES; page += 1) {
-    const batch = await loadRequestReportPage({
-      userId,
-      profileId,
-      ...(range ? { range } : {}),
-      ...(cursor ? { cursor } : {}),
-    });
-    rows.push(...batch);
-    if (batch.length < EXPORT_PAGE_SIZE) break;
-    cursor = batch[batch.length - 1]?.id;
-    if (!cursor) break;
-  }
-
-  return rows;
+): Promise<{
+  rows: Awaited<ReturnType<typeof loadRequestReportPage>>;
+  truncated: boolean;
+  maxRows: number;
+}> {
+  return paginateById({
+    maxRows: REPORT_MAX_ROWS,
+    onCap: "truncate",
+    loadPage: (cursor) =>
+      loadRequestReportPage({
+        userId,
+        profileId,
+        ...(range ? { range } : {}),
+        ...(cursor ? { cursor } : {}),
+      }),
+  }).then((result) => ({
+    ...result,
+    maxRows: REPORT_MAX_ROWS,
+  }));
 }
 
 async function loadRequestReportPage(input: {
@@ -489,7 +585,9 @@ export async function listDeadlineWarningRequests(input: {
       deletedAt: null,
       status: { in: WAITING_FOR_DEADLINE },
       deadlineAt: { gt: input.now, lte: input.warningBefore },
-      notifications: { none: { type: "DEADLINE_APPROACHING" } },
+      notifications: {
+        none: { type: "DEADLINE_APPROACHING", emailedAt: { not: null } },
+      },
     },
     select: {
       id: true,

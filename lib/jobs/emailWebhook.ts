@@ -10,8 +10,12 @@ import {
   findOutboundEmailByProviderMessageId,
   getWebhookEventById,
   markWebhookEventProcessed,
+  recordWebhookEvent,
   updateOutboundEmail,
+  type WebhookEventInsert,
+  type WebhookEventResult,
 } from "@/lib/db/repositories/outboundEmail";
+import { enqueueJob } from "@/lib/jobs/queue";
 import { createLogger } from "@/lib/observability/logger";
 import { systemActor } from "@/lib/permissions/actor";
 import { applyDeliveryOutcome } from "@/lib/requests/lifecycle";
@@ -20,6 +24,34 @@ import { classifyEmailWebhook, providerMessageIdFromPayload } from "./datetime";
 import type { JobResult } from "./types";
 
 const log = createLogger("jobs.email-webhook");
+
+/**
+ * Enqueue processing for a stored provider event. Duplicate deliveries that
+ * were persisted but never queued still get a job: `enqueueJob` is idempotent
+ * on `webhook:${id}`.
+ */
+export async function enqueueUnprocessedEmailWebhook(stored: {
+  id: string;
+  processedAt: Date | null;
+}): Promise<{ enqueued: boolean }> {
+  if (stored.processedAt !== null) {
+    return { enqueued: false };
+  }
+  await enqueueJob({
+    type: "PROCESS_EMAIL_WEBHOOK",
+    payload: { webhookEventId: stored.id },
+    idempotencyKey: `webhook:${stored.id}`,
+  });
+  return { enqueued: true };
+}
+
+export async function storeAndQueueEmailWebhook(
+  input: WebhookEventInsert
+): Promise<WebhookEventResult> {
+  const stored = await recordWebhookEvent(input);
+  await enqueueUnprocessedEmailWebhook(stored);
+  return stored;
+}
 
 export async function processStoredEmailWebhook(
   webhookEventId: string

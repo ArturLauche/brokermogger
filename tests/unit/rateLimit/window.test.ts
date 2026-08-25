@@ -28,6 +28,9 @@ vi.mock("@/lib/db/repositories/rateLimit", () => ({
       ) ?? 0
   ),
   deleteExpiredBuckets: vi.fn(async () => 0),
+  countExpiredBuckets: vi.fn(async () => 0),
+  reserveWeightedRequestCreate: vi.fn(),
+  reserveBucket: vi.fn(),
 }));
 
 const { resetEnvCacheForTests } = await import("@/lib/config/env");

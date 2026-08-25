@@ -8,6 +8,7 @@
  */
 import type {
   ContactMethodType,
+  JobType,
   RequestChannel,
   RequestStatus,
   RequestType,
@@ -34,7 +35,6 @@ import { getOwnedProfile } from "@/lib/db/repositories/profiles";
 import {
   appendRequestEvent,
   applyRequestStatus,
-  countOpenRequests,
   countRequestsForBrokers,
   createDraftRequest,
   getOwnedRequest,
@@ -66,10 +66,12 @@ import { countryDisplayName } from "@/lib/jurisdiction/types";
 import { createLogger } from "@/lib/observability/logger";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
-import { consumePolicy, requestCreatePerUserDay } from "@/lib/rateLimit";
+import { reserveRequestCreateQuota } from "@/lib/rateLimit";
 import {
   BULK_CREATE_WITHOUT_AGE_LIMIT,
+  assertBrokerSelectionSize,
   isAccountTooNewForBulk,
+  normalizeBrokerIds,
 } from "@/lib/requests/fairUse";
 import { canTransition } from "@/lib/requests/stateMachine";
 import { evaluateManualReview } from "@/lib/requests/manualReview";
@@ -106,6 +108,19 @@ function formatIdentifierList(
     .join("\n");
 }
 
+const JOBS_CANCELLED_ON_STATUS = new Set<RequestStatus>([
+  "COMPLETED",
+  "CLOSED",
+  "REJECTED",
+  "FAILED",
+]);
+
+const REQUEST_JOBS_TO_CANCEL: JobType[] = [
+  "RECHECK_REMINDER",
+  "PREPARE_FOLLOW_UP",
+  "SEND_REQUEST",
+];
+
 async function transition(
   actor: ActorContext,
   requestId: string,
@@ -119,43 +134,21 @@ async function transition(
     from,
     to,
     actor: actorKind,
-  });
-  await appendRequestEvent({
-    removalRequestId: requestId,
-    type: "STATUS_CHANGE",
-    fromStatus: from,
-    toStatus: to,
-    actorType: actorKind,
     actorUserId: actor.isSystem ? null : actor.userId,
     message,
+    ...(JOBS_CANCELLED_ON_STATUS.has(to)
+      ? { cancelPendingJobTypes: REQUEST_JOBS_TO_CANCEL }
+      : {}),
   });
 }
 
 export async function generateRequests(actor: ActorContext, input: GenerateInput) {
   requirePermission(actor, "request:create", { ownerUserId: actor.userId });
 
-  const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  const fairUse = await getEffectiveFairUse(actor.userId);
-  const monthly = await countOpenRequests(actor.userId, monthAgo);
-  if (monthly >= fairUse.requestsPerMonth) {
-    throw new AppError({
-      code: "QUOTA_EXCEEDED",
-      message: "Fair use limit reached: monthly request budget is exhausted.",
-    });
-  }
+  const brokerIds = normalizeBrokerIds(input.brokerIds);
+  assertBrokerSelectionSize(brokerIds.length);
 
-  const quotaLimit = await consumePolicy(requestCreatePerUserDay, actor.userId, {
-    limit: fairUse.requestsPerDay,
-  });
-  if (!quotaLimit.allowed) {
-    throw new AppError({
-      code: "QUOTA_EXCEEDED",
-      message: `Fair use limit reached: ${quotaLimit.limit} new requests per day.`,
-      details: { retryAfterSeconds: quotaLimit.retryAfterSeconds },
-    });
-  }
-
-  if (input.brokerIds.length > BULK_CREATE_WITHOUT_AGE_LIMIT) {
+  if (brokerIds.length > BULK_CREATE_WITHOUT_AGE_LIMIT) {
     const minimumAgeHours = await getSetting("fairUseAccountAgeHoursForBulk");
     const createdAt = await findAccountCreatedAt(actor.userId);
     if (isAccountTooNewForBulk({ createdAt, minimumAgeHours })) {
@@ -263,20 +256,44 @@ export async function generateRequests(actor: ActorContext, input: GenerateInput
   }
 
   const createdIds: string[] = [];
-  const brokers = await getBrokersWithContacts(input.brokerIds);
+  const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const fairUse = await getEffectiveFairUse(actor.userId);
+  const brokers = await getBrokersWithContacts(brokerIds);
   const brokersById = new Map(brokers.map((broker) => [broker.id, broker]));
-  const volumeByBroker = await countRequestsForBrokers(
-    actor.userId,
-    input.brokerIds,
-    monthAgo
-  );
+  const missingBroker = brokerIds.some((brokerId) => !brokersById.has(brokerId));
+  if (missingBroker) {
+    throw new AppError({
+      code: "NOT_FOUND",
+      message: "A selected broker does not exist.",
+    });
+  }
+
+  const quota = await reserveRequestCreateQuota({
+    userId: actor.userId,
+    requestedCount: brokerIds.length,
+    dailyLimit: fairUse.requestsPerDay,
+    monthlyLimit: fairUse.requestsPerMonth,
+    rollingSince: monthAgo,
+  });
+  if (!quota.allowed) {
+    throw new AppError({
+      code: "QUOTA_EXCEEDED",
+      message:
+        quota.bucket === "monthly"
+          ? "Fair use limit reached: monthly request budget is exhausted."
+          : `Fair use limit reached: ${quota.limit} new requests per day.`,
+      details: { retryAfterSeconds: quota.retryAfterSeconds },
+    });
+  }
+
+  const volumeByBroker = await countRequestsForBrokers(actor.userId, brokerIds, monthAgo);
   const rejectedBrokerIds = await listRejectedBrokerIds(
     actor.userId,
-    input.brokerIds,
+    brokerIds,
     input.requestType
   );
 
-  for (const brokerId of input.brokerIds) {
+  for (const brokerId of brokerIds) {
     const broker = brokersById.get(brokerId);
     if (!broker) {
       throw new AppError({

@@ -6,7 +6,13 @@
  *  - marks waiting requests as `NO_RESPONSE` after the date,
  *  - queues a follow-up draft that still requires approval,
  *  - reminds the user to re-check a broker listing themselves (no scraping).
+ *
+ * Side effects are enqueued before a status change that would hide the request
+ * from the next pass, so a failed enqueue is retried. Recheck jobs that fire
+ * after a terminal status are a no-op.
  */
+import type { RequestStatus } from "@prisma/client";
+
 import { recordAudit } from "@/lib/audit/service";
 import { getSetting } from "@/lib/config/runtimeSettings";
 import { isAppError } from "@/lib/core/errors";
@@ -20,6 +26,7 @@ import { enqueueJob } from "@/lib/jobs/queue";
 import { createLogger } from "@/lib/observability/logger";
 import { systemActor } from "@/lib/permissions/actor";
 import { markNoResponse } from "@/lib/requests/lifecycle";
+import { WAITING_STATUSES } from "@/lib/requests/stateMachine";
 
 import { daysFromNow } from "./datetime";
 import type { JobResult } from "./types";
@@ -27,6 +34,18 @@ import type { JobResult } from "./types";
 const log = createLogger("jobs.deadlines");
 const BATCH = 50;
 const MAX_BATCHES = 20;
+
+const RECHECK_REMINDER_STATUSES = new Set<RequestStatus>([
+  ...WAITING_STATUSES,
+  "NO_RESPONSE",
+  "FOLLOW_UP_SCHEDULED",
+  "ESCALATION_RECOMMENDED",
+  "PARTIALLY_COMPLETED",
+]);
+
+export function isRecheckReminderApplicable(status: RequestStatus): boolean {
+  return RECHECK_REMINDER_STATUSES.has(status);
+}
 
 export async function runDeadlineWatch(windowDays: number): Promise<JobResult> {
   const now = new Date();
@@ -44,28 +63,38 @@ export async function runDeadlineWatch(windowDays: number): Promise<JobResult> {
     });
     if (warnings.length === 0) break;
     for (const request of warnings) {
-      const notification = await createNotification({
-        user: { connect: { id: request.userId } },
-        profile: { connect: { id: request.profileId } },
-        removalRequest: { connect: { id: request.id } },
-        type: "DEADLINE_APPROACHING",
-        channel: "EMAIL",
-        severity: "WARNING",
-        title: "Response date approaching",
-        body: "A broker request is approaching the response date recorded for it. This is a reminder, not a guarantee that the broker will answer.",
-        actionUrl: `/requests/${request.id}`,
-        dedupeKey: `deadline-warning:${request.id}`,
-      });
-      if (notification.emailedAt === null && notification.channel === "EMAIL") {
-        await enqueueJob({
-          type: "DISPATCH_NOTIFICATION",
-          payload: { notificationId: notification.id },
-          idempotencyKey: `notify:${notification.id}`,
-          relatedUserId: request.userId,
-          relatedRequestId: request.id,
+      try {
+        const notification = await createNotification({
+          user: { connect: { id: request.userId } },
+          profile: { connect: { id: request.profileId } },
+          removalRequest: { connect: { id: request.id } },
+          type: "DEADLINE_APPROACHING",
+          channel: "EMAIL",
+          severity: "WARNING",
+          title: "Response date approaching",
+          body: "A broker request is approaching the response date recorded for it. This is a reminder, not a guarantee that the broker will answer.",
+          actionUrl: `/requests/${request.id}`,
+          dedupeKey: `deadline-warning:${request.id}`,
         });
+        if (notification.emailedAt === null && notification.channel === "EMAIL") {
+          await enqueueJob({
+            type: "DISPATCH_NOTIFICATION",
+            payload: { notificationId: notification.id },
+            idempotencyKey: `notify:${notification.id}`,
+            relatedUserId: request.userId,
+            relatedRequestId: request.id,
+          });
+        }
+        warned += 1;
+      } catch (error) {
+        log.warn(
+          {
+            requestId: request.id,
+            code: isAppError(error) ? error.code : "INTERNAL_ERROR",
+          },
+          "Deadline warning skipped a request"
+        );
       }
-      warned += 1;
     }
     if (warnings.length < BATCH) break;
   }
@@ -80,9 +109,6 @@ export async function runDeadlineWatch(windowDays: number): Promise<JobResult> {
     for (const request of fresh) {
       seenOverdue.add(request.id);
       try {
-        await markNoResponse(actor, request.id);
-        marked += 1;
-
         const followUpNumber = request.followUpCount + 1;
         const created = await enqueueJob({
           type: "PREPARE_FOLLOW_UP",
@@ -102,6 +128,9 @@ export async function runDeadlineWatch(windowDays: number): Promise<JobResult> {
           relatedUserId: request.userId,
           relatedRequestId: request.id,
         });
+
+        await markNoResponse(actor, request.id);
+        marked += 1;
       } catch (error) {
         log.warn(
           {
@@ -131,6 +160,12 @@ export async function runRecheckReminder(removalRequestId: string): Promise<JobR
       return { message: "Request no longer exists." };
     }
     throw error;
+  }
+
+  if (!isRecheckReminderApplicable(request.status)) {
+    return {
+      message: `Recheck reminder skipped; the request is ${request.status}.`,
+    };
   }
 
   const notification = await createNotification({

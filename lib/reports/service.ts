@@ -100,7 +100,9 @@ export async function renderReportForJob(reportId: string): Promise<{ message: s
     dateFrom: report.dateFrom,
     dateTo: report.dateTo,
     profileLabel: report.profile?.displayName ?? "All profiles",
-    requests: inRange.map((row) => ({
+    truncated: inRange.truncated,
+    requestCountCap: inRange.maxRows,
+    requests: inRange.rows.map((row) => ({
       id: row.id,
       brokerName: row.broker.legalName,
       requestType: row.requestType,
@@ -136,6 +138,7 @@ export async function renderReportForJob(reportId: string): Promise<{ message: s
       brokers: payload.brokersContacted.length,
       requests: payload.requests.length,
       openActions: payload.openActions.length,
+      truncated: payload.truncated,
     },
   });
 
