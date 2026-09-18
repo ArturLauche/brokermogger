@@ -65,7 +65,7 @@ function sanitiseVariable(
   const multiline = definition.kind === "block";
   const value =
     definition.kind === "inline" || definition.kind === "date"
-      ? sanitiseHeaderValue(raw, name)
+      ? sanitiseHeaderValue(raw, name, definition.maxLength)
       : sanitiseText(raw, {
           multiline,
           maxLength: definition.maxLength,

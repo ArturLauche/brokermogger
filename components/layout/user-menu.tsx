@@ -3,12 +3,13 @@
 /**
  * Account menu in the application header.
  *
- * Signing out is a real form post to `/api/auth/signout` rather than a fetch,
- * so it keeps working without JavaScript and cannot be triggered by a cross
- * site GET.
+ * Auth.js performs sign-out through a server action, including session
+ * revocation, cookie cleanup and its supported CSRF handling.
  */
 import { LogOutIcon, SettingsIcon, ShieldIcon, UserIcon } from "lucide-react";
 import Link from "next/link";
+
+import { signOutAction } from "@/app/auth-actions";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -75,7 +76,7 @@ export function UserMenu({ displayName, email, role, className }: UserMenuProps)
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <form action="/api/auth/signout" method="post">
+        <form action={signOutAction}>
           <DropdownMenuItem asChild>
             <button type="submit" className="w-full">
               <LogOutIcon aria-hidden="true" />

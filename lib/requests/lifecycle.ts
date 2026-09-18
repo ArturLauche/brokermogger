@@ -6,6 +6,8 @@
  * check, then handed to the job queue. Consent is evaluated at generation and
  * again at send time.
  */
+import { randomUUID } from "node:crypto";
+
 import type {
   ContactMethodType,
   JobType,
@@ -13,7 +15,6 @@ import type {
   RequestStatus,
   RequestType,
 } from "@prisma/client";
-import { addDays } from "date-fns";
 
 import { recordAudit } from "@/lib/audit/service";
 import { evaluateBrokerSendable, preferredContact } from "@/lib/brokers/sendable";
@@ -36,7 +37,6 @@ import {
   appendRequestEvent,
   applyRequestStatus,
   countRequestsForBrokers,
-  createDraftRequest,
   getOwnedRequest,
   getSnapshotForRequest,
   insertSnapshot,
@@ -63,10 +63,12 @@ import {
   ruleSupportsRequestType,
 } from "@/lib/jurisdiction/resolve";
 import { countryDisplayName } from "@/lib/jurisdiction/types";
-import { createLogger } from "@/lib/observability/logger";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
-import { reserveRequestCreateQuota } from "@/lib/rateLimit";
+import {
+  createPreparedDrafts,
+  type PreparedDraft,
+} from "@/lib/db/repositories/requestGeneration";
 import {
   BULK_CREATE_WITHOUT_AGE_LIMIT,
   assertBrokerSelectionSize,
@@ -77,8 +79,6 @@ import { canTransition } from "@/lib/requests/stateMachine";
 import { evaluateManualReview } from "@/lib/requests/manualReview";
 import { renderTemplate } from "@/lib/templates/renderer";
 import { IDENTIFIER_TYPE_LABELS, REQUEST_TYPE_LABELS } from "@/lib/requests/labels";
-
-const log = createLogger("requests.lifecycle");
 
 const CHANNEL_BY_CONTACT: Record<ContactMethodType, RequestChannel> = {
   EMAIL: "EMAIL",
@@ -97,7 +97,7 @@ export interface GenerateInput {
 }
 
 function requestReference(requestId: string): string {
-  return `BM-${sha256Hex(requestId).slice(0, 6).toUpperCase()}`;
+  return `BM-${sha256Hex(requestId).slice(0, 32).toUpperCase()}`;
 }
 
 function formatIdentifierList(
@@ -214,10 +214,13 @@ export async function generateRequests(actor: ActorContext, input: GenerateInput
   const selectedIdentifiers = profile.identifiers.filter((identifier) =>
     input.identifierIds.includes(identifier.id)
   );
-  if (selectedIdentifiers.length === 0) {
+  if (
+    selectedIdentifiers.length === 0 ||
+    selectedIdentifiers.length !== new Set(input.identifierIds).size
+  ) {
     throw new AppError({
       code: "VALIDATION_FAILED",
-      message: "Select at least one identifier to include in the request.",
+      message: "Select identifiers belonging to this profile. At least one is required.",
     });
   }
 
@@ -255,7 +258,7 @@ export async function generateRequests(actor: ActorContext, input: GenerateInput
     });
   }
 
-  const createdIds: string[] = [];
+  const drafts: PreparedDraft[] = [];
   const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const fairUse = await getEffectiveFairUse(actor.userId);
   const brokers = await getBrokersWithContacts(brokerIds);
@@ -265,24 +268,6 @@ export async function generateRequests(actor: ActorContext, input: GenerateInput
     throw new AppError({
       code: "NOT_FOUND",
       message: "A selected broker does not exist.",
-    });
-  }
-
-  const quota = await reserveRequestCreateQuota({
-    userId: actor.userId,
-    requestedCount: brokerIds.length,
-    dailyLimit: fairUse.requestsPerDay,
-    monthlyLimit: fairUse.requestsPerMonth,
-    rollingSince: monthAgo,
-  });
-  if (!quota.allowed) {
-    throw new AppError({
-      code: "QUOTA_EXCEEDED",
-      message:
-        quota.bucket === "monthly"
-          ? "Fair use limit reached: monthly request budget is exhausted."
-          : `Fair use limit reached: ${quota.limit} new requests per day.`,
-      details: { retryAfterSeconds: quota.retryAfterSeconds },
     });
   }
 
@@ -368,32 +353,8 @@ export async function generateRequests(actor: ActorContext, input: GenerateInput
       unusualVolume,
     });
 
-    const request = await createDraftRequest({
-      user: { connect: { id: actor.userId } },
-      profile: { connect: { id: profile.id } },
-      broker: { connect: { id: broker.id } },
-      jurisdiction: { connect: { id: resolved.jurisdiction.id } },
-      requestType: input.requestType,
-      channel,
-      status: "DRAFT",
-      legalRuleVersion: { connect: { id: rule.legalRuleVersionId } },
-      templateVersion: { connect: { id: template.version.id } },
-      legalBasisText: rule.legalBasisText,
-      deadlineDays: rule.deadlineDays,
-      deadlineAt: rule.deadlineDays ? addDays(new Date(), rule.deadlineDays) : null,
-      manualReviewRequired: review.required,
-      manualReviewReasons: review.reasons,
-      destinationType: contact?.type ?? null,
-      destinationValue: contact?.value ?? null,
-      includedIdentifierIds: decryptedIdentifiers.map((item) => item.id),
-      includedIdentifiers: decryptedIdentifiers.map((item) => ({
-        type: item.type,
-        masked: item.masked,
-      })),
-      createdById: actor.userId,
-    });
-
-    const reference = requestReference(request.id);
+    const requestId = randomUUID();
+    const reference = requestReference(requestId);
     const consentStatement =
       profile.kind === "SELF"
         ? ""
@@ -409,9 +370,7 @@ export async function generateRequests(actor: ActorContext, input: GenerateInput
         "profile.country": countryDisplayName(profile.countryCode),
         "request.type": input.requestType.toLowerCase().replaceAll("_", " "),
         "request.legalBasis": rule.legalBasisText,
-        "request.deadlineDate": request.deadlineAt
-          ? request.deadlineAt.toISOString().slice(0, 10)
-          : "",
+        "request.deadlineDate": "",
         "request.reference": reference,
         "broker.name": broker.tradingNames[0] ?? broker.legalName,
         "broker.legalName": broker.legalName,
@@ -424,92 +383,63 @@ export async function generateRequests(actor: ActorContext, input: GenerateInput
       }
     );
 
-    const snapshot = await insertSnapshot({
-      removalRequestId: request.id,
-      version: 1,
-      subject: rendered.subject,
-      body: rendered.body,
-      templateVersionId: template.version.id,
+    drafts.push({
+      id: requestId,
+      profileId: profile.id,
+      brokerId: broker.id,
+      jurisdictionId: resolved.jurisdiction.id,
+      requestType: input.requestType,
+      channel,
       legalRuleVersionId: rule.legalRuleVersionId,
-      variables: {
-        "request.reference": reference,
-        "broker.name": broker.tradingNames[0] ?? broker.legalName,
-      },
-      identifierDigest: sha256Hex(
-        decryptedIdentifiers
-          .map((item) => item.id)
-          .sort()
-          .join("|")
-      ),
-      createdByUserId: actor.userId,
-    });
-
-    await patchRequest(request.id, {
-      currentSnapshotId: snapshot.id,
+      templateVersionId: template.version.id,
+      legalBasisText: rule.legalBasisText,
+      deadlineDays: rule.deadlineDays,
+      manualReviewRequired: review.required,
+      manualReviewReasons: review.reasons,
+      destinationType: contact?.type ?? null,
+      destinationValue: contact?.value ?? null,
+      includedIdentifierIds: decryptedIdentifiers.map((item) => item.id),
+      includedIdentifiers: decryptedIdentifiers.map((item) => ({
+        type: item.type,
+        masked: item.masked,
+      })),
       externalReference: reference,
-      metadata: { sendableReasons: sendable.reasons, suspicious: rendered.suspicious },
+      sendableReasons: sendable.reasons,
+      snapshot: {
+        subject: rendered.subject,
+        body: rendered.body,
+        templateVersionId: template.version.id,
+        legalRuleVersionId: rule.legalRuleVersionId,
+        variables: {
+          "request.reference": reference,
+          "broker.name": broker.tradingNames[0] ?? broker.legalName,
+        },
+        identifierDigest: sha256Hex(
+          selectedIdentifiers
+            .map((item) => `${item.id}:${item.valueBi}`)
+            .sort()
+            .join("|")
+        ),
+      },
     });
+  }
 
-    await appendRequestEvent({
-      removalRequestId: request.id,
-      type: "CREATED",
-      fromStatus: null,
-      toStatus: "DRAFT",
-      actorType: "USER",
-      actorUserId: actor.userId,
-      message: "Draft created.",
-    });
-
-    await transition(
-      actor,
-      request.id,
-      "DRAFT",
-      "PREPARED",
-      "Draft rendered from the published template."
-    );
-
-    if (review.required) {
-      await transition(
-        actor,
-        request.id,
-        "PREPARED",
-        "MANUAL_REVIEW_REQUIRED",
-        review.reasons.join(" ")
-      );
-      await recordAudit({
-        actor,
-        action: "request.manual_review_flagged",
-        resourceType: "removal_request",
-        resourceId: request.id,
-      });
-    } else {
-      await transition(
-        actor,
-        request.id,
-        "PREPARED",
-        "AWAITING_USER_APPROVAL",
-        "Ready for the account holder to approve."
-      );
-    }
-
+  const requestIds = await createPreparedDrafts(actor, drafts, fairUse);
+  for (const id of requestIds) {
     await recordAudit({
       actor,
       action: "request.created",
       resourceType: "removal_request",
-      resourceId: request.id,
+      resourceId: id,
     });
     await recordAudit({
       actor,
       action: "request.rendered",
       resourceType: "removal_request",
-      resourceId: request.id,
+      resourceId: id,
     });
-
-    createdIds.push(request.id);
-    log.info({ requestId: request.id, brokerId: broker.id }, "Request draft prepared");
   }
-
-  return { requestIds: createdIds };
+  return { requestIds };
 }
 
 export async function approveRequest(

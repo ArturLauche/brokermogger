@@ -237,14 +237,19 @@ async function lockRequestEventChain(
   );
 }
 
-async function appendRequestEventInTx(tx: PrismaTransaction, input: RequestEventInput) {
+export async function appendRequestEventInTx(
+  tx: PrismaTransaction,
+  input: RequestEventInput
+) {
   const previous = await tx.removalRequestEvent.findFirst({
     where: { removalRequestId: input.removalRequestId },
     orderBy: { createdAt: "desc" },
-    select: { hash: true },
+    select: { hash: true, createdAt: true },
   });
 
-  const createdAt = new Date();
+  const createdAt = new Date(
+    Math.max(Date.now(), (previous?.createdAt.getTime() ?? 0) + 1)
+  );
   const canonical = canonicalJson({
     removalRequestId: input.removalRequestId,
     type: input.type,
@@ -282,7 +287,7 @@ export async function appendRequestEvent(input: RequestEventInput) {
   });
 }
 
-export async function insertSnapshot(input: {
+export interface SnapshotInput {
   removalRequestId: string;
   version: number;
   subject: string;
@@ -292,9 +297,14 @@ export async function insertSnapshot(input: {
   variables: Record<string, string>;
   identifierDigest: string;
   createdByUserId: string | null;
-}) {
+}
+
+export async function insertSnapshot(
+  input: SnapshotInput,
+  tx: PrismaTransaction = prisma
+) {
   const contentHash = sha256Hex(`${input.subject}\n${input.body}`);
-  return prisma.requestSnapshot.create({
+  return tx.requestSnapshot.create({
     data: {
       removalRequestId: input.removalRequestId,
       version: input.version,

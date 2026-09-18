@@ -5,6 +5,9 @@ import { describe, expect, it, vi } from "vitest";
 import { AppShell } from "@/components/layout/app-shell";
 import { APP_NAV_ITEMS, type AppRole } from "@/components/layout/navigation";
 import type { ProfileSummary } from "@/components/layout/profile-switcher";
+import { signOutAction } from "@/app/auth-actions";
+
+vi.mock("@/app/auth-actions", () => ({ signOutAction: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/requests/abc",
@@ -128,7 +131,7 @@ describe("AppShell", () => {
     );
 
     const signOut = screen.getByRole("menuitem", { name: /Sign out/ });
-    expect(signOut.closest("form")).toHaveAttribute("action", "/api/auth/signout");
-    expect(signOut.closest("form")).toHaveAttribute("method", "post");
+    await user.click(signOut);
+    expect(signOutAction).toHaveBeenCalledOnce();
   });
 });

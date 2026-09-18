@@ -14,7 +14,7 @@ const CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 /** Bidi overrides, zero width characters, byte order mark. */
 const INVISIBLE_CHARACTERS =
   /[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g;
-const NEWLINES = /[\r\n]/g;
+const NEWLINES = /[\r\n]/;
 
 const EMAIL_PATTERN = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 
@@ -73,7 +73,7 @@ export function sanitiseText(value: string, options: SanitiseOptions = {}): stri
   const fieldName = options.fieldName ?? "value";
 
   let cleaned = stripInvisible(stripControlCharacters(value));
-  cleaned = multiline ? cleaned.replace(/\r\n?/g, "\n") : cleaned.replace(NEWLINES, " ");
+  cleaned = multiline ? cleaned.replace(/\r\n?/g, "\n") : cleaned.replace(/[\r\n]/g, " ");
   cleaned = normaliseWhitespace(cleaned);
 
   if (cleaned.length === 0) {
@@ -106,7 +106,11 @@ export function detectSuspiciousContent(value: string): string[] {
  * Sanitises a value that becomes part of an email header.
  * Any newline, control character or overlong value is rejected outright.
  */
-export function sanitiseHeaderValue(value: string, fieldName: string): string {
+export function sanitiseHeaderValue(
+  value: string,
+  fieldName: string,
+  maxLength = MAX_SUBJECT_LENGTH
+): string {
   if (NEWLINES.test(value)) {
     throw new AppError({
       code: "UNSAFE_INPUT",
@@ -117,7 +121,7 @@ export function sanitiseHeaderValue(value: string, fieldName: string): string {
 
   return sanitiseText(value, {
     multiline: false,
-    maxLength: MAX_SUBJECT_LENGTH,
+    maxLength,
     fieldName,
   });
 }

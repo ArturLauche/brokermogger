@@ -70,6 +70,8 @@ function buildCsp(nonce: string, isDevelopment: boolean): string {
 }
 
 function needsSession(pathname: string): boolean {
+  // Consent is given by the invited adult, who does not need an account.
+  if (pathname.startsWith("/household/consent/")) return false;
   return AUTHENTICATED_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
   );
