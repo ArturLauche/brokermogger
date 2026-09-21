@@ -41,6 +41,7 @@ export interface EnqueueOptions<T extends JobType> {
 
 export interface ClaimedJob<T extends JobType = JobType> {
   id: string;
+  leaseToken: string;
   type: T;
   payload: JobPayload<T>;
   attemptCount: number;
@@ -76,8 +77,10 @@ export interface JobQueue {
     options: EnqueueOptions<T>
   ): Promise<{ id: string; created: boolean }>;
   claim(workerId: string, batchSize: number): Promise<ClaimedJob[]>;
-  complete(jobId: string, result: JobResult, durationMs: number): Promise<void>;
-  fail(jobId: string, error: unknown, durationMs: number): Promise<void>;
-  cancel(jobId: string, reason: string): Promise<void>;
+  complete(job: JobLease, result: JobResult, durationMs: number): Promise<boolean>;
+  fail(job: JobLease, error: unknown, durationMs: number): Promise<boolean>;
+  cancel(job: JobLease, reason: string): Promise<boolean>;
   releaseExpiredLocks(): Promise<number>;
 }
+
+export type JobLease = Pick<ClaimedJob, "id" | "leaseToken">;

@@ -16,10 +16,10 @@ import {
   listAdminLegalRules,
   listAdminTemplates,
   retryJobRow,
+  cancelJobRow,
   revokeAdminAction,
   updateBrokerAdmin,
 } from "@/lib/db/repositories/admin";
-import { markJobCancelled } from "@/lib/db/repositories/jobs";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
 import type { BrokerVerificationStatus } from "@prisma/client";
@@ -101,7 +101,7 @@ export async function retryAdminJob(actor: ActorContext, jobId: string) {
 
 export async function cancelAdminJob(actor: ActorContext, jobId: string) {
   requirePermission(actor, "admin:job:manage");
-  await markJobCancelled(jobId, "Cancelled by instance admin.");
+  await cancelJobRow(jobId);
   await recordAudit({
     actor,
     action: "admin.job_cancelled",

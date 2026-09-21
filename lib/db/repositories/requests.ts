@@ -432,6 +432,7 @@ export async function applyRequestStatus(input: {
           lockedAt: null,
           lockedBy: null,
           lockExpiresAt: null,
+          leaseToken: null,
         },
       });
     }

@@ -9,12 +9,13 @@ import type { JobStatus, JobType, Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db/client";
 import { env } from "@/lib/config/env";
-import { jobStatusAfterStaleLock } from "@/lib/jobs/lockExpiry";
+
 import { parseJobPayload } from "@/lib/jobs/payloads";
-import type { ClaimedJob, EnqueueOptions, JobResult } from "@/lib/jobs/types";
+import type { ClaimedJob, EnqueueOptions, JobResult, JobLease } from "@/lib/jobs/types";
 
 interface JobRow {
   id: string;
+  leaseToken: string;
   type: JobType;
   payloadJson: Prisma.JsonValue;
   attemptCount: number;
@@ -27,6 +28,7 @@ interface JobRow {
 function toClaimed(row: JobRow): ClaimedJob {
   return {
     id: row.id,
+    leaseToken: row.leaseToken,
     type: row.type,
     payload: parseJobPayload(row.type, row.payloadJson ?? {}),
     attemptCount: row.attemptCount,
@@ -90,6 +92,7 @@ export async function claimDueJobs(
       "status" = 'RUNNING',
       "lockedAt" = NOW(),
       "lockedBy" = ${workerId},
+      "leaseToken" = gen_random_uuid()::text,
       "lockExpiresAt" = NOW() + (${lockSeconds}::text || ' seconds')::interval,
       "attemptCount" = job."attemptCount" + 1,
       "updatedAt" = NOW()
@@ -107,6 +110,7 @@ export async function claimDueJobs(
     )
     RETURNING
       job.id,
+      job."leaseToken",
       job.type,
       job."payloadJson",
       job."attemptCount",
@@ -120,11 +124,10 @@ export async function claimDueJobs(
   for (const row of rows) {
     try {
       claimed.push(toClaimed(row));
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message.slice(0, 2000) : "Invalid job payload";
+    } catch {
+      const message = "Invalid job payload";
       await markJobFailed({
-        jobId: row.id,
+        job: { id: row.id, leaseToken: row.leaseToken },
         attemptCount: row.attemptCount,
         errorMessage: message,
         durationMs: 0,
@@ -134,173 +137,144 @@ export async function claimDueJobs(
   return claimed;
 }
 
+/** Database time is authoritative for lease expiry. Never revive an expired lease. */
+export async function heartbeatJob(job: JobLease): Promise<boolean> {
+  const changed = await prisma.$executeRaw`
+    UPDATE "BackgroundJob" SET "lockExpiresAt" = NOW() + (${env.JOB_LOCK_SECONDS}::text || ' seconds')::interval,
+      "updatedAt" = NOW()
+    WHERE id = ${job.id} AND "leaseToken" = ${job.leaseToken}
+      AND status = 'RUNNING' AND "lockExpiresAt" > NOW()
+  `;
+  return changed === 1;
+}
+
+export async function hasCurrentLease(job: JobLease): Promise<boolean> {
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT id FROM "BackgroundJob" WHERE id = ${job.id} AND "leaseToken" = ${job.leaseToken}
+      AND status = 'RUNNING' AND "lockExpiresAt" > NOW()
+  `;
+  return rows.length === 1;
+}
+
+const releasedLease = {
+  lockedAt: null,
+  lockedBy: null,
+  lockExpiresAt: null,
+  leaseToken: null,
+};
+
+async function finishAttempt(
+  job: JobLease,
+  data: Prisma.BackgroundJobUpdateManyMutationInput,
+  log: {
+    level: "INFO" | "ERROR";
+    message: string;
+    durationMs: number;
+    metadata?: Record<string, unknown>;
+  }
+): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<{ attemptCount: number }[]>`
+      SELECT "attemptCount" FROM "BackgroundJob" WHERE id = ${job.id}
+        AND "leaseToken" = ${job.leaseToken} AND status = 'RUNNING' AND "lockExpiresAt" > NOW()
+      FOR UPDATE
+    `;
+    if (!rows[0]) return false;
+    await tx.backgroundJob.update({
+      where: { id: job.id },
+      data: { ...data, ...releasedLease },
+    });
+    await tx.backgroundJobLog.create({
+      data: {
+        jobId: job.id,
+        attempt: rows[0].attemptCount,
+        level: log.level,
+        message: log.message.slice(0, 2000),
+        durationMs: log.durationMs,
+        metadata: (log.metadata ?? {}) as Prisma.InputJsonValue,
+      },
+    });
+    return true;
+  });
+}
+
 export async function markJobCompleted(
-  jobId: string,
+  job: JobLease,
   result: JobResult,
   durationMs: number
-): Promise<void> {
+): Promise<boolean> {
   const repeatAt =
     result.repeatAfterSeconds && result.repeatAfterSeconds > 0
       ? new Date(Date.now() + result.repeatAfterSeconds * 1000)
       : null;
-
-  await prisma.$transaction([
-    prisma.backgroundJob.update({
-      where: { id: jobId },
-      data: repeatAt
-        ? {
-            status: "PENDING",
-            runAt: repeatAt,
-            attemptCount: 0,
-            completedAt: null,
-            lastError: null,
-            lockedAt: null,
-            lockedBy: null,
-            lockExpiresAt: null,
-          }
-        : {
-            status: "COMPLETED",
-            completedAt: new Date(),
-            lockedAt: null,
-            lockedBy: null,
-            lockExpiresAt: null,
-            lastError: null,
-          },
-    }),
-    prisma.backgroundJobLog.create({
-      data: {
-        jobId,
-        attempt: 0,
-        level: "INFO",
-        message: result.message,
-        durationMs,
-        metadata: (result.metadata ?? {}) as Prisma.InputJsonValue,
-      },
-    }),
-  ]);
+  return finishAttempt(
+    job,
+    repeatAt
+      ? {
+          status: "PENDING",
+          runAt: repeatAt,
+          attemptCount: 0,
+          completedAt: null,
+          lastError: null,
+        }
+      : { status: "COMPLETED", completedAt: new Date(), lastError: null },
+    {
+      level: "INFO",
+      message: result.message,
+      durationMs,
+      ...(result.metadata ? { metadata: result.metadata } : {}),
+    }
+  );
 }
 
 export async function markJobRetryable(input: {
-  jobId: string;
+  job: JobLease;
   attemptCount: number;
   errorMessage: string;
   runAt: Date;
   durationMs: number;
-}): Promise<void> {
-  await prisma.$transaction([
-    prisma.backgroundJob.update({
-      where: { id: input.jobId },
-      data: {
-        status: "RETRYABLE",
-        runAt: input.runAt,
-        lastError: input.errorMessage.slice(0, 2000),
-        lockedAt: null,
-        lockedBy: null,
-        lockExpiresAt: null,
-      },
-    }),
-    prisma.backgroundJobLog.create({
-      data: {
-        jobId: input.jobId,
-        attempt: input.attemptCount,
-        level: "ERROR",
-        message: input.errorMessage.slice(0, 2000),
-        durationMs: input.durationMs,
-      },
-    }),
-  ]);
+}): Promise<boolean> {
+  return finishAttempt(
+    input.job,
+    {
+      status: "RETRYABLE",
+      runAt: input.runAt,
+      lastError: input.errorMessage.slice(0, 2000),
+    },
+    { level: "ERROR", message: input.errorMessage, durationMs: input.durationMs }
+  );
 }
 
 export async function markJobFailed(input: {
-  jobId: string;
+  job: JobLease;
   attemptCount: number;
   errorMessage: string;
   durationMs: number;
-}): Promise<void> {
-  await prisma.$transaction([
-    prisma.backgroundJob.update({
-      where: { id: input.jobId },
-      data: {
-        status: "FAILED",
-        lastError: input.errorMessage.slice(0, 2000),
-        lockedAt: null,
-        lockedBy: null,
-        lockExpiresAt: null,
-      },
-    }),
-    prisma.backgroundJobLog.create({
-      data: {
-        jobId: input.jobId,
-        attempt: input.attemptCount,
-        level: "ERROR",
-        message: input.errorMessage.slice(0, 2000),
-        durationMs: input.durationMs,
-      },
-    }),
-  ]);
+}): Promise<boolean> {
+  return finishAttempt(
+    input.job,
+    { status: "FAILED", lastError: input.errorMessage.slice(0, 2000) },
+    { level: "ERROR", message: input.errorMessage, durationMs: input.durationMs }
+  );
 }
 
-export async function markJobCancelled(jobId: string, reason: string): Promise<void> {
-  await prisma.backgroundJob.update({
-    where: { id: jobId },
-    data: {
-      status: "CANCELLED",
-      cancelledAt: new Date(),
-      lastError: reason.slice(0, 2000),
-      lockedAt: null,
-      lockedBy: null,
-      lockExpiresAt: null,
-    },
-  });
+export async function markJobCancelled(job: JobLease, reason: string): Promise<boolean> {
+  return finishAttempt(
+    job,
+    { status: "CANCELLED", cancelledAt: new Date(), lastError: reason.slice(0, 2000) },
+    { level: "INFO", message: reason, durationMs: 0 }
+  );
 }
 
+/** One conditional statement cannot accidentally expire a freshly renewed lease. */
 export async function expireStaleLocks(): Promise<number> {
-  const expired = await prisma.backgroundJob.findMany({
-    where: {
-      status: "RUNNING",
-      lockExpiresAt: { not: null, lt: new Date() },
-    },
-    select: { id: true, attemptCount: true, maxAttempts: true },
-  });
-  if (expired.length === 0) return 0;
-
-  const failedIds: string[] = [];
-  const retryIds: string[] = [];
-  for (const job of expired) {
-    if (jobStatusAfterStaleLock(job.attemptCount, job.maxAttempts) === "FAILED") {
-      failedIds.push(job.id);
-    } else {
-      retryIds.push(job.id);
-    }
-  }
-
-  let expiredCount = 0;
-  if (failedIds.length > 0) {
-    const failed = await prisma.backgroundJob.updateMany({
-      where: { id: { in: failedIds }, status: "RUNNING" },
-      data: {
-        status: "FAILED",
-        lastError: "Lock expired on the last attempt.",
-        lockedAt: null,
-        lockedBy: null,
-        lockExpiresAt: null,
-      },
-    });
-    expiredCount += failed.count;
-  }
-  if (retryIds.length > 0) {
-    const retryable = await prisma.backgroundJob.updateMany({
-      where: { id: { in: retryIds }, status: "RUNNING" },
-      data: {
-        status: "RETRYABLE",
-        lockedAt: null,
-        lockedBy: null,
-        lockExpiresAt: null,
-      },
-    });
-    expiredCount += retryable.count;
-  }
-  return expiredCount;
+  return prisma.$executeRaw`
+    UPDATE "BackgroundJob" SET
+      status = CASE WHEN "attemptCount" >= "maxAttempts" THEN 'FAILED'::"JobStatus" ELSE 'RETRYABLE'::"JobStatus" END,
+      "lastError" = 'Worker lease expired. The handler will verify any partial outcome before retrying.',
+      "lockedAt" = NULL, "lockedBy" = NULL, "lockExpiresAt" = NULL, "leaseToken" = NULL, "updatedAt" = NOW()
+    WHERE status = 'RUNNING' AND "lockExpiresAt" < NOW()
+  `;
 }
 
 export async function findJobByIdempotency(
@@ -340,8 +314,12 @@ export async function ensureRecurringJob<T extends JobType>(
     return { id: existing.id, created: false };
   }
 
-  await prisma.backgroundJob.update({
-    where: { id: existing.id },
+  await prisma.backgroundJob.updateMany({
+    where: {
+      id: existing.id,
+      status: existing.status,
+      attemptCount: existing.attemptCount,
+    },
     data: {
       type: options.type,
       status: "PENDING",
@@ -355,6 +333,7 @@ export async function ensureRecurringJob<T extends JobType>(
       lockedAt: null,
       lockedBy: null,
       lockExpiresAt: null,
+      leaseToken: null,
       relatedUserId: options.relatedUserId ?? null,
       relatedRequestId: options.relatedRequestId ?? null,
       priority: options.priority ?? 50,

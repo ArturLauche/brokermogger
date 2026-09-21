@@ -24,7 +24,7 @@ export default async function AdminJobsPage() {
     <>
       <PageHeader
         title="Jobs"
-        description="PostgreSQL-backed queue. No Redis. Last errors are truncated."
+        description="Background work, retry status and recoverable failures."
       />
       <Table>
         <TableHeader>
@@ -54,21 +54,25 @@ export default async function AdminJobsPage() {
                 {job.relatedRequestId ?? "—"}
               </TableCell>
               <TableCell className="flex gap-2">
-                <ConfirmSubmitButton
-                  action={retryJobAction}
-                  hidden={{ jobId: job.id }}
-                  label="Retry"
-                  title="Retry this job"
-                  description="The job will run again. Send handlers stay idempotent."
-                />
-                <ConfirmSubmitButton
-                  action={cancelJobAction}
-                  hidden={{ jobId: job.id }}
-                  label="Cancel"
-                  title="Cancel this job"
-                  description="The job will not run again."
-                  destructive
-                />
+                {["FAILED", "RETRYABLE"].includes(job.status) ? (
+                  <ConfirmSubmitButton
+                    action={retryJobAction}
+                    hidden={{ jobId: job.id }}
+                    label="Retry"
+                    title="Retry this job"
+                    description="The job will retry after checking its previous outcome."
+                  />
+                ) : null}
+                {["PENDING", "RETRYABLE", "RUNNING"].includes(job.status) ? (
+                  <ConfirmSubmitButton
+                    action={cancelJobAction}
+                    hidden={{ jobId: job.id }}
+                    label="Cancel"
+                    title="Cancel this job"
+                    description="This stops future attempts. An operation already handed to an external provider may still complete; an accepted email cannot be recalled."
+                    destructive
+                  />
+                ) : null}
               </TableCell>
             </TableRow>
           ))}

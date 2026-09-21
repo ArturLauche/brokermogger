@@ -48,6 +48,7 @@ export async function eraseProfileContent(
         lockedAt: null,
         lockedBy: null,
         lockExpiresAt: null,
+        leaseToken: null,
         lastError: "Personal data erased by its owner.",
       },
     });

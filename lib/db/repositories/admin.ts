@@ -13,6 +13,7 @@ import type {
 } from "@prisma/client";
 
 import { prisma } from "@/lib/db/client";
+import { AppError } from "@/lib/core/errors";
 
 export async function countAdminOverview() {
   const [unverifiedBrokers, unpublishedRuleDrafts, failedJobs, pendingManualReviews] =
@@ -163,8 +164,8 @@ export async function revokeAdminAction(id: string) {
 }
 
 export async function retryJobRow(jobId: string) {
-  return prisma.backgroundJob.update({
-    where: { id: jobId },
+  const result = await prisma.backgroundJob.updateMany({
+    where: { id: jobId, status: { in: ["FAILED", "RETRYABLE"] } },
     data: {
       status: "RETRYABLE",
       runAt: new Date(),
@@ -175,8 +176,37 @@ export async function retryJobRow(jobId: string) {
       lockedAt: null,
       lockedBy: null,
       lockExpiresAt: null,
+      leaseToken: null,
     },
   });
+  if (result.count !== 1)
+    throw new AppError({
+      code: "CONFLICT",
+      message: "Only failed or retryable jobs can be retried.",
+    });
+  return result;
+}
+
+export async function cancelJobRow(jobId: string) {
+  const result = await prisma.backgroundJob.updateMany({
+    where: { id: jobId, status: { in: ["PENDING", "RETRYABLE", "RUNNING"] } },
+    data: {
+      status: "CANCELLED",
+      cancelledAt: new Date(),
+      leaseToken: null,
+      lockedAt: null,
+      lockedBy: null,
+      lockExpiresAt: null,
+      lastError:
+        "Cancelled by instance admin. A provider operation already started may still complete.",
+    },
+  });
+  if (result.count !== 1)
+    throw new AppError({
+      code: "CONFLICT",
+      message: "This job is no longer eligible for cancellation.",
+    });
+  return result;
 }
 
 export type { Prisma };

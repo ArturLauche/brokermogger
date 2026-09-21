@@ -1378,11 +1378,13 @@ model BackgroundJob {
   lockedAt       DateTime?
   lockedBy       String?
   lockExpiresAt  DateTime?
+  /// Fences every worker mutation; replaced on each claim and cleared on release.
+  leaseToken     String?
   attemptCount   Int       @default(0)
   maxAttempts    Int       @default(5)
   lastError      String?
   payloadJson    Json      @default("{}")
-  /// Unique per logical unit of work. Guarantees at-most-once side effects.
+  /// Unique per logical unit of work. Handlers must reconcile partial external effects.
   idempotencyKey String    @unique
 
   relatedUserId    String?

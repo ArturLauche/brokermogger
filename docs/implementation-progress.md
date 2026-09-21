@@ -96,3 +96,13 @@ features are implemented.
 Still to finish in this area: full-envelope approval/dispatch migration gates,
 receiving/response content flows, comprehensive exports, final operational/UI
 verification, and production key/build checks against the compiled app.
+
+### Worker leases
+
+- Every claim receives a fresh token. Heartbeats, completion, cancellation and
+  retries require the unexpired token. Stale workers cannot replace a newer
+  result or revive cancelled jobs; expiry uses a conditional database-time write.
+- Workers claim jobs when ready to execute instead of letting a local batch expire.
+  Administrator retries/cancellations are limited to eligible states.
+- Five PostgreSQL regressions cover competing workers, stale completion/retry,
+  renewal, cancellation during execution and error-message minimisation.

@@ -82,6 +82,7 @@ export async function markAccountDeletionRequested(actor: ActorContext) {
         lockedBy: null,
         lockedAt: null,
         lockExpiresAt: null,
+        leaseToken: null,
         lastError: "Account deletion requested.",
       },
     });
