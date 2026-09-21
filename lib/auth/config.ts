@@ -138,7 +138,11 @@ export const authConfig: NextAuthConfig = {
         return true;
       }
 
-      if (account.status === "ACTIVE" && account.deletedAt === null) {
+      if (
+        account.status === "ACTIVE" &&
+        account.deletedAt === null &&
+        account.deletionRequestedAt === null
+      ) {
         return true;
       }
 

@@ -12,9 +12,10 @@ import { prisma } from "@/lib/db/client";
 import { NotFoundError } from "@/lib/core/errors";
 import { isCrossAccountAccess, requirePermission } from "@/lib/permissions/policy";
 import type { ActorContext } from "@/lib/permissions/actor";
-import { recordAudit } from "@/lib/audit/service";
+import { recordAudit, recordAuditOrThrow } from "@/lib/audit/service";
 import { blindIndex, decryptField, encryptField } from "@/lib/security/crypto";
 import { maskIdentifier } from "@/lib/security/masking";
+import { eraseProfileContent } from "./profileErasure";
 
 export async function listProfilesForActor(actor: ActorContext) {
   requirePermission(actor, "profile:read", { ownerUserId: actor.userId });
@@ -45,13 +46,28 @@ export async function getOwnedProfile(actor: ActorContext, profileId: string) {
   });
 
   if (isCrossAccountAccess(actor, { ownerUserId: profile.ownerUserId })) {
-    await recordAudit({
+    await recordAuditOrThrow({
       actor,
       action: "admin.user_data_viewed",
       resourceType: "profile",
       resourceId: profile.id,
       targetUserId: profile.ownerUserId,
     });
+    return {
+      ...profile,
+      displayName: "Private profile",
+      legalNameEnc: null,
+      legalNameBi: null,
+      contactEmailEnc: null,
+      contactEmailBi: null,
+      identifiers: profile.identifiers.map((identifier) => ({
+        ...identifier,
+        valueEnc: "",
+        valueBi: "",
+        label: null,
+      })),
+      householdMember: null,
+    };
   }
 
   return profile;
@@ -192,10 +208,7 @@ export async function softDeleteIdentifier(actor: ActorContext, identifierId: st
   requirePermission(actor, "identifier:write", {
     ownerUserId: identifier.profile.ownerUserId,
   });
-  await prisma.profileIdentifier.update({
-    where: { id: identifierId },
-    data: { deletedAt: new Date() },
-  });
+  await eraseProfileContent(actor, identifier.profileId, identifierId);
   await recordAudit({
     actor,
     action: "identifier.deleted",
@@ -207,14 +220,7 @@ export async function softDeleteIdentifier(actor: ActorContext, identifierId: st
 export async function softDeleteProfile(actor: ActorContext, profileId: string) {
   const profile = await getOwnedProfile(actor, profileId);
   requirePermission(actor, "profile:delete", { ownerUserId: profile.ownerUserId });
-  await prisma.profileIdentifier.updateMany({
-    where: { profileId, deletedAt: null },
-    data: { deletedAt: new Date() },
-  });
-  await prisma.userProfile.update({
-    where: { id: profileId },
-    data: { deletedAt: new Date(), displayName: "Deleted profile" },
-  });
+  await eraseProfileContent(actor, profileId);
   await recordAudit({
     actor,
     action: "profile.deleted",

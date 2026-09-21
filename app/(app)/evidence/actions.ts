@@ -7,11 +7,12 @@ import { deleteEvidence, uploadEvidence } from "@/lib/evidence/service";
 import { evidenceKindSchema } from "@/lib/validation/enums";
 import { formString, parseWithSchema } from "@/lib/validation/form";
 import { entityIdSchema, optionalEntityIdSchema } from "@/lib/validation/ids";
+import { MAX_EVIDENCE_BYTES } from "@/lib/evidence/files";
 
 export async function uploadEvidenceAction(formData: FormData): Promise<void> {
   const actor = await requireActor();
   const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) {
+  if (!(file instanceof File) || file.size === 0 || file.size > MAX_EVIDENCE_BYTES) {
     redirect("/evidence?error=validation");
   }
   const buffer = Buffer.from(await file.arrayBuffer());
@@ -30,6 +31,7 @@ export async function uploadEvidenceAction(formData: FormData): Promise<void> {
       filename: file.name,
       contentType: file.type || "application/octet-stream",
       body: buffer,
+      identityConsent: formData.get("identityConsent") === "on",
     });
   } catch {
     redirect("/evidence?error=upload");

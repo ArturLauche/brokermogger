@@ -8,7 +8,6 @@ import {
 } from "@/lib/db/repositories/account";
 import { listProfilesForActor } from "@/lib/db/repositories/profiles";
 import { listOwnedRequestExportRows } from "@/lib/db/repositories/requests";
-import { enqueueJob } from "@/lib/jobs/queue";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
 
@@ -63,17 +62,11 @@ export async function exportAccountData(actor: ActorContext): Promise<Buffer> {
 
 export async function requestAccountDeletion(actor: ActorContext) {
   requirePermission(actor, "account:delete", { ownerUserId: actor.userId });
-  await markAccountDeletionRequested(actor);
   await recordAuditOrThrow({
     actor,
     action: "account.deletion_requested",
     resourceType: "user",
     resourceId: actor.userId,
   });
-  await enqueueJob({
-    type: "DELETE_ACCOUNT_DATA",
-    payload: { userId: actor.userId, requestedAt: new Date().toISOString() },
-    idempotencyKey: `delete-account:${actor.userId}`,
-    relatedUserId: actor.userId,
-  });
+  await markAccountDeletionRequested(actor);
 }

@@ -8,7 +8,7 @@ import { addMonths } from "date-fns";
 
 import { recordAudit } from "@/lib/audit/service";
 import { ValidationError } from "@/lib/core/errors";
-import { createEvidenceFile } from "@/lib/db/repositories/evidence";
+import { getOwnedProfile } from "@/lib/db/repositories/profiles";
 import {
   createReport,
   getOwnedReport,
@@ -20,8 +20,8 @@ import { listRequestsForUser } from "@/lib/db/repositories/requests";
 import { enqueueJob } from "@/lib/jobs/queue";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
-import { getStorage } from "@/lib/storage";
-import { sha256Hex } from "@/lib/security/crypto";
+import { storePrivateFile } from "@/lib/storage/privateFiles";
+import { systemActor } from "@/lib/permissions/actor";
 import type { ReportFormat } from "@prisma/client";
 
 import { buildReportPayload, reportToJson, type ReportPayload } from "./build";
@@ -31,6 +31,10 @@ export async function requestReport(
   input: { profileId: string | null; dateFrom: Date; dateTo: Date; format: ReportFormat }
 ) {
   requirePermission(actor, "report:generate", { ownerUserId: actor.userId });
+  if (input.profileId) {
+    const profile = await getOwnedProfile(actor, input.profileId);
+    requirePermission(actor, "report:generate", { ownerUserId: profile.ownerUserId });
+  }
   if (input.dateTo.getTime() < input.dateFrom.getTime()) {
     throw new ValidationError("The end date must be on or after the start date.");
   }
@@ -115,19 +119,13 @@ export async function renderReportForJob(reportId: string): Promise<{ message: s
 
   const body = report.format === "PDF" ? await renderPdf(payload) : reportToJson(payload);
   const contentType = report.format === "PDF" ? "application/pdf" : "application/json";
-  const key = `reports/${report.userId}/${report.id}.${report.format === "PDF" ? "pdf" : "json"}`;
-  const stored = await getStorage().put({ key, body, contentType });
-
-  const evidence = await createEvidenceFile({
-    user: { connect: { id: report.userId } },
-    ...(report.profileId ? { profile: { connect: { id: report.profileId } } } : {}),
+  const evidence = await storePrivateFile(systemActor(`report:${report.id}`), {
+    userId: report.userId,
+    profileId: report.profileId,
     kind: "REPORT",
-    storageKey: stored.key,
-    storageBackend: getStorage().backend,
+    filename: `report.${report.format === "PDF" ? "pdf" : "json"}`,
     contentType,
-    byteSize: stored.byteSize,
-    checksumSha256: stored.checksumSha256 || sha256Hex(body),
-    filenameMasked: `report.${report.format === "PDF" ? "pdf" : "json"}`,
+    body,
   });
 
   await updateReport(reportId, {

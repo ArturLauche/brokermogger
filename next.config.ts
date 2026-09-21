@@ -31,7 +31,7 @@ const nextConfig: NextConfig = {
   experimental: {
     // Server Actions are only accepted from the configured origins.
     serverActions: {
-      bodySizeLimit: "8mb",
+      bodySizeLimit: "9mb",
     },
   },
   async headers() {

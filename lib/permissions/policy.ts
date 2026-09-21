@@ -150,13 +150,18 @@ const ADMIN_ACTIONS = new Set<Action>([
 ]);
 
 /**
- * Actions that stay forbidden for administrators even with a break-glass
- * grant. Identity documents and decrypted identifiers belong to the user.
+ * Emergency access permits only minimized, audited reads. It never grants
+ * authority to change consent, approve messages, mutate or download user data.
  */
-const NEVER_FOR_ADMINS = new Set<Action>([
-  "identifier:reveal",
-  "evidence:download",
-  "account:export",
+const BREAK_GLASS_READS = new Set<Action>([
+  "profile:read",
+  "identifier:read",
+  "household:read",
+  "consent:read",
+  "request:read",
+  "evidence:read",
+  "report:read",
+  "account:read",
 ]);
 
 export function can(
@@ -178,15 +183,15 @@ export function can(
       return ALLOW;
     }
 
-    // Creating a resource has no owner yet: the actor becomes the owner.
+    // Creation and list operations must explicitly bind ownership to the actor.
     if (resource.ownerUserId === undefined || resource.ownerUserId === null) {
-      return ALLOW;
+      return deny("An explicit resource owner is required.");
     }
 
     if (actor.role === "INSTANCE_ADMIN") {
-      if (NEVER_FOR_ADMINS.has(action)) {
+      if (!BREAK_GLASS_READS.has(action)) {
         return deny(
-          "Instance admins can never read decrypted identifiers or download user evidence."
+          "Emergency access only permits audited, minimized reads. This action belongs to the account holder."
         );
       }
 

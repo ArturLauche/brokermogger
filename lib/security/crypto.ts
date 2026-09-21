@@ -25,6 +25,7 @@ import { AppError } from "@/lib/core/errors";
 const ENVELOPE_PREFIX = "bm1";
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
+const FILE_PREFIX = Buffer.from("bmf1", "ascii");
 
 export interface EncryptionContext {
   /** Prisma model name, e.g. "ProfileIdentifier". */
@@ -73,6 +74,60 @@ export function encryptField(plaintext: string, context: EncryptionContext): str
   ].join(".");
 }
 
+/** Compact, versioned binary envelope. File bytes never reach storage in plaintext. */
+export function encryptBytes(plaintext: Buffer, context: EncryptionContext): Buffer {
+  const { keyId, key } = env.encryptionActiveKey;
+  const keyIdBytes = Buffer.from(keyId, "ascii");
+  const iv = randomBytes(IV_BYTES);
+  const cipher = createCipheriv("aes-256-gcm", key, iv, { authTagLength: TAG_BYTES });
+  cipher.setAAD(buildAad(context));
+  const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+  return Buffer.concat([
+    FILE_PREFIX,
+    Buffer.from([keyIdBytes.length]),
+    keyIdBytes,
+    iv,
+    cipher.getAuthTag(),
+    ciphertext,
+  ]);
+}
+
+export function decryptBytes(envelope: Buffer, context: EncryptionContext): Buffer {
+  try {
+    const keyIdLength = envelope[4] ?? 0;
+    const offset = 5 + keyIdLength;
+    if (
+      !envelope.subarray(0, 4).equals(FILE_PREFIX) ||
+      keyIdLength < 1 ||
+      keyIdLength > 64 ||
+      envelope.length < offset + IV_BYTES + TAG_BYTES
+    ) {
+      throw new Error("Invalid encrypted object envelope");
+    }
+    const keyId = envelope.subarray(5, offset).toString("ascii");
+    const decipher = createDecipheriv(
+      "aes-256-gcm",
+      keyForId(keyId),
+      envelope.subarray(offset, offset + IV_BYTES),
+      { authTagLength: TAG_BYTES }
+    );
+    decipher.setAAD(buildAad(context));
+    decipher.setAuthTag(
+      envelope.subarray(offset + IV_BYTES, offset + IV_BYTES + TAG_BYTES)
+    );
+    return Buffer.concat([
+      decipher.update(envelope.subarray(offset + IV_BYTES + TAG_BYTES)),
+      decipher.final(),
+    ]);
+  } catch {
+    throw new AppError({
+      code: "STORAGE_FAILED",
+      message:
+        "The encrypted file could not be authenticated. Check the instance keyring or restore a verified copy.",
+    });
+  }
+}
+
 export function decryptField(envelope: string, context: EncryptionContext): string {
   const parts = envelope.split(".");
   if (parts.length !== 5 || parts[0] !== ENVELOPE_PREFIX) {
@@ -90,16 +145,16 @@ export function decryptField(envelope: string, context: EncryptionContext): stri
     string,
   ];
 
-  const decipher = createDecipheriv(
-    "aes-256-gcm",
-    keyForId(keyId),
-    Buffer.from(ivPart, "base64url"),
-    { authTagLength: TAG_BYTES }
-  );
-  decipher.setAAD(buildAad(context));
-  decipher.setAuthTag(Buffer.from(tagPart, "base64url"));
-
   try {
+    const iv = Buffer.from(ivPart, "base64url");
+    const tag = Buffer.from(tagPart, "base64url");
+    if (iv.length !== IV_BYTES || tag.length !== TAG_BYTES)
+      throw new Error("Invalid encryption envelope");
+    const decipher = createDecipheriv("aes-256-gcm", keyForId(keyId), iv, {
+      authTagLength: TAG_BYTES,
+    });
+    decipher.setAAD(buildAad(context));
+    decipher.setAuthTag(tag);
     return Buffer.concat([
       decipher.update(Buffer.from(ciphertextPart, "base64url")),
       decipher.final(),

@@ -13,7 +13,9 @@ const globalForPrisma = globalThis as unknown as { brokermoggerPrisma?: PrismaCl
 
 function createClient(): PrismaClient {
   return new PrismaClient({
-    log: env.LOG_LEVEL === "debug" ? ["warn", "error"] : ["error"],
+    // Prisma's formatted errors include query arguments, which may be personal.
+    // Callers log stable error codes through createLogger instead.
+    log: [],
   });
 }
 

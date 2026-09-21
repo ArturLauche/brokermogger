@@ -5,23 +5,25 @@
  * defaults in `tests/setup/test-env.ts`.
  */
 import { env } from "@/lib/config/env";
+import { AppError } from "@/lib/core/errors";
 
 import { LocalStorageAdapter } from "./local";
 import { MemoryStorageAdapter } from "./memory";
 import { S3StorageAdapter } from "./s3";
 import type { StoragePort } from "./types";
 
-let cached: StoragePort | undefined;
+const cached = new Map<string, StoragePort>();
 
-export function getStorage(): StoragePort {
-  if (!cached) {
-    cached = createStorage();
-  }
-  return cached;
+export function getStorage(backend: string = env.STORAGE_BACKEND): StoragePort {
+  const existing = cached.get(backend);
+  if (existing) return existing;
+  const storage = createStorage(backend);
+  cached.set(backend, storage);
+  return storage;
 }
 
-function createStorage(): StoragePort {
-  switch (env.STORAGE_BACKEND) {
+function createStorage(backend: string): StoragePort {
+  switch (backend) {
     case "s3":
       return new S3StorageAdapter();
     case "memory":
@@ -29,14 +31,17 @@ function createStorage(): StoragePort {
     case "local":
       return new LocalStorageAdapter();
     default: {
-      const exhaustive: never = env.STORAGE_BACKEND;
-      throw new Error(`Unsupported STORAGE_BACKEND: ${String(exhaustive)}`);
+      throw new AppError({
+        code: "STORAGE_FAILED",
+        message: "This file uses a storage backend that is not configured.",
+      });
     }
   }
 }
 
 export function setStorageForTests(storage?: StoragePort): void {
-  cached = storage;
+  cached.clear();
+  if (storage) cached.set(storage.backend, storage);
 }
 
 export type { StoragePort, StoredObject, PutObjectInput } from "./types";

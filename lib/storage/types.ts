@@ -5,8 +5,8 @@
  * S3StorageAdapter (S3 compatible, MinIO in the dev stack) and
  * MemoryStorageAdapter (tests).
  *
- * Identity documents are additionally encrypted by the application before they
- * reach the adapter, so a compromised bucket does not expose them.
+ * All private files are encrypted by the application before they reach the
+ * adapter. Object URLs cannot bypass application authentication/decryption.
  */
 
 export interface StoredObject {

@@ -164,6 +164,14 @@ export default async function EvidencePage({
             Redact identity documents before upload. Max 8 MB. PNG, JPEG or PDF.
           </p>
         </div>
+        <label className="flex items-start gap-3 text-sm">
+          <input type="checkbox" name="identityConsent" className="mt-1 size-4" />
+          <span>
+            For an optional identity document: I consent to temporary encrypted storage
+            after a recorded broker verification request. I will handle any external
+            submission myself.
+          </span>
+        </label>
         <Button type="submit">Store file</Button>
       </form>
     </div>

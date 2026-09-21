@@ -135,7 +135,7 @@ export default async function VaultPage() {
             hidden={{ profileId: profile.id }}
             label="Delete this profile"
             title="Delete this profile"
-            description="Identifiers on this profile will be marked deleted. Existing request history remains until account deletion."
+            description="Identifiers and related message content will be erased, and queued requests cancelled. Attached files and reports are scheduled for cleanup. Minimal consent and audit proof is retained."
             consequences={["The profile can no longer be used for new requests."]}
             confirmationPhrase="DELETE"
             destructive

@@ -284,6 +284,14 @@ enum EvidenceEncryption {
   NONE
   SERVER_SIDE
   CLIENT_SIDE_AES_GCM
+  APPLICATION_AES_GCM
+}
+
+enum StorageObjectState {
+  UPLOADING
+  READY
+  PURGE_PENDING
+  PURGED
 }
 
 enum NotificationType {
@@ -408,6 +416,9 @@ model User {
   id            String     @id @default(cuid())
   /// Always stored lowercase. Uniqueness is enforced case-insensitively.
   email         String     @unique
+  /// Legacy email becomes a non-deliverable account alias after backfill.
+  emailEnc      String?
+  emailBi       String?    @unique
   emailVerified DateTime?
   name          String?
   image         String?
@@ -1104,8 +1115,11 @@ model RequestSnapshot {
   removalRequestId String
   version          Int
 
-  subject String
-  body    String
+  /// Empty for encrypted snapshots. Kept for the resumable legacy backfill.
+  subject String @default("")
+  body    String @default("")
+  payloadEnc String?
+  erasedAt DateTime?
 
   templateVersionId  String?
   legalRuleVersionId String?
@@ -1137,6 +1151,7 @@ model BrokerResponse {
   channel          RequestChannel @default(EMAIL)
 
   fromAddress String?
+  fromAddressEnc String?
   subjectEnc  String?
   bodyEnc     String?
   bodyPreview String?
@@ -1145,6 +1160,8 @@ model BrokerResponse {
   classificationConfidence LegalConfidence              @default(LOW)
   classifiedBy             ActorType                    @default(SYSTEM)
   requiresUserAction       Boolean                      @default(false)
+  confirmedAt              DateTime?
+  providerEventId          String? @unique
 
   evidenceFileId String?
   rawMetadata    Json    @default("{}")
@@ -1180,6 +1197,10 @@ model EvidenceFile {
 
   encryption      EvidenceEncryption @default(SERVER_SIDE)
   encryptionKeyId String?
+  storageState StorageObjectState @default(READY)
+  purgeRequestedAt DateTime?
+  purgedAt DateTime?
+  identityConsentRecordId String?
 
   filenameEnc    String?
   filenameMasked String?
@@ -1207,6 +1228,7 @@ model EvidenceFile {
   @@index([removalRequestId])
   @@index([isTemporary, expiresAt])
   @@index([deletedAt])
+  @@index([storageState, updatedAt])
 }
 
 model Notification {
@@ -1458,7 +1480,10 @@ model EmailWebhookEvent {
   eventId   String @unique
   eventType String
 
-  payloadJson       Json
+  /// Empty for encrypted events; legacy values are migrated and cleared.
+  payloadJson       Json @default("{}")
+  payloadEnc        String?
+  ownerUserId       String?
   signatureVerified Boolean @default(false)
 
   receivedAt      DateTime  @default(now())
@@ -1473,6 +1498,7 @@ model EmailWebhookEvent {
 
   @@index([processedAt])
   @@index([eventType, receivedAt])
+  @@index([ownerUserId])
 }
 
 // ---------------------------------------------------------------------------

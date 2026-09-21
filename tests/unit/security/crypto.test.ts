@@ -53,6 +53,14 @@ describe("field encryption", () => {
   it("reports that the active key does not need rotation", () => {
     expect(needsKeyRotation(encryptField("value", context))).toBe(false);
   });
+
+  it("reports malformed IVs and tags through the application error contract", () => {
+    for (const envelope of ["bm1.v1.AA.AA.AA", "bm1.v1...AA"]) {
+      expect(() => decryptField(envelope, context)).toThrow(
+        expect.objectContaining({ code: "INTERNAL_ERROR" })
+      );
+    }
+  });
 });
 
 describe("blind index", () => {

@@ -1,29 +1,26 @@
 /**
  * Evidence upload, download and deletion.
  */
-import { randomUUID } from "node:crypto";
-
 import type { EvidenceKind } from "@prisma/client";
 
 import { recordAudit } from "@/lib/audit/service";
 import { getSetting } from "@/lib/config/runtimeSettings";
 import { AppError, ValidationError } from "@/lib/core/errors";
 import {
-  createEvidenceFile,
   getOwnedEvidenceForDownload,
+  getOwnedEvidence,
   listOwnedEvidence,
   markEvidenceAccessed,
-  softDeleteEvidence,
 } from "@/lib/db/repositories/evidence";
 import { getOwnedRequest } from "@/lib/db/repositories/requests";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
 import { getStorage } from "@/lib/storage";
-import { encryptField, sha256Hex } from "@/lib/security/crypto";
+import { decryptBytes, sha256Hex } from "@/lib/security/crypto";
+import { appendConsentRecord } from "@/lib/db/repositories/consent";
+import { storePrivateFile, purgePrivateFile } from "@/lib/storage/privateFiles";
+import { validateEvidenceFile } from "./files";
 import { sanitiseText } from "@/lib/security/sanitize";
-
-const ALLOWED_TYPES = new Set(["image/png", "image/jpeg", "application/pdf"]);
-const MAX_BYTES = 8 * 1024 * 1024;
 
 export async function listEvidence(actor: ActorContext, profileId: string | null) {
   return listOwnedEvidence(actor, profileId);
@@ -37,25 +34,46 @@ export async function uploadEvidence(
     filename: string;
     contentType: string;
     body: Buffer;
+    identityConsent?: boolean;
   }
 ) {
   requirePermission(actor, "evidence:upload", { ownerUserId: actor.userId });
 
-  if (!ALLOWED_TYPES.has(input.contentType)) {
-    throw new ValidationError("Allowed types are PNG, JPEG and PDF.");
-  }
-  if (input.body.byteLength === 0 || input.body.byteLength > MAX_BYTES) {
-    throw new ValidationError("Files must be between 1 byte and 8 MB.");
-  }
-
+  validateEvidenceFile(input.body, input.contentType);
+  let identityConsentRecordId: string | null = null;
   let profileId: string | null = null;
   if (input.requestId) {
     const request = await getOwnedRequest(actor, input.requestId);
     profileId = request.profileId;
-    if (input.kind === "IDENTITY_DOCUMENT" && !request.manualReviewRequired) {
+    if (
+      input.kind === "IDENTITY_DOCUMENT" &&
+      !request.responses.some(
+        (response) =>
+          response.classification === "VERIFICATION_REQUESTED" &&
+          response.confirmedAt &&
+          !response.deletedAt
+      )
+    ) {
       throw new ValidationError(
         "Identity documents are only accepted when a request actually asked for identity proof."
       );
+    }
+    if (input.kind === "IDENTITY_DOCUMENT") {
+      if (input.identityConsent !== true)
+        throw new ValidationError(
+          "Explicit consent is required to store an optional identity document. External submission remains your responsibility."
+        );
+      const consent = await appendConsentRecord({
+        profileId: request.profileId,
+        actorUserId: actor.userId,
+        purpose: "IDENTITY_VERIFICATION",
+        method: "SELF_ATTESTATION",
+        status: request.profile.consentStatus,
+        statementText:
+          "I choose to store this identity document temporarily in this instance after a recorded broker verification request. It will not be sent automatically.",
+        removalRequestId: request.id,
+      });
+      identityConsentRecordId = consent.id;
     }
   } else if (input.kind === "IDENTITY_DOCUMENT") {
     throw new ValidationError(
@@ -67,41 +85,22 @@ export async function uploadEvidence(
     fieldName: "filename",
     maxLength: 180,
   });
-  const id = randomUUID();
-  const key = `evidence/${actor.userId}/${id}`;
-  const stored = await getStorage().put({
-    key,
-    body: input.body,
-    contentType: input.contentType,
-    temporary: input.kind === "IDENTITY_DOCUMENT",
-  });
-
   const temporaryIdDays = await getSetting("retentionTemporaryIdFileDays");
   const expiresAt =
     input.kind === "IDENTITY_DOCUMENT"
       ? new Date(Date.now() + temporaryIdDays * 24 * 60 * 60 * 1000)
       : null;
 
-  const file = await createEvidenceFile({
-    id,
-    user: { connect: { id: actor.userId } },
-    ...(profileId ? { profile: { connect: { id: profileId } } } : {}),
-    ...(input.requestId ? { removalRequest: { connect: { id: input.requestId } } } : {}),
+  const file = await storePrivateFile(actor, {
+    userId: actor.userId,
+    profileId,
+    requestId: input.requestId,
     kind: input.kind,
-    storageKey: stored.key,
-    storageBackend: getStorage().backend,
+    filename,
     contentType: input.contentType,
-    byteSize: stored.byteSize,
-    checksumSha256: stored.checksumSha256 || sha256Hex(input.body),
-    filenameEnc: encryptField(filename, {
-      table: "EvidenceFile",
-      column: "filenameEnc",
-      recordId: id,
-    }),
-    filenameMasked: filename.replace(/.(?=.{4})/g, "•"),
-    isTemporary: input.kind === "IDENTITY_DOCUMENT",
-    ...(expiresAt ? { expiresAt } : {}),
-    createdById: actor.userId,
+    body: input.body,
+    expiresAt,
+    identityConsentRecordId,
   });
 
   await recordAudit({
@@ -116,7 +115,22 @@ export async function uploadEvidence(
 
 export async function downloadEvidence(actor: ActorContext, evidenceId: string) {
   const file = await getOwnedEvidenceForDownload(actor, evidenceId);
-  const body = await getStorage().get(file.storageKey);
+  const stored = await getStorage(file.storageBackend).get(file.storageKey);
+  const body =
+    file.encryption === "APPLICATION_AES_GCM" ||
+    file.encryption === "CLIENT_SIDE_AES_GCM" ||
+    stored.subarray(0, 4).toString("ascii") === "bmf1"
+      ? decryptBytes(stored, {
+          table: "EvidenceFile",
+          column: "object",
+          recordId: file.id,
+        })
+      : stored;
+  if (sha256Hex(body) !== file.checksumSha256)
+    throw new AppError({
+      code: "STORAGE_FAILED",
+      message: "The downloaded file does not match its stored integrity checksum.",
+    });
   await markEvidenceAccessed(file.id);
   await recordAudit({
     actor,
@@ -128,9 +142,10 @@ export async function downloadEvidence(actor: ActorContext, evidenceId: string) 
 }
 
 export async function deleteEvidence(actor: ActorContext, evidenceId: string) {
-  const file = await getOwnedEvidenceForDownload(actor, evidenceId);
+  const file = await getOwnedEvidence(actor, evidenceId);
+  requirePermission(actor, "evidence:delete", { ownerUserId: file.userId });
   try {
-    await getStorage().delete(file.storageKey);
+    await purgePrivateFile(file);
   } catch (error) {
     throw new AppError({
       code: "STORAGE_FAILED",
@@ -138,7 +153,6 @@ export async function deleteEvidence(actor: ActorContext, evidenceId: string) {
       cause: error,
     });
   }
-  await softDeleteEvidence(actor, evidenceId);
   await recordAudit({
     actor,
     action: "evidence.deleted",

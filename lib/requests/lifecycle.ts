@@ -577,7 +577,7 @@ export async function sendApprovedRequest(
   snapshotId: string
 ): Promise<{ message: string }> {
   const request = await getOwnedRequest(actor, removalRequestId);
-  const snapshot = await getSnapshotForRequest(request.id, snapshotId);
+  const snapshot = await getSnapshotForRequest(actor, request.id, snapshotId);
   if (!snapshot) {
     throw new AppError({
       code: "CONFLICT",

@@ -70,6 +70,29 @@ features are implemented.
   128 bits rather than 24 bits. Identifier selections reject foreign IDs.
 - Updated Next.js / ESLint to 16.3.5 and Vitest to 4.1.11; refreshed affected
   transitive dependencies. `npm audit`: zero known vulnerabilities.
-- Typecheck, lint and format passed; 320 unit/component tests passed. Five new
-  generation integration tests passed, including injected storage failure and
+- Typecheck, lint and format passed; 320 unit/component tests and 48 integration
+  tests passed, including injected snapshot-persistence failure and
   concurrent generation. Actual browser sign-out remains in the final journey pass.
+
+### Privacy implementation in progress
+
+- New evidence, generated report files, snapshot text and webhook payloads are
+  encrypted with record-bound authenticated encryption. Evidence has durable
+  upload/purge states, signature/size checks, expiry enforcement and safe headers.
+- Added an email-only Auth.js adapter with encrypted login addresses and blind
+  indexes for email and verification-token identity lookup. Session operations
+  refuse pending-deletion accounts. Existing sessions expose no raw token in UI reads.
+- Runtime build-bypass checks and canonical key/key-ID validation now reject
+  example material in production. Error serializers omit messages and SQL arguments.
+- Account access blocking, session revocation, cancellation and purge scheduling
+  are atomic. Content erasure and storage purging are resumable. Profile/identifier
+  deletion removes affected message copies and schedules file cleanup.
+- Added additive migrations and a verified, resumable legacy-payload backfill.
+  See `docs/upgrade-private-storage.md` for maintenance and rollback boundaries.
+- Typecheck and lint passed. The broader run passed 333 unit/component tests and
+  59 integration tests, including profile erasure and the migration rehearsal.
+  The complete browser/production acceptance suite remains pending.
+
+Still to finish in this area: full-envelope approval/dispatch migration gates,
+receiving/response content flows, comprehensive exports, final operational/UI
+verification, and production key/build checks against the compiled app.

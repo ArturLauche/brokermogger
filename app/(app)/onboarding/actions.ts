@@ -61,7 +61,7 @@ export async function saveOnboarding(formData: FormData): Promise<void> {
   }
 
   const profile = await createSelfProfile(actor, {
-    displayName: fullName,
+    displayName: "My profile",
     legalName: fullName,
     countryCode: data.country,
     region,

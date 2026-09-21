@@ -10,11 +10,14 @@ import type {
   RequestStatus,
   RequestType,
 } from "@prisma/client";
+import { randomUUID } from "node:crypto";
 
 import { prisma, type PrismaTransaction } from "@/lib/db/client";
 import { AppError, NotFoundError } from "@/lib/core/errors";
 import type { ActorContext } from "@/lib/permissions/actor";
-import { requirePermission } from "@/lib/permissions/policy";
+import { isCrossAccountAccess, requirePermission } from "@/lib/permissions/policy";
+import { recordAuditOrThrow } from "@/lib/audit/service";
+import { encryptSnapshotText, readSnapshotText } from "@/lib/requests/snapshot";
 import { assertTransition, type TransitionActor } from "@/lib/requests/stateMachine";
 import { canonicalJson, chainHash, sha256Hex } from "@/lib/security/crypto";
 
@@ -46,15 +49,45 @@ export async function getOwnedRequest(actor: ActorContext, requestId: string) {
   }
 
   requirePermission(actor, "request:read", { ownerUserId: request.userId });
-  return request;
+  if (isCrossAccountAccess(actor, { ownerUserId: request.userId })) {
+    await recordAuditOrThrow({
+      actor,
+      action: "admin.user_data_viewed",
+      resourceType: "removal_request",
+      resourceId: request.id,
+      targetUserId: request.userId,
+    });
+    return {
+      ...request,
+      snapshots: [],
+      responses: [],
+      evidenceFiles: [],
+      profile: {
+        ...request.profile,
+        displayName: "Private profile",
+        legalNameEnc: null,
+        legalNameBi: null,
+        contactEmailEnc: null,
+        contactEmailBi: null,
+      },
+    };
+  }
+  return { ...request, snapshots: request.snapshots.map(readSnapshotText) };
 }
 
 /** Snapshot pinned at approval. Callers must not fall back to the latest version. */
 export async function getSnapshotForRequest(
+  actor: ActorContext,
   removalRequestId: string,
   snapshotId: string
 ) {
-  return prisma.requestSnapshot.findFirst({
+  const request = await prisma.removalRequest.findFirst({
+    where: { id: removalRequestId, deletedAt: null },
+    select: { userId: true },
+  });
+  if (!request) throw new NotFoundError("This request does not exist.");
+  requirePermission(actor, "request:update", { ownerUserId: request.userId });
+  const snapshot = await prisma.requestSnapshot.findFirst({
     where: { id: snapshotId, removalRequestId },
     select: {
       id: true,
@@ -62,8 +95,11 @@ export async function getSnapshotForRequest(
       body: true,
       contentHash: true,
       version: true,
+      payloadEnc: true,
+      erasedAt: true,
     },
   });
+  return snapshot ? readSnapshotText(snapshot) : null;
 }
 
 export async function listOwnedRequests(
@@ -304,12 +340,15 @@ export async function insertSnapshot(
   tx: PrismaTransaction = prisma
 ) {
   const contentHash = sha256Hex(`${input.subject}\n${input.body}`);
+  const id = randomUUID();
   return tx.requestSnapshot.create({
     data: {
+      id,
       removalRequestId: input.removalRequestId,
       version: input.version,
-      subject: input.subject,
-      body: input.body,
+      subject: "",
+      body: "",
+      payloadEnc: encryptSnapshotText(id, input.subject, input.body),
       templateVersionId: input.templateVersionId,
       legalRuleVersionId: input.legalRuleVersionId,
       variables: input.variables,

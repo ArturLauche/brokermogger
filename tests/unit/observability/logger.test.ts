@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { safeMeta, shouldUsePrettyTransport } from "@/lib/observability/logger";
+import {
+  safeError,
+  safeMeta,
+  shouldUsePrettyTransport,
+} from "@/lib/observability/logger";
+
+it("keeps error diagnostics without logging query arguments or nested causes", () => {
+  const error = Object.assign(new Error("Query failed for private@example.org"), {
+    code: "P2002",
+    cause: new Error("secret token"),
+  });
+  expect(safeError(error)).toEqual({ type: "Error", code: "P2002" });
+});
 
 describe("shouldUsePrettyTransport", () => {
   it("is only for local development Node processes", () => {

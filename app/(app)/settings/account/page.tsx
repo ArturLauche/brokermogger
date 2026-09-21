@@ -110,8 +110,12 @@ export default async function AccountSettingsPage({
           hidden={{}}
           label="Delete my account"
           title="Delete my account"
-          description="This queues deletion of identifiers and anonymises the account."
-          consequences={["You will lose access after the deletion job runs."]}
+          description="Access is blocked immediately. A resumable background job erases personal content and stored files."
+          consequences={[
+            "All sessions are revoked and queued work is cancelled immediately.",
+            "Cleanup stays pending until stored files are removed. Minimal pseudonymous audit and consent proof follows the instance retention periods.",
+            "Operator-controlled backups expire under the operator's backup policy; contact the operator for details.",
+          ]}
           confirmationPhrase="DELETE"
           destructive
         />

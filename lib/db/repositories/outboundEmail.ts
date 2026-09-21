@@ -15,6 +15,8 @@ import {
 } from "@prisma/client";
 
 import { prisma } from "@/lib/db/client";
+import { randomUUID } from "node:crypto";
+import { decryptField, encryptField } from "@/lib/security/crypto";
 
 export interface OutboundEmailInsert {
   id: string;
@@ -125,7 +127,7 @@ export interface WebhookEventInsert {
   provider: string;
   eventId: string;
   eventType: string;
-  /** Raw provider payload, stored verbatim for the worker and for audits. */
+  /** Validated provider payload, encrypted before persistence. */
   payloadJson: Record<string, unknown>;
   signatureVerified: boolean;
 }
@@ -158,12 +160,19 @@ export async function recordWebhookEvent(
   }
 
   try {
+    const id = randomUUID();
     const created = await prisma.emailWebhookEvent.create({
       data: {
+        id,
         provider: input.provider,
         eventId: input.eventId,
         eventType: input.eventType,
-        payloadJson: input.payloadJson as Prisma.InputJsonObject,
+        payloadJson: {},
+        payloadEnc: encryptField(JSON.stringify(input.payloadJson), {
+          table: "EmailWebhookEvent",
+          column: "payloadEnc",
+          recordId: id,
+        }),
         signatureVerified: input.signatureVerified,
       },
       select: { id: true, processedAt: true },
@@ -183,7 +192,16 @@ export async function recordWebhookEvent(
 }
 
 export async function getWebhookEventById(id: string) {
-  return prisma.emailWebhookEvent.findUnique({ where: { id } });
+  const event = await prisma.emailWebhookEvent.findUnique({ where: { id } });
+  if (!event?.payloadEnc) return event;
+  const payload = JSON.parse(
+    decryptField(event.payloadEnc, {
+      table: "EmailWebhookEvent",
+      column: "payloadEnc",
+      recordId: id,
+    })
+  ) as Prisma.JsonValue;
+  return { ...event, payloadJson: payload };
 }
 
 export async function listUnprocessedWebhookEvents(take = 50) {

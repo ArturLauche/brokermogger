@@ -12,7 +12,7 @@ import {
   countRetentionDueEvidence,
   listExpiredTemporaryEvidence,
   listRetentionDueEvidence,
-  markEvidencePurged,
+  listUnfinishedFilePurges,
 } from "@/lib/db/repositories/evidence";
 import {
   countClosedRequestsDueForRetention,
@@ -37,7 +37,7 @@ import {
 import { createLogger } from "@/lib/observability/logger";
 import { systemActor } from "@/lib/permissions/actor";
 import { countExpiredRateLimitBuckets, purgeExpiredBuckets } from "@/lib/rateLimit";
-import { getStorage } from "@/lib/storage";
+import { purgePrivateFile } from "@/lib/storage/privateFiles";
 import { mapPool } from "@/lib/async/pool";
 
 import { daysAgo, monthsAgo } from "./datetime";
@@ -133,10 +133,10 @@ export async function runRetentionSweep(input: { dryRun: boolean }): Promise<Job
     };
   }
 
-  const storage = getStorage();
-
-  counts.evidence = await purgeEvidenceBatch(evidenceCutoff, storage);
-  counts.temporaryIdentity = await purgeTemporaryIdentity(storage);
+  const unfinished = await listUnfinishedFilePurges(BATCH);
+  await mapPool(unfinished, 5, purgePrivateFile);
+  counts.evidence = unfinished.length + (await purgeEvidenceBatch(evidenceCutoff));
+  counts.temporaryIdentity = await purgeTemporaryIdentity();
   counts.closedRequests = await drain(
     () => listClosedRequestsDueForRetention(closedCutoff, BATCH),
     async (rows) => {
@@ -176,33 +176,26 @@ export async function runRetentionSweep(input: { dryRun: boolean }): Promise<Job
   return { message: "Retention sweep complete.", metadata: counts };
 }
 
-async function purgeEvidenceBatch(
-  cutoff: Date,
-  storage: ReturnType<typeof getStorage>
-): Promise<number> {
+async function purgeEvidenceBatch(cutoff: Date): Promise<number> {
   let purged = 0;
   for (let i = 0; i < MAX_BATCHES; i += 1) {
     const files = await listRetentionDueEvidence(cutoff, BATCH);
     if (files.length === 0) break;
     await mapPool(files, 5, async (file) => {
-      await storage.delete(file.storageKey);
-      await markEvidencePurged(file.id);
+      await purgePrivateFile(file);
     });
     purged += files.length;
   }
   return purged;
 }
 
-async function purgeTemporaryIdentity(
-  storage: ReturnType<typeof getStorage>
-): Promise<number> {
+async function purgeTemporaryIdentity(): Promise<number> {
   let purged = 0;
   for (let i = 0; i < MAX_BATCHES; i += 1) {
     const files = await listExpiredTemporaryEvidence(BATCH);
     if (files.length === 0) break;
     await mapPool(files, 5, async (file) => {
-      await storage.delete(file.storageKey);
-      await markEvidencePurged(file.id);
+      await purgePrivateFile(file);
     });
     purged += files.length;
   }

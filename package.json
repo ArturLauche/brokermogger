@@ -24,6 +24,7 @@
     "db:deploy": "prisma migrate deploy",
     "db:reset": "prisma migrate reset --force",
     "db:seed": "tsx prisma/seed.ts",
+    "db:backfill-private": "tsx scripts/backfill-private-payloads.ts",
     "db:studio": "prisma studio",
     "test": "vitest run --project unit --project components",
     "test:unit": "vitest run --project unit",
