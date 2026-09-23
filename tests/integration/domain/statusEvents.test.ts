@@ -54,12 +54,10 @@ describe("applyRequestStatus", () => {
     });
     const request = await seedDraftRequest(user.id);
 
-    await applyRequestStatus({
+    await applyRequestStatus(testActor(user.id), {
       requestId: request.id,
       from: "DRAFT",
       to: "PREPARED",
-      actor: "USER",
-      actorUserId: user.id,
       message: "Draft rendered from the published template.",
     });
 
@@ -89,12 +87,10 @@ describe("applyRequestStatus", () => {
       relatedRequestId: request.id,
     });
 
-    await applyRequestStatus({
+    await applyRequestStatus(testActor(user.id), {
       requestId: request.id,
       from: "DRAFT",
       to: "CLOSED",
-      actor: "USER",
-      actorUserId: user.id,
       message: "Closed by the account holder.",
       cancelPendingJobTypes: ["RECHECK_REMINDER", "PREPARE_FOLLOW_UP", "SEND_REQUEST"],
     });

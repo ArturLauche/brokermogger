@@ -92,7 +92,6 @@ export async function dispatchThroughResend(input: ResendDispatchInput): Promise
         purpose: message.purpose,
         provider: "resend",
         providerError: response.error?.name ?? "unknown_error",
-        providerMessage: response.error?.message ?? "",
         statusCode: response.error?.statusCode ?? null,
       },
     });

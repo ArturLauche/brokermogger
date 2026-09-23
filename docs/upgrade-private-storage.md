@@ -21,6 +21,19 @@ the schema during the upgrade window.
    account. Review pending approvals before restoring any sending switches.
    Keep the app and worker on the same version throughout this procedure.
 
+The approval-envelope migration cancels legacy queued sends. They cannot prove
+approval of the recipient, channel, reply address and identifier set. Regenerate
+these drafts and review them again; do not revive their old jobs. Historical
+sent snapshots keep their IDs and content hashes. Legacy uncertain outbound
+attempts are marked for reconciliation, never automatically replayed.
+
+Every new worker claim uses a renewable lease token. Deploy app and workers
+together; old workers cannot safely participate in the new lease protocol.
+An uncertain Resend call may only replay the same immutable message within a
+23-hour-55-minute safety window measured from its first dispatch. Thereafter it
+requires checking provider records. This leaves five minutes before Resend’s
+[documented 24-hour idempotency expiry](https://resend.com/docs/dashboard/emails/idempotency-keys).
+
 The file backfill uses each record's original storage backend. Keep both old and
 new backends available when changing storage settings. Missing objects, missing
 keys or checksum failures stop the migration: restore the original resource and

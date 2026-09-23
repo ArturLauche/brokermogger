@@ -60,7 +60,14 @@ export async function insertOutboundEmail(input: OutboundEmailInsert): Promise<s
       toAddressMasked: input.toAddressMasked,
       toAddressHash: input.toAddressHash,
       fromAddress: input.fromAddress,
-      replyTo: input.replyTo,
+      replyTo: null,
+      replyToEnc: input.replyTo
+        ? encryptField(input.replyTo, {
+            table: "OutboundEmail",
+            column: "replyToEnc",
+            recordId: input.id,
+          })
+        : null,
       subjectEnc: input.subjectEnc,
       bodyHash: input.bodyHash,
       attempt: input.attempt,

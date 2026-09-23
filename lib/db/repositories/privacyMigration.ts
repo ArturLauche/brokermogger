@@ -22,7 +22,15 @@ export async function backfillPrivatePayloads(take = 100) {
       code: "FORBIDDEN",
       message: "Disable external sending before upgrading private storage.",
     });
-  const counts = { users: 0, snapshots: 0, webhooks: 0, files: 0, labels: 0, tokens: 0 };
+  const counts = {
+    users: 0,
+    snapshots: 0,
+    webhooks: 0,
+    files: 0,
+    labels: 0,
+    tokens: 0,
+    outbound: 0,
+  };
   const users = await prisma.user.findMany({
     where: {
       emailEnc: null,
@@ -93,6 +101,25 @@ export async function backfillPrivatePayloads(take = 100) {
     });
     counts.webhooks += 1;
   }
+  const outgoing = await prisma.outboundEmail.findMany({
+    where: { replyTo: { not: null } },
+    take,
+    orderBy: { id: "asc" },
+  });
+  for (const item of outgoing) {
+    const context = { table: "OutboundEmail", column: "replyToEnc", recordId: item.id };
+    const replyToEnc = encryptField(item.replyTo!, context);
+    if (decryptField(replyToEnc, context) !== item.replyTo)
+      throw new AppError({
+        code: "INTERNAL_ERROR",
+        message: "Reply address migration did not verify.",
+      });
+    await prisma.outboundEmail.update({
+      where: { id: item.id },
+      data: { replyToEnc, replyTo: null },
+    });
+    counts.outbound += 1;
+  }
   const files = await prisma.evidenceFile.findMany({
     where: {
       encryption: { not: "APPLICATION_AES_GCM" },
@@ -141,7 +168,12 @@ export async function backfillPrivatePayloads(take = 100) {
   }
   // Labels are scanned in bounded pages only after the payload batches finish.
   if (
-    counts.users + counts.snapshots + counts.webhooks + counts.files + counts.tokens ===
+    counts.users +
+      counts.snapshots +
+      counts.webhooks +
+      counts.files +
+      counts.tokens +
+      counts.outbound ===
     0
   ) {
     let cursor: string | undefined;

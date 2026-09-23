@@ -11,6 +11,7 @@ import { isAppError } from "@/lib/core/errors";
 import { getOwnedRequest } from "@/lib/db/repositories/requests";
 import { formatIsoDate } from "@/lib/format/datetime";
 import { APPROVAL_CHECKBOX_LABEL } from "@/lib/requests/labels";
+import { readApprovalEnvelope } from "@/lib/requests/envelope";
 
 import { returnToDraftAction } from "../../actions";
 import { ReviewApprovalForm } from "./review-form";
@@ -40,6 +41,7 @@ export default async function ReviewRequestPage({
   }
 
   const snapshot = request.snapshots[0];
+  const envelope = snapshot?.envelopeHash ? readApprovalEnvelope(snapshot) : null;
   const identifiers = Array.isArray(request.includedIdentifiers)
     ? (request.includedIdentifiers as { type?: string; masked?: string }[])
         .map((item) => item.masked ?? item.type ?? "")
@@ -98,7 +100,20 @@ export default async function ReviewRequestPage({
               { term: "Data included", description: identifiers || "—" },
               {
                 term: "Destination",
-                description: request.destinationValue ?? "No verified destination",
+                description:
+                  envelope?.destination ??
+                  request.destinationValue ??
+                  "No verified destination",
+              },
+              {
+                term: "Channel",
+                description: (envelope?.channel ?? request.channel)
+                  .toLowerCase()
+                  .replaceAll("_", " "),
+              },
+              {
+                term: "Reply address",
+                description: envelope?.replyTo ?? "Requires a new snapshot",
               },
               { term: "Deadline", description: formatIsoDate(request.deadlineAt) },
               {
@@ -120,8 +135,8 @@ export default async function ReviewRequestPage({
         </CardContent>
       </Card>
       <p className="sr-only">{APPROVAL_CHECKBOX_LABEL}</p>
-      {snapshot ? (
-        <ReviewApprovalForm requestId={request.id} contentHash={snapshot.contentHash} />
+      {snapshot?.envelopeHash ? (
+        <ReviewApprovalForm requestId={request.id} envelopeHash={snapshot.envelopeHash} />
       ) : (
         <Alert variant="destructive">
           <AlertTitle>No rendered text</AlertTitle>

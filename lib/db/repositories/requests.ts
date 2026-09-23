@@ -10,6 +10,7 @@ import type {
   RequestStatus,
   RequestType,
 } from "@prisma/client";
+import { currentSendingIdentity, sealApprovalEnvelope } from "@/lib/requests/envelope";
 import { randomUUID } from "node:crypto";
 
 import { prisma, type PrismaTransaction } from "@/lib/db/client";
@@ -248,10 +249,6 @@ export async function countDistinctOwnedBrokers(
   return groups.length;
 }
 
-export async function createDraftRequest(data: Prisma.RemovalRequestCreateInput) {
-  return prisma.removalRequest.create({ data });
-}
-
 export interface RequestEventInput {
   removalRequestId: string;
   type: RequestEventType;
@@ -267,6 +264,7 @@ async function lockRequestEventChain(
   tx: PrismaTransaction,
   requestId: string
 ): Promise<void> {
+  await tx.$executeRaw`SELECT 1 FROM "RemovalRequest" WHERE id = ${requestId} FOR UPDATE`;
   await tx.$executeRawUnsafe(
     `SELECT pg_advisory_xact_lock(hashtext($1))`,
     `brokermogger_request_events_${requestId}`
@@ -341,6 +339,28 @@ export async function insertSnapshot(
 ) {
   const contentHash = sha256Hex(`${input.subject}\n${input.body}`);
   const id = randomUUID();
+  const request = await tx.removalRequest.findUniqueOrThrow({
+    where: { id: input.removalRequestId },
+  });
+  const envelope = sealApprovalEnvelope({
+    version: 1,
+    requestId: request.id,
+    snapshotId: id,
+    contentHash,
+    profileId: request.profileId,
+    brokerId: request.brokerId,
+    jurisdictionId: request.jurisdictionId,
+    requestType: request.requestType,
+    channel: request.channel,
+    destinationType: request.destinationType,
+    destination: request.destinationValue,
+    ...currentSendingIdentity(),
+    identifierIds: [...request.includedIdentifierIds].sort(),
+    identifierDigest: input.identifierDigest,
+    templateVersionId: input.templateVersionId,
+    legalRuleVersionId: input.legalRuleVersionId,
+    followUpNumber: Number(input.variables.followUpNumber ?? request.followUpCount),
+  });
   return tx.requestSnapshot.create({
     data: {
       id,
@@ -349,6 +369,7 @@ export async function insertSnapshot(
       subject: "",
       body: "",
       payloadEnc: encryptSnapshotText(id, input.subject, input.body),
+      ...envelope,
       templateVersionId: input.templateVersionId,
       legalRuleVersionId: input.legalRuleVersionId,
       variables: input.variables,
@@ -360,11 +381,17 @@ export async function insertSnapshot(
 }
 
 export async function patchRequest(
+  actor: ActorContext,
   requestId: string,
-  data: Omit<Prisma.RemovalRequestUpdateInput, "status">
+  data: { deliveredAt?: Date }
 ) {
-  return prisma.removalRequest.update({
+  const ref = await prisma.removalRequest.findUniqueOrThrow({
     where: { id: requestId },
+    select: { userId: true },
+  });
+  requirePermission(actor, "request:update", { ownerUserId: ref.userId });
+  return prisma.removalRequest.update({
+    where: { id: requestId, deletedAt: null },
     data: { ...data, lastEventAt: new Date() },
   });
 }
@@ -376,7 +403,7 @@ export async function patchRequest(
  * transaction. Callers that also need to drop pending jobs (close, complete)
  * pass `cancelPendingJobTypes` so those rows are cancelled atomically.
  */
-export async function applyRequestStatus(input: {
+export interface StatusChangeInput {
   requestId: string;
   from: RequestStatus;
   to: RequestStatus;
@@ -384,59 +411,116 @@ export async function applyRequestStatus(input: {
   actorUserId: string | null;
   message: string;
   cancelPendingJobTypes?: readonly JobType[];
-}): Promise<void> {
+}
+
+export async function applyRequestStatus(
+  actor: ActorContext,
+  input: Omit<StatusChangeInput, "actor" | "actorUserId">
+): Promise<void> {
+  if (input.to === "APPROVED")
+    throw new AppError({
+      code: "FORBIDDEN",
+      message: "Approval must use the complete message review transaction.",
+    });
+  return prisma.$transaction(async (tx) => {
+    const ref = await tx.removalRequest.findFirst({
+      where: { id: input.requestId, deletedAt: null },
+      select: { userId: true },
+    });
+    if (!ref) throw new NotFoundError();
+    requirePermission(actor, "request:update", { ownerUserId: ref.userId });
+    await tx.$executeRaw`SELECT 1 FROM "User" WHERE id = ${ref.userId} FOR UPDATE`;
+    const active = await tx.user.findFirst({
+      where: { id: ref.userId, status: "ACTIVE", deletionRequestedAt: null },
+      select: { id: true },
+    });
+    if (!active)
+      throw new AppError({ code: "FORBIDDEN", message: "This account is not active." });
+    return applyRequestStatusInTx(tx, {
+      ...input,
+      actor: actor.isSystem ? "SYSTEM" : "USER",
+      actorUserId: actor.isSystem ? null : actor.userId,
+    });
+  });
+}
+
+export async function applyRequestStatusInTx(
+  tx: PrismaTransaction,
+  input: StatusChangeInput
+): Promise<void> {
   assertTransition(input.from, input.to, input.actor);
 
   const extra: Prisma.RemovalRequestUpdateManyMutationInput = {};
+  if (["DRAFT", "AWAITING_USER_APPROVAL"].includes(input.to)) {
+    // Keep the last historical approval timestamp for previously sent requests.
+    // Dispatch authority is the current snapshot/hash/consent tuple, cleared here.
+    extra.approvalConsentRecordId = null;
+    extra.approvedSnapshotId = null;
+    extra.approvedEnvelopeHash = null;
+  }
   if (input.to === "CLOSED") extra.closedAt = new Date();
   if (input.to === "COMPLETED") extra.completedAt = new Date();
   if (input.to === "DELIVERED") extra.deliveredAt = new Date();
 
-  await prisma.$transaction(async (tx) => {
-    await lockRequestEventChain(tx, input.requestId);
+  await lockRequestEventChain(tx, input.requestId);
 
-    const updated = await tx.removalRequest.updateMany({
-      where: { id: input.requestId, status: input.from, deletedAt: null },
-      data: { status: input.to, lastEventAt: new Date(), ...extra },
-    });
-
-    if (updated.count !== 1) {
-      throw new AppError({
-        code: "CONFLICT",
-        message: "This request changed. Reload and try again.",
-        details: { from: input.from, to: input.to },
-      });
-    }
-
-    await appendRequestEventInTx(tx, {
-      removalRequestId: input.requestId,
-      type: "STATUS_CHANGE",
-      fromStatus: input.from,
-      toStatus: input.to,
-      actorType: input.actor,
-      actorUserId: input.actorUserId,
-      message: input.message,
-    });
-
-    if (input.cancelPendingJobTypes && input.cancelPendingJobTypes.length > 0) {
-      await tx.backgroundJob.updateMany({
-        where: {
-          relatedRequestId: input.requestId,
-          type: { in: [...input.cancelPendingJobTypes] },
-          status: { in: ["PENDING", "RETRYABLE"] },
-        },
-        data: {
-          status: "CANCELLED",
-          cancelledAt: new Date(),
-          lastError: "Cancelled because the request left a waiting state.",
-          lockedAt: null,
-          lockedBy: null,
-          lockExpiresAt: null,
-          leaseToken: null,
-        },
-      });
-    }
+  const updated = await tx.removalRequest.updateMany({
+    where: { id: input.requestId, status: input.from, deletedAt: null },
+    data: { status: input.to, lastEventAt: new Date(), ...extra },
   });
+
+  if (updated.count !== 1) {
+    throw new AppError({
+      code: "CONFLICT",
+      message: "This request changed. Reload and try again.",
+      details: { from: input.from, to: input.to },
+    });
+  }
+
+  await appendRequestEventInTx(tx, {
+    removalRequestId: input.requestId,
+    type: "STATUS_CHANGE",
+    fromStatus: input.from,
+    toStatus: input.to,
+    actorType: input.actor,
+    actorUserId: input.actorUserId,
+    message: input.message,
+  });
+
+  if (input.cancelPendingJobTypes && input.cancelPendingJobTypes.length > 0) {
+    await tx.backgroundJob.updateMany({
+      where: {
+        relatedRequestId: input.requestId,
+        type: { in: [...input.cancelPendingJobTypes] },
+        status: { in: ["PENDING", "RETRYABLE", "RUNNING"] },
+      },
+      data: {
+        status: "CANCELLED",
+        cancelledAt: new Date(),
+        lastError: "Cancelled because the request left a waiting state.",
+        lockedAt: null,
+        lockedBy: null,
+        lockExpiresAt: null,
+        leaseToken: null,
+      },
+    });
+    await tx.outboundEmail.updateMany({
+      where: { removalRequestId: input.requestId, dispatchState: "PREPARED" },
+      data: { dispatchState: "CANCELLED", dispatchToken: null },
+    });
+    await tx.outboundEmail.updateMany({
+      where: {
+        removalRequestId: input.requestId,
+        dispatchState: { in: ["DISPATCHING", "AMBIGUOUS"] },
+      },
+      data: {
+        dispatchState: "RECONCILIATION_REQUIRED",
+        dispatchToken: null,
+        lastError:
+          "The request was closed after dispatch began. The provider may still deliver the message; accepted email cannot be recalled.",
+      },
+    });
+  }
 }
 
 export async function countOpenRequests(userId: string, since: Date): Promise<number> {

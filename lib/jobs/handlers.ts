@@ -53,7 +53,8 @@ export function createJobHandlers(): JobHandlerRegistry {
         actor,
         job.payload.removalRequestId,
         job.payload.attempt,
-        job.payload.snapshotId
+        job.payload.snapshotId,
+        job
       );
       return { message: result.message };
     },

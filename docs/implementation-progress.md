@@ -106,3 +106,27 @@ verification, and production key/build checks against the compiled app.
   Administrator retries/cancellations are limited to eligible states.
 - Five PostgreSQL regressions cover competing workers, stale completion/retry,
   renewal, cancellation during execution and error-message minimisation.
+
+### Approval and request orchestration
+
+- Split generation, approval, dispatch, actions, responses and follow-ups into
+  focused services. Persistence transactions remain inside repositories.
+- Snapshots now seal a versioned envelope covering the text hash, recipient,
+  channel, sender/reply address, selected identifiers and legal/template versions.
+  Approval, consent proof, events, outbound intent and the send job commit together.
+- Dispatch rechecks active account status, ownership, current consent and its
+  proof, identifiers, the exact broker contact, sending switches and worker lease.
+  System and emergency-access actors cannot approve another person's message.
+- Provider ambiguity is explicit. Retries preserve the approved message and
+  idempotency key and stop before the provider's 24-hour retention expires.
+  Cancellation after dispatch begins is described as uncertain, never a recall.
+- Follow-up scheduling and publication are atomic and concurrent-safe, and a
+  follow-up clears current approval authority while preserving sent history.
+- Seven additive migrations applied successfully to the isolated test database.
+  Typecheck, lint and formatting passed; 336 unit/component and 76 integration
+  tests passed. These include injected approval enqueue failure, duplicate
+  approval, foreign/system approval denial, consent revocation, cancellation
+  during dispatch, uncertain old sends, and concurrent follow-up preparation.
+- Remaining related work: draft editing/regeneration and legacy review UI,
+  explicit operator reconciliation, receiving/response workflows and sourced
+  receipt-based deadline policies. These remain in the approved implementation scope.

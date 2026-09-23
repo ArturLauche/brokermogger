@@ -10,10 +10,10 @@ import { approveRequestAction } from "../../actions";
 
 export function ReviewApprovalForm({
   requestId,
-  contentHash,
+  envelopeHash,
 }: {
   requestId: string;
-  contentHash: string;
+  envelopeHash: string;
 }) {
   const [checked, setChecked] = useState(false);
   const hintId = "approval-checkbox-hint";
@@ -22,7 +22,7 @@ export function ReviewApprovalForm({
   return (
     <form action={approveRequestAction} className="flex flex-col gap-4">
       <input type="hidden" name="requestId" value={requestId} />
-      <input type="hidden" name="contentHash" value={contentHash} />
+      <input type="hidden" name="envelopeHash" value={envelopeHash} />
       <div className="flex items-start gap-2">
         <input
           id="confirmationAccepted"

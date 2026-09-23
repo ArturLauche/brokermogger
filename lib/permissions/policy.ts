@@ -170,6 +170,8 @@ export function can(
   resource: ResourceRef = {}
 ): Decision {
   if (actor.isSystem) {
+    if (action === "request:approve")
+      return deny("Approval requires the account holder’s explicit confirmation.");
     return ALLOW;
   }
 

@@ -390,6 +390,15 @@ enum EmailStatus {
   SUPPRESSED
 }
 
+enum DispatchState {
+  PREPARED
+  DISPATCHING
+  ACCEPTED
+  AMBIGUOUS
+  RECONCILIATION_REQUIRED
+  CANCELLED
+}
+
 enum EmailProviderKind {
   MOCK
   SANDBOX
@@ -1037,6 +1046,8 @@ model RemovalRequest {
   approvedAt              DateTime?
   approvedByUserId        String?
   approvalConsentRecordId String?
+  approvedSnapshotId      String?
+  approvedEnvelopeHash    String?
 
   sentAt          DateTime?
   deliveredAt     DateTime?
@@ -1120,6 +1131,9 @@ model RequestSnapshot {
   body    String @default("")
   payloadEnc String?
   erasedAt DateTime?
+  envelopeVersion Int?
+  envelopeEnc String?
+  envelopeHash String?
 
   templateVersionId  String?
   legalRuleVersionId String?
@@ -1445,12 +1459,21 @@ model OutboundEmail {
 
   fromAddress String
   replyTo     String?
+  replyToEnc  String?
   subjectEnc  String
   bodyHash    String
 
   /// Attempt counter used for the dedupe constraint together with purpose.
   attempt           Int     @default(1)
   providerMessageId String?
+  snapshotId String?
+  approvalEnvelopeHash String?
+  approvalConsentRecordId String?
+  dispatchState DispatchState @default(PREPARED)
+  dispatchToken String?
+  dispatchStartedAt DateTime?
+  lastDispatchAt DateTime?
+  idempotencyKey String? @unique
 
   sentAt       DateTime?
   deliveredAt  DateTime?

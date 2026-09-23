@@ -30,9 +30,9 @@ export async function approveRequestAction(formData: FormData): Promise<void> {
   const rawId = formString(formData, "requestId");
   try {
     const { requestId } = parseWithSchema(requestIdSchema, { requestId: rawId });
-    const contentHash = formString(formData, "contentHash");
+    const envelopeHash = formString(formData, "envelopeHash");
     const confirmationAccepted = formCheckbox(formData, "confirmationAccepted");
-    await approveRequest(actor, { requestId, contentHash, confirmationAccepted });
+    await approveRequest(actor, { requestId, envelopeHash, confirmationAccepted });
   } catch (error) {
     bounce(rawId, error, `/requests/${rawId}/review`);
   }
