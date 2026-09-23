@@ -84,6 +84,18 @@ export const COUNTRY_NAMES: Record<string, string> = {
   HU: "Hungary",
   RO: "Romania",
   LU: "Luxembourg",
+  BG: "Bulgaria",
+  CY: "Cyprus",
+  EE: "Estonia",
+  HR: "Croatia",
+  LT: "Lithuania",
+  LV: "Latvia",
+  MT: "Malta",
+  SI: "Slovenia",
+  SK: "Slovakia",
+  IS: "Iceland",
+  LI: "Liechtenstein",
+  NO: "Norway",
 };
 
 /** EU/EEA members that, in this MVP, reuse the Germany GDPR representative pack. */

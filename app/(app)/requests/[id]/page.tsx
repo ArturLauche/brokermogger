@@ -13,13 +13,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { requireActorOrRedirect } from "@/lib/auth";
 import { isAppError } from "@/lib/core/errors";
 import { getOwnedRequest } from "@/lib/db/repositories/requests";
-import { formatIsoDate, formatUtcStamp } from "@/lib/format/datetime";
+import { formatIsoDate } from "@/lib/format/datetime";
+import { getDateFormatter } from "@/app/_lib/datetime";
 import { canTransition } from "@/lib/requests/stateMachine";
 
 import {
   closeRequestAction,
   markCompletedAction,
   prepareFollowUpAction,
+  returnToDraftAction,
 } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +38,7 @@ export default async function RequestDetailPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const actor = await requireActorOrRedirect();
+  const { formatStamp } = await getDateFormatter();
   const { id } = await params;
   const { error } = await searchParams;
 
@@ -87,6 +90,19 @@ export default async function RequestDetailPage({
         ]}
       />
       <div className="flex flex-wrap gap-2">
+        {snapshot &&
+        (request.status === "DRAFT" || canTransition(request.status, "DRAFT", "USER")) ? (
+          request.status === "APPROVED" ? (
+            <form action={returnToDraftAction}>
+              <input name="requestId" type="hidden" value={request.id} />
+              <Button variant="outline">Withdraw approval and edit</Button>
+            </form>
+          ) : (
+            <Button asChild variant="outline">
+              <Link href={`/requests/${request.id}/edit`}>Edit draft</Link>
+            </Button>
+          )
+        ) : null}
         {canReview ? (
           <Button asChild>
             <Link href={`/requests/${request.id}/review`}>Review</Link>
@@ -116,7 +132,7 @@ export default async function RequestDetailPage({
             title="Close this request"
             description="Closed requests stay in the account until the retention period ends. You can still read the history."
             consequences={[
-              "The request will no longer be sent or followed up automatically.",
+              "Queued sends and follow-ups will be cancelled. A send already started may still be delivered; accepted email cannot be recalled.",
             ]}
             destructive
           />
@@ -143,7 +159,7 @@ export default async function RequestDetailPage({
                 events={request.events.map((event) => ({
                   id: event.id,
                   title: event.type.replaceAll("_", " ").toLowerCase(),
-                  timestamp: formatUtcStamp(event.createdAt),
+                  timestamp: formatStamp(event.createdAt),
                   dateTime: event.createdAt.toISOString(),
                   actor: event.actorType.toLowerCase(),
                   detail: event.message,

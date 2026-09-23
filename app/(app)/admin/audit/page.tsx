@@ -17,7 +17,7 @@ import {
   verifyAdminAuditChain,
 } from "@/lib/admin/service";
 import { requireRole } from "@/lib/auth";
-import { formatUtcStamp } from "@/lib/format/datetime";
+import { getDateFormatter } from "@/app/_lib/datetime";
 
 import { grantBreakGlassAction, revokeBreakGlassAction } from "../actions";
 
@@ -29,6 +29,7 @@ export default async function AdminAuditPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const actor = await requireRole("INSTANCE_ADMIN");
+  const { formatStamp } = await getDateFormatter();
   const [rows, chain, grants] = await Promise.all([
     getAdminAudit(actor),
     verifyAdminAuditChain(actor),
@@ -71,7 +72,7 @@ export default async function AdminAuditPage({
         <TableBody>
           {rows.map((row) => (
             <TableRow key={row.id}>
-              <TableCell>{formatUtcStamp(row.createdAt)}</TableCell>
+              <TableCell>{formatStamp(row.createdAt)}</TableCell>
               <TableCell className="font-mono text-xs">{row.action}</TableCell>
               <TableCell>
                 {row.resourceType}
@@ -130,7 +131,7 @@ export default async function AdminAuditPage({
           >
             <span>
               {grant.targetUserId} until{" "}
-              {grant.grantExpiresAt ? formatUtcStamp(grant.grantExpiresAt) : "—"}
+              {grant.grantExpiresAt ? formatStamp(grant.grantExpiresAt) : "—"}
             </span>
             <input type="hidden" name="grantId" value={grant.id} />
             <Button type="submit" variant="outline" size="sm">

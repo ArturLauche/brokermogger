@@ -10,7 +10,12 @@ import type {
   RequestStatus,
   RequestType,
 } from "@prisma/client";
-import { currentSendingIdentity, sealApprovalEnvelope } from "@/lib/requests/envelope";
+import {
+  currentSendingIdentity,
+  sealApprovalEnvelope,
+  profileIdentityDigest,
+  identifierDigest,
+} from "@/lib/requests/envelope";
 import { randomUUID } from "node:crypto";
 
 import { prisma, type PrismaTransaction } from "@/lib/db/client";
@@ -330,6 +335,7 @@ export interface SnapshotInput {
   legalRuleVersionId: string | null;
   variables: Record<string, string>;
   identifierDigest: string;
+  profileDigest: string;
   createdByUserId: string | null;
 }
 
@@ -341,7 +347,36 @@ export async function insertSnapshot(
   const id = randomUUID();
   const request = await tx.removalRequest.findUniqueOrThrow({
     where: { id: input.removalRequestId },
+    include: {
+      profile: {
+        select: {
+          legalNameBi: true,
+          contactEmailBi: true,
+          countryCode: true,
+          region: true,
+          residencyConfirmed: true,
+        },
+      },
+    },
   });
+  const identifiers = await tx.profileIdentifier.findMany({
+    where: {
+      profileId: request.profileId,
+      id: { in: request.includedIdentifierIds },
+      deletedAt: null,
+    },
+    select: { id: true, valueBi: true },
+  });
+  if (
+    input.profileDigest !== profileIdentityDigest(request.profile) ||
+    input.identifierDigest !== identifierDigest(identifiers) ||
+    identifiers.length !== request.includedIdentifierIds.length
+  )
+    throw new AppError({
+      code: "CONFLICT",
+      message:
+        "Profile details or selected identifiers changed while preparing this draft. Regenerate it and try again.",
+    });
   const envelope = sealApprovalEnvelope({
     version: 1,
     requestId: request.id,
@@ -357,6 +392,7 @@ export async function insertSnapshot(
     ...currentSendingIdentity(),
     identifierIds: [...request.includedIdentifierIds].sort(),
     identifierDigest: input.identifierDigest,
+    profileDigest: profileIdentityDigest(request.profile),
     templateVersionId: input.templateVersionId,
     legalRuleVersionId: input.legalRuleVersionId,
     followUpNumber: Number(input.variables.followUpNumber ?? request.followUpCount),

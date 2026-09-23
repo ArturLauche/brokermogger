@@ -182,6 +182,7 @@ export const authConfig: NextAuthConfig = {
           name: user.name ?? null,
           role: user.role,
           status: user.status,
+          timezone: user.timezone ?? "UTC",
         },
       };
     },

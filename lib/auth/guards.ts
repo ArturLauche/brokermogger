@@ -13,6 +13,7 @@
  *  - These guards answer "who is calling". They never answer "may they do it":
  *    that is `can()` / `requirePermission()` from `lib/permissions/policy.ts`.
  */
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
@@ -37,13 +38,14 @@ export interface SessionUser {
   role: UserRole;
   status: UserStatus;
   name: string | null;
+  timezone: string;
 }
 
 /**
  * Reads the signed in user, including a status that is not ACTIVE, so a layout
  * can explain a suspension instead of silently signing the person out.
  */
-export async function getSessionUser(): Promise<SessionUser | null> {
+export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
   const session = await nextAuth.auth();
   const user = session?.user;
 
@@ -57,14 +59,15 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     role: user.role,
     status: user.status,
     name: user.name ?? null,
+    timezone: user.timezone ?? "UTC",
   };
-}
+});
 
 /**
  * Builds the `ActorContext` for the current request. Returns null when there is
  * no usable session.
  */
-export async function getActorContext(): Promise<ActorContext | null> {
+export const getActorContext = cache(async (): Promise<ActorContext | null> => {
   const user = await getSessionUser();
   if (!user) {
     return null;
@@ -97,7 +100,7 @@ export async function getActorContext(): Promise<ActorContext | null> {
   }
 
   return actor;
-}
+});
 
 /** For server actions and route handlers: turns a missing session into an error. */
 export async function requireActor(): Promise<ActorContext> {

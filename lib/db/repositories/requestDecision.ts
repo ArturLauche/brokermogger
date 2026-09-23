@@ -1,5 +1,5 @@
 /** Shared transactional gates for approval, editing and dispatch. */
-import { assertConsentAllowsRequests } from "@/lib/consent/status";
+export { assertCurrentProfileConsent } from "@/lib/consent/current";
 import { AppError, NotFoundError } from "@/lib/core/errors";
 import type { PrismaTransaction } from "@/lib/db/client";
 import type { ActorContext } from "@/lib/permissions/actor";
@@ -40,13 +40,24 @@ export async function loadRequestForDecision(
           id: true,
           kind: true,
           consentStatus: true,
+          legalNameBi: true,
+          contactEmailBi: true,
+          countryCode: true,
+          region: true,
+          residencyConfirmed: true,
           householdMember: {
             select: {
               revokedAt: true,
               consents: {
                 orderBy: { createdAt: "desc" },
                 take: 1,
-                select: { id: true, status: true, verifiedAt: true, revokedAt: true },
+                select: {
+                  id: true,
+                  status: true,
+                  verifiedAt: true,
+                  revokedAt: true,
+                  scope: true,
+                },
               },
             },
           },
@@ -57,28 +68,4 @@ export async function loadRequestForDecision(
   });
   if (!request) throw new NotFoundError();
   return request;
-}
-
-export function assertCurrentProfileConsent(
-  profile: Awaited<ReturnType<typeof loadRequestForDecision>>["profile"]
-) {
-  const consent = profile.householdMember?.consents[0];
-  if (
-    profile.kind !== "SELF" &&
-    (profile.householdMember?.revokedAt ||
-      consent?.status !== "VERIFIED" ||
-      consent.revokedAt)
-  )
-    throw new AppError({
-      code: "CONSENT_INVALID",
-      message: "Household consent is no longer valid. A new invitation is required.",
-    });
-  assertConsentAllowsRequests({
-    profileId: profile.id,
-    kind: profile.kind,
-    consentStatus: profile.consentStatus,
-    consentVerifiedAt:
-      profile.kind === "SELF" ? new Date() : (consent?.verifiedAt ?? null),
-  });
-  return consent;
 }

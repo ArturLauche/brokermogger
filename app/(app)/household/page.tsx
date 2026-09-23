@@ -1,180 +1,84 @@
-import { UsersIcon } from "lucide-react";
-
-import { EmptyState } from "@/components/common/empty-state";
+import Link from "next/link";
 import { PageHeader } from "@/components/common/page-header";
-import { StatusBadge } from "@/components/common/status-badge";
-import { WhyWeAsk } from "@/components/common/why-we-ask";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { ConfirmSubmitButton } from "@/components/common/confirm-submit-button";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { requireActorOrRedirect } from "@/lib/auth";
-import { HOUSEHOLD_ADULT_CONFIRMATION, listHousehold } from "@/lib/household/service";
-
-import { inviteAdultAction, removeMemberAction } from "./actions";
-
+import { listHousehold } from "@/lib/household/service";
+import { profileIdentityDigest } from "@/lib/requests/envelope";
+import { deleteProfileAction } from "../vault/actions";
+import { InvitationForm, MemberActions } from "./household-forms";
 export const metadata = { title: "Household profiles" };
-export const dynamic = "force-dynamic";
-
-export default async function HouseholdPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ sent?: string; error?: string }>;
-}) {
+export default async function HouseholdPage() {
   const actor = await requireActorOrRedirect();
   const members = await listHousehold(actor);
-  const params = await searchParams;
-
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-8">
       <PageHeader
         title="Household profiles"
-        description="Add another adult only with their explicit consent. Children's data is not collected in this version."
+        description="Manage another adult’s requests with their explicit permission. Children’s profiles are not supported."
       />
-      <Alert>
-        <AlertTitle>Children&apos;s data is not collected</AlertTitle>
-        <AlertDescription>
-          Guardian-managed minor profiles are blocked. You can only invite another adult.
-        </AlertDescription>
-      </Alert>
-      {params.sent ? (
-        <Alert>
-          <AlertTitle>Invitation sent.</AlertTitle>
-          <AlertDescription>
-            The row stays at consent pending until they accept.
-          </AlertDescription>
-        </Alert>
-      ) : null}
-      {params.error ? (
-        <Alert variant="destructive">
-          <AlertTitle>The invitation could not be sent</AlertTitle>
-          <AlertDescription>
-            Check the email address, relationship and adult confirmation.
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      {members.length === 0 ? (
-        <EmptyState
-          icon={UsersIcon}
-          title="You are only managing your own profile"
-          description="Invite another adult when they have asked you to handle requests for them."
-        />
-      ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Display name</TableHead>
-              <TableHead>Relationship</TableHead>
-              <TableHead>Consent</TableHead>
-              <TableHead>Invited email</TableHead>
-              <TableHead>Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {members.map((member) => (
-              <TableRow key={member.id}>
-                <TableCell>{member.profile.displayName}</TableCell>
-                <TableCell>
-                  {member.relationship.replaceAll("_", " ").toLowerCase()}
-                </TableCell>
-                <TableCell>
-                  <StatusBadge kind="consent" status={member.profile.consentStatus} />
-                </TableCell>
-                <TableCell>{member.invitedEmailMasked ?? "—"}</TableCell>
-                <TableCell>
-                  <form action={removeMemberAction}>
-                    <input type="hidden" name="memberId" value={member.id} />
-                    <Button type="submit" variant="ghost" size="sm">
-                      Remove
-                    </Button>
-                  </form>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      )}
-
-      <form
-        action={inviteAdultAction}
-        className="flex max-w-xl flex-col gap-4 rounded-xl border p-4"
-      >
-        <h2 className="font-heading text-base font-medium">Add an adult you manage</h2>
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center gap-2">
-            <Label htmlFor="displayName">Display name</Label>
-            <WhyWeAsk
-              field="display name"
-              purpose="A label for this household profile in your account."
-              requirement="required"
-              deletion="You can remove the household member later."
-            />
-          </div>
-          <Input id="displayName" name="displayName" required maxLength={80} />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center gap-2">
-            <Label htmlFor="relationship">Relationship</Label>
-            <WhyWeAsk
-              field="relationship"
-              purpose="Records why you manage this adult's requests."
-              requirement="required"
-              deletion="Removed with the household member."
-            />
-          </div>
-          <select
-            id="relationship"
-            name="relationship"
-            required
-            className="h-9 rounded-lg border border-input px-2"
-          >
-            <option value="SPOUSE_OR_PARTNER">Spouse or partner</option>
-            <option value="PARENT">Parent</option>
-            <option value="ADULT_CHILD">Adult child</option>
-            <option value="SIBLING">Sibling</option>
-            <option value="OTHER_ADULT">Other adult</option>
-          </select>
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center gap-2">
-            <Label htmlFor="invitedEmail">Email of the person</Label>
-            <WhyWeAsk
-              field="their email address"
-              purpose="Sends the double opt-in invitation. Requests cannot be generated until they accept."
-              requirement="required"
-              deletion="Deleted with the household member."
-            />
-          </div>
-          <Input
-            id="invitedEmail"
-            name="invitedEmail"
-            type="email"
-            required
-            maxLength={254}
-          />
-        </div>
-        <input type="hidden" name="countryCode" value="DE" />
-        <label className="flex items-start gap-2 text-sm">
-          <input
-            type="checkbox"
-            name="adultConfirmed"
-            value="on"
-            required
-            className="mt-1"
-          />
-          {HOUSEHOLD_ADULT_CONFIRMATION}
-        </label>
-        <Button type="submit">Add an adult you manage</Button>
-      </form>
+      <section className="space-y-5" aria-label="Household members">
+        {!members.length && (
+          <p className="text-sm text-muted-foreground">
+            You currently manage only your own profile. Add a household adult below when
+            they ask for your help.
+          </p>
+        )}
+        {members.map((member) => {
+          const consent = member.consents[0];
+          const bound =
+            (consent?.scope as { profileDigest?: string } | undefined)?.profileDigest ===
+            profileIdentityDigest(member.profile);
+          const status = !bound
+            ? "New invitation required"
+            : member.invitationExpired
+              ? "Invitation expired"
+              : {
+                  PENDING: "Waiting for consent",
+                  VERIFIED: "Permission granted",
+                  DECLINED: "Invitation declined",
+                  EXPIRED: "Invitation expired",
+                  REVOKED: "Permission withdrawn",
+                }[consent?.status ?? "PENDING"];
+          return (
+            <article key={member.id} className="space-y-4 rounded-lg border p-5">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="space-y-1">
+                  <h2 className="text-lg font-semibold">{member.profile.displayName}</h2>
+                  <p className="text-sm text-muted-foreground">
+                    {member.relationship.replaceAll("_", " ").toLowerCase()} ·{" "}
+                    {member.invitedEmailMasked ?? "Contact email needed"}
+                  </p>
+                  <p className="text-sm font-medium">{status}</p>
+                </div>
+                <Button asChild variant="outline">
+                  <Link href={`/vault/profiles/${member.profileId}/edit`}>
+                    Edit profile
+                  </Link>
+                </Button>
+              </div>
+              <MemberActions
+                memberId={member.id}
+                verified={bound && consent?.status === "VERIFIED"}
+              />
+              <ConfirmSubmitButton
+                action={deleteProfileAction}
+                hidden={{ profileId: member.profileId }}
+                label="Delete household profile"
+                title="Delete household profile"
+                description="Erase this profile’s identifiers and related message content. Queued requests are cancelled and files are queued for cleanup."
+                consequences={[
+                  "Minimal pseudonymous consent and audit proof is retained.",
+                  "Previously accepted messages cannot be recalled.",
+                ]}
+                confirmationPhrase="DELETE"
+                destructive
+              />
+            </article>
+          );
+        })}
+      </section>
+      <InvitationForm />
     </div>
   );
 }

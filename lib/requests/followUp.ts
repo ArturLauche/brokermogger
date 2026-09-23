@@ -1,3 +1,4 @@
+import { profileIdentityDigest } from "./envelope";
 import {
   scheduleRequestFollowUp,
   commitFollowUpDraft,
@@ -68,6 +69,34 @@ export async function prepareFollowUpDraft(
   if (request.status !== "FOLLOW_UP_SCHEDULED")
     return { message: "This request no longer needs a follow-up draft." };
 
+  const snapshot = await renderFollowUpSnapshot(actor, request, followUpNumber);
+  await commitFollowUpDraft(actor, {
+    requestId: request.id,
+    followUpNumber,
+    previousSnapshotId: request.currentSnapshotId,
+    snapshot,
+  });
+
+  await recordAudit({
+    actor,
+    action: "request.follow_up_prepared",
+    resourceType: "removal_request",
+    resourceId: request.id,
+    metadata: { followUpNumber },
+  });
+
+  return {
+    message:
+      "Follow up drafts are prepared for user approval. Escalation is never filed automatically.",
+  };
+}
+
+/** The same renderer serves initial preparation and explicit regeneration. */
+export async function renderFollowUpSnapshot(
+  actor: ActorContext,
+  request: Awaited<ReturnType<typeof getOwnedRequest>>,
+  followUpNumber: number
+) {
   const profile = await getOwnedProfile(actor, request.profileId);
   const contactEmail = profile.contactEmailEnc
     ? decryptField(profile.contactEmailEnc, {
@@ -144,39 +173,22 @@ export async function prepareFollowUpDraft(
     }
   );
 
-  await commitFollowUpDraft(actor, {
-    requestId: request.id,
-    followUpNumber,
-    previousSnapshotId: request.currentSnapshotId,
-    snapshot: {
-      subject: rendered.subject,
-      body: rendered.body,
-      templateVersionId: template.version.id,
-      legalRuleVersionId: request.legalRuleVersionId,
-      variables: {
-        "request.reference": reference,
-        "broker.name": request.broker.tradingNames[0] ?? request.broker.legalName,
-        followUpNumber: String(followUpNumber),
-      },
-      identifierDigest: sha256Hex(
-        selectedIdentifiers
-          .map((item) => `${item.id}:${item.valueBi}`)
-          .sort()
-          .join("|")
-      ),
-    },
-  });
-
-  await recordAudit({
-    actor,
-    action: "request.follow_up_prepared",
-    resourceType: "removal_request",
-    resourceId: request.id,
-    metadata: { followUpNumber },
-  });
-
   return {
-    message:
-      "Follow up drafts are prepared for user approval. Escalation is never filed automatically.",
+    subject: rendered.subject,
+    body: rendered.body,
+    templateVersionId: template.version.id,
+    legalRuleVersionId: request.legalRuleVersionId,
+    variables: {
+      "request.reference": reference,
+      "broker.name": request.broker.tradingNames[0] ?? request.broker.legalName,
+      followUpNumber: String(followUpNumber),
+    },
+    profileDigest: profileIdentityDigest(profile),
+    identifierDigest: sha256Hex(
+      selectedIdentifiers
+        .map((item) => `${item.id}:${item.valueBi}`)
+        .sort()
+        .join("|")
+    ),
   };
 }

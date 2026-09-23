@@ -130,3 +130,35 @@ verification, and production key/build checks against the compiled app.
 - Remaining related work: draft editing/regeneration and legacy review UI,
   explicit operator reconciliation, receiving/response workflows and sourced
   receipt-based deadline policies. These remain in the approved implementation scope.
+
+### Editable profiles, household consent and draft revisions
+
+- Onboarding saves and resumes one profile. Identifiers, completion and consent
+  proof commit together; duplicate submissions do not create duplicate profiles.
+  Profile/identifier editing preserves entered values after validation errors,
+  normalises US states, validates timezones and synchronises primary identifiers.
+- Approval envelopes now bind profile identity and residency too. Profile or
+  identifier edits withdraw affected queued authority. Snapshot persistence checks
+  the rendered identity again to reject a concurrent edit rather than sealing old
+  text against new profile details. Deleted primary identifiers also erase matching
+  profile copies and affected request content.
+- Draft editing and regeneration create new immutable snapshots, retain request
+  references and require fresh approval. A queued approval can be withdrawn before
+  editing; started or uncertain delivery must be reconciled first.
+- Household invitations collect the real name, contact address and residence.
+  Accept/decline, consent proof and notifications commit atomically. Resends replace
+  old links; represented adults can withdraw permission using their invitation.
+  Expired, declined, revoked and simulated/failed delivery states are explicit.
+  Identity/residency changes require fresh household consent. Removing a household
+  profile uses the same content-erasure path as the vault.
+- Consent history checks the supplied profile's actual owner. Account-local event
+  timestamps use a validated timezone; request-scoped authentication reads are
+  memoized without storing user data across requests.
+- Typecheck, lint and formatting passed. All 338 unit/component tests and 92
+  integration tests passed. Production compilation passed with build-only keys.
+  New tests cover onboarding/consent failure injection, repeated and competing
+  submissions, stale edits, generation/edit races, revocation, expiry, failed
+  invitation delivery, cross-account access and primary-identifier erasure.
+- Browser workflow validation, responsive/visual polish and the remaining response,
+  manual submission, notifications, reports, exports and operator tools are still
+  pending. This checkpoint does not mark the overall plan complete.

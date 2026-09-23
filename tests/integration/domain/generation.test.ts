@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { prepareRequestDrafts } from "@/lib/requests/generation";
+import { createPreparedDrafts } from "@/lib/db/repositories/requestGeneration";
+import { updateOwnedProfile } from "@/lib/db/repositories/profiles";
 import { generateRequests } from "@/lib/requests/lifecycle";
 import * as renderer from "@/lib/templates/renderer";
 import { workflowFixture } from "../../helpers/workflow";
@@ -8,6 +11,24 @@ import { testPrisma } from "../../helpers/db";
 afterEach(() => vi.restoreAllMocks());
 
 describe("seeded generation", () => {
+  it("rejects a profile change between rendering and atomic persistence", async () => {
+    const fixture = await workflowFixture();
+    const { drafts, fairUse } = await prepareRequestDrafts(fixture.actor, fixture.input);
+    await updateOwnedProfile(fixture.actor, fixture.profile.id, {
+      displayName: "My profile",
+      legalName: "Alex Changed",
+      contactEmail: "alex@example.org",
+      countryCode: "DE",
+      region: null,
+      residencyConfirmed: true,
+    });
+    await expect(
+      createPreparedDrafts(fixture.actor, drafts, fairUse)
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await testPrisma.removalRequest.count()).toBe(0);
+    expect(await testPrisma.rateLimitBucket.count()).toBe(0);
+  });
+
   it("prepares a German deletion letter from shipped legal data", async () => {
     const fixture = await workflowFixture();
     const result = await generateRequests(fixture.actor, fixture.input);

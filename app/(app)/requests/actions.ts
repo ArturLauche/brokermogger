@@ -48,7 +48,7 @@ export async function returnToDraftAction(formData: FormData): Promise<void> {
   } catch (error) {
     bounce(rawId, error, `/requests/${rawId}/review`);
   }
-  redirect(`/requests/${rawId}`);
+  redirect(`/requests/${rawId}/edit`);
 }
 
 export async function closeRequestAction(formData: FormData): Promise<void> {

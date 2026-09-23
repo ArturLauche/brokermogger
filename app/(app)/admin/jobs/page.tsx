@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/table";
 import { getAdminJobs } from "@/lib/admin/service";
 import { requireRole } from "@/lib/auth";
-import { formatUtcStamp } from "@/lib/format/datetime";
+import { getDateFormatter } from "@/app/_lib/datetime";
 
 import { cancelJobAction, retryJobAction } from "../actions";
 
@@ -18,6 +18,7 @@ export const metadata = { title: "Admin jobs" };
 
 export default async function AdminJobsPage() {
   const actor = await requireRole("INSTANCE_ADMIN");
+  const { formatStamp } = await getDateFormatter();
   const jobs = await getAdminJobs(actor);
 
   return (
@@ -43,7 +44,7 @@ export default async function AdminJobsPage() {
             <TableRow key={job.id}>
               <TableCell>{job.type}</TableCell>
               <TableCell>{job.status}</TableCell>
-              <TableCell>{formatUtcStamp(job.runAt)}</TableCell>
+              <TableCell>{formatStamp(job.runAt)}</TableCell>
               <TableCell>
                 {job.attemptCount}/{job.maxAttempts}
               </TableCell>

@@ -29,6 +29,9 @@ export function parseWithSchema<T>(schema: ZodType<T>, value: unknown): T {
   if (!parsed.success) {
     throw new ValidationError("The submitted values are not valid.", {
       issues: parsed.error.issues.map((issue) => issue.path.join(".")).filter(Boolean),
+      fieldErrors: Object.fromEntries(
+        parsed.error.issues.map((issue) => [issue.path.join("."), issue.message])
+      ),
     });
   }
   return parsed.data;

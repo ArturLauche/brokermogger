@@ -55,3 +55,17 @@ configured audit and consent retention periods (defaults: 24 and 72 months).
 Personal identifiers, message payloads, files and their private metadata are
 removed. The application cannot erase an operator's offline backups or recall
 messages already accepted by an external provider.
+
+## Household consent and editable profiles
+
+Consent captured before profile-bound invitation scopes were introduced cannot
+prove which identity and residency details were accepted. Those historical records
+remain readable, but cannot authorize generation or dispatch. The household screen
+shows **New invitation required**. Review the profile's real legal name, contact
+email and residence, then send a fresh invitation and obtain fresh approval for
+any queued request. No invitation is sent automatically during an upgrade.
+
+Editing matching details now withdraws affected queued approvals. Regenerate the
+letter to use the new fields, review it and approve the new immutable snapshot.
+Messages already accepted by a provider cannot be recalled. Started or ambiguous
+attempts remain in reconciliation instead of being silently retried.

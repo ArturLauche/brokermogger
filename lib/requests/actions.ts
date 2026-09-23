@@ -1,5 +1,6 @@
 import { recordAudit } from "@/lib/audit/service";
 import { getOwnedRequest } from "@/lib/db/repositories/requests";
+import { reopenRequestDraft } from "@/lib/db/repositories/requestEditing";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
 
@@ -8,13 +9,7 @@ export async function returnRequestToDraft(actor: ActorContext, requestId: strin
   requirePermission(actor, "request:update", { ownerUserId: actor.userId });
   const request = await getOwnedRequest(actor, requestId);
   requirePermission(actor, "request:update", { ownerUserId: request.userId });
-  await transition(
-    actor,
-    request.id,
-    request.status,
-    "DRAFT",
-    "Returned to draft by the account holder."
-  );
+  await reopenRequestDraft(actor, request.id);
   await recordAudit({
     actor,
     action: "request.approval_rejected",

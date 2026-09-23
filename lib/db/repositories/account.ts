@@ -1,8 +1,10 @@
 /**
  * Account-level reads and writes for the signed-in user.
  */
-import type { Prisma } from "@prisma/client";
-
+import { z } from "zod";
+import { timezoneSchema } from "@/lib/profiles/validation";
+import { parseWithSchema } from "@/lib/validation/form";
+import { lockActiveAccount } from "./access";
 import { NotFoundError, ValidationError } from "@/lib/core/errors";
 import { prisma, withAppendOnlyDeletes } from "@/lib/db/client";
 import { parseJobPayload } from "@/lib/jobs/payloads";
@@ -25,18 +27,16 @@ export async function getOwnedAccount(actor: ActorContext) {
   return readAccountEmail(account);
 }
 
-export async function updateOwnedAccount(
-  actor: ActorContext,
-  data: { name?: string; timezone?: string; preferences?: Prisma.InputJsonValue }
-) {
+export const accountSettingsSchema = z.object({
+  name: z.string().trim().max(80),
+  timezone: timezoneSchema,
+});
+export async function updateOwnedAccount(actor: ActorContext, raw: unknown) {
   requirePermission(actor, "account:read", { ownerUserId: actor.userId });
-  return prisma.user.update({
-    where: { id: actor.userId },
-    data: {
-      ...(data.name !== undefined ? { name: data.name } : {}),
-      ...(data.timezone !== undefined ? { timezone: data.timezone } : {}),
-      ...(data.preferences !== undefined ? { preferences: data.preferences } : {}),
-    },
+  const input = parseWithSchema(accountSettingsSchema, raw);
+  return prisma.$transaction(async (tx) => {
+    await lockActiveAccount(tx, actor.userId);
+    return tx.user.update({ where: { id: actor.userId }, data: input });
   });
 }
 

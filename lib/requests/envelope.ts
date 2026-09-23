@@ -39,6 +39,7 @@ const envelopeSchema = z.object({
   replyTo: z.string().email().max(320),
   identifierIds: z.array(entityIdSchema).max(100),
   identifierDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  profileDigest: z.string().regex(/^[a-f0-9]{64}$/),
   contentHash: z.string().regex(/^[a-f0-9]{64}$/),
   templateVersionId: entityIdSchema.nullable(),
   legalRuleVersionId: entityIdSchema.nullable(),
@@ -117,6 +118,26 @@ export function identifierDigest(
   );
 }
 
+export interface ProfileIdentity {
+  legalNameBi: string | null;
+  contactEmailBi: string | null;
+  countryCode: string;
+  region: string | null;
+  residencyConfirmed: boolean;
+}
+
+export function profileIdentityDigest(profile: ProfileIdentity): string {
+  return sha256Hex(
+    canonicalJson({
+      legalNameBi: profile.legalNameBi,
+      contactEmailBi: profile.contactEmailBi,
+      countryCode: profile.countryCode,
+      region: profile.region,
+      residencyConfirmed: profile.residencyConfirmed,
+    })
+  );
+}
+
 export function assertEnvelopeMatchesRequest(
   envelope: ApprovalEnvelope,
   request: {
@@ -133,7 +154,8 @@ export function assertEnvelopeMatchesRequest(
     templateVersionId: string | null;
     followUpCount: number;
   },
-  identifiers: readonly { id: string; valueBi: string }[]
+  identifiers: readonly { id: string; valueBi: string }[],
+  profile: ProfileIdentity
 ) {
   const current: ApprovalEnvelope = {
     ...envelope,
@@ -148,6 +170,7 @@ export function assertEnvelopeMatchesRequest(
     destination: request.destinationValue,
     identifierIds: [...request.includedIdentifierIds].sort(),
     identifierDigest: identifierDigest(identifiers),
+    profileDigest: profileIdentityDigest(profile),
     legalRuleVersionId: request.legalRuleVersionId,
     templateVersionId: request.templateVersionId,
     followUpNumber: request.followUpCount,

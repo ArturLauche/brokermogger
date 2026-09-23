@@ -1,208 +1,111 @@
-/**
- * Household adult invitations with double opt-in email.
- */
-import { addDays } from "date-fns";
-
+/** Explicit adult invitations; every decision and revocation is transactional. */
 import { recordAudit } from "@/lib/audit/service";
 import { env } from "@/lib/config/env";
-import { ValidationError } from "@/lib/core/errors";
-import { createHouseholdAdult } from "@/lib/db/repositories/profiles";
+import { getOwnedProfile, softDeleteProfile } from "@/lib/db/repositories/profiles";
 import {
-  createHouseholdConsent,
-  findHouseholdConsentByTokenHash,
   listHouseholdForOwner,
-  softDeleteHouseholdMember,
-  updateHouseholdConsent,
-  updateHouseholdMemberStatus,
-  updateProfileConsentStatus,
+  getOwnedHouseholdMember,
 } from "@/lib/db/repositories/household";
-import { appendConsentRecord } from "@/lib/db/repositories/consent";
-import { createNotification } from "@/lib/db/repositories/notifications";
+import {
+  createAdultInvitation,
+  resendAdultInvitation,
+  revokeAdultConsent,
+  decideInvitationRecord,
+  readPublicInvitation,
+} from "@/lib/db/repositories/householdInvitations";
 import { buildConsentInviteMessage, getEmailProvider } from "@/lib/email";
 import type { ActorContext } from "@/lib/permissions/actor";
-import { requirePermission } from "@/lib/permissions/policy";
-import { randomToken, sha256Hex, encryptField, blindIndex } from "@/lib/security/crypto";
-import { maskIdentifier } from "@/lib/security/masking";
-import { sanitiseText } from "@/lib/security/sanitize";
-import type { HouseholdRelationship } from "@prisma/client";
+import { randomToken, sha256Hex } from "@/lib/security/crypto";
+import { parseWithSchema } from "@/lib/validation/form";
+import { entityIdSchema } from "@/lib/validation/ids";
+import {
+  householdDecisionSchema,
+  householdInvitationSchema,
+  invitationTokenSchema,
+} from "./validation";
+export { CONSENT_STATEMENT, HOUSEHOLD_ADULT_CONFIRMATION } from "./validation";
 
-const CONSENT_STATEMENT =
-  "I confirm that I am an adult and that the account holder may prepare and send privacy requests about me using Brokermogger. I understand Brokermogger is not a law firm and does not guarantee removal.";
-
-export const HOUSEHOLD_ADULT_CONFIRMATION =
-  "I confirm this person is an adult and I will only send requests after they accept the invitation.";
-
-export async function inviteHouseholdAdult(
+async function deliverInvitation(
   actor: ActorContext,
-  input: {
-    displayName: string;
-    relationship: HouseholdRelationship;
-    invitedEmail: string;
-    countryCode: string;
-    region: string | null;
-    adultConfirmed: boolean;
-  }
+  invitation: Awaited<ReturnType<typeof createAdultInvitation>>,
+  token: string
 ) {
-  requirePermission(actor, "household:manage", { ownerUserId: actor.userId });
-
-  if (!input.adultConfirmed) {
-    throw new ValidationError(
-      "Confirm that this person is an adult before sending an invitation."
-    );
+  let delivery: "sent" | "simulated" | "failed";
+  try {
+    const result = await getEmailProvider().sendEmail({
+      ...buildConsentInviteMessage({
+        to: { address: invitation.email },
+        acceptUrl: `${env.APP_BASE_URL}/household/consent/${token}`,
+        requesterDisplayName: "the account holder",
+        expiresAt: invitation.expiresAt,
+      }),
+      idempotencyKey: `household-invite:${invitation.consentId}`,
+    });
+    delivery = result.dispatched ? "sent" : "simulated";
+  } catch {
+    delivery = "failed";
   }
-  if (input.relationship === "SELF") {
-    throw new ValidationError("A household profile cannot use the self relationship.");
-  }
-
-  const displayName = sanitiseText(input.displayName, { fieldName: "displayName" });
-  const email = input.invitedEmail.trim().toLowerCase();
-
-  const { profile, member } = await createHouseholdAdult(actor, {
-    displayName,
-    legalName: displayName,
-    countryCode: input.countryCode,
-    region: input.region,
-    residencyConfirmed: true,
-    invitedEmail: email,
-    relationship: input.relationship,
-  });
-
-  const token = randomToken();
-  const expiresAt = addDays(new Date(), 7);
-  const consent = await createHouseholdConsent({
-    householdMember: { connect: { id: member.id } },
-    profile: { connect: { id: profile.id } },
-    requestedBy: { connect: { id: actor.userId } },
-    status: "PENDING",
-    contactEmailEnc: encryptField(email, {
-      table: "HouseholdConsent",
-      column: "contactEmailEnc",
-      recordId: profile.id,
-    }),
-    contactEmailBi: blindIndex(email, "household:email", "email"),
-    contactEmailMasked: maskIdentifier("EMAIL", email),
-    tokenHash: sha256Hex(token),
-    statementText: CONSENT_STATEMENT,
-    statementHash: sha256Hex(CONSENT_STATEMENT),
-    expiresAt,
-  });
-
-  const acceptUrl = `${env.APP_BASE_URL}/household/consent/${token}`;
-  await getEmailProvider().sendEmail(
-    buildConsentInviteMessage({
-      to: { address: email },
-      acceptUrl,
-      requesterDisplayName: "the account holder",
-      expiresAt,
-    })
-  );
-
-  await createNotification({
-    user: { connect: { id: actor.userId } },
-    profile: { connect: { id: profile.id } },
-    type: "HOUSEHOLD_CONSENT_UPDATE",
-    title: "Household invitation sent",
-    body: "The invitation is waiting for the other adult to agree or decline.",
-    actionUrl: "/household",
-    dedupeKey: `household-invite:${consent.id}`,
-  });
-
-  await recordAudit({
-    actor,
-    action: "household.member_added",
-    resourceType: "household_member",
-    resourceId: member.id,
-  });
   await recordAudit({
     actor,
     action: "household.consent_invited",
     resourceType: "household_consent",
-    resourceId: consent.id,
+    resourceId: invitation.consentId,
+    metadata: { delivery },
   });
-
-  return { profileId: profile.id, memberId: member.id };
+  return { profileId: invitation.profileId, memberId: invitation.memberId, delivery };
 }
-
+export async function inviteHouseholdAdult(actor: ActorContext, raw: unknown) {
+  const input = parseWithSchema(householdInvitationSchema, raw);
+  const token = randomToken();
+  const invitation = await createAdultInvitation(actor, input, sha256Hex(token));
+  await recordAudit({
+    actor,
+    action: "household.member_added",
+    resourceType: "household_member",
+    resourceId: invitation.memberId,
+  });
+  return deliverInvitation(actor, invitation, token);
+}
+export async function resendHouseholdInvitation(actor: ActorContext, rawId: unknown) {
+  const token = randomToken();
+  const invitation = await resendAdultInvitation(
+    actor,
+    parseWithSchema(entityIdSchema, rawId),
+    sha256Hex(token)
+  );
+  return deliverInvitation(actor, invitation, token);
+}
+export async function revokeHouseholdConsent(actor: ActorContext, rawId: unknown) {
+  const id = parseWithSchema(entityIdSchema, rawId);
+  await revokeAdultConsent(actor, id);
+  await recordAudit({
+    actor,
+    action: "household.consent_revoked",
+    resourceType: "household_member",
+    resourceId: id,
+  });
+}
 export async function listHousehold(actor: ActorContext) {
   return listHouseholdForOwner(actor);
 }
-
 export async function removeHouseholdMember(actor: ActorContext, memberId: string) {
-  const member = await softDeleteHouseholdMember(actor, memberId);
+  const member = await getOwnedHouseholdMember(
+    actor,
+    parseWithSchema(entityIdSchema, memberId)
+  );
+  await getOwnedProfile(actor, member.profileId);
+  await softDeleteProfile(actor, member.profileId);
   await recordAudit({
     actor,
     action: "household.member_removed",
     resourceType: "household_member",
-    resourceId: member.id,
+    resourceId: memberId,
   });
 }
-
 export async function resolveConsentInvitation(token: string) {
-  const tokenHash = sha256Hex(token);
-  const consent = await findHouseholdConsentByTokenHash(tokenHash);
-  if (!consent) {
-    return null;
-  }
-  if (consent.status !== "PENDING") {
-    return consent;
-  }
-  if (consent.expiresAt.getTime() < Date.now()) {
-    await updateHouseholdConsent(consent.id, { status: "EXPIRED" });
-    return { ...consent, status: "EXPIRED" as const };
-  }
-  return consent;
+  const parsed = invitationTokenSchema.safeParse(token);
+  return parsed.success ? readPublicInvitation(sha256Hex(parsed.data)) : null;
 }
-
-export async function decideHouseholdConsent(input: {
-  token: string;
-  decision: "agree" | "decline";
-  ipHash: string | null;
-  userAgentHash: string | null;
-}) {
-  const consent = await resolveConsentInvitation(input.token);
-  if (!consent || consent.status !== "PENDING") {
-    throw new ValidationError("This invitation is no longer valid.");
-  }
-
-  if (input.decision === "decline") {
-    await updateHouseholdConsent(consent.id, {
-      status: "DECLINED",
-      declinedAt: new Date(),
-      verificationIpHash: input.ipHash,
-      verificationUserAgentHash: input.userAgentHash,
-    });
-    await updateProfileConsentStatus(consent.profileId, "NOT_ALLOWED");
-    await updateHouseholdMemberStatus(consent.householdMemberId, "REVOKED");
-    await appendConsentRecord({
-      profileId: consent.profileId,
-      actorUserId: consent.requestedByUserId,
-      purpose: "PROFILE_MANAGEMENT",
-      method: "DOUBLE_OPT_IN_EMAIL",
-      status: "NOT_ALLOWED",
-      statementText: CONSENT_STATEMENT,
-      householdConsentId: consent.id,
-    });
-    return { status: "DECLINED" as const };
-  }
-
-  await updateHouseholdConsent(consent.id, {
-    status: "VERIFIED",
-    verifiedAt: new Date(),
-    verificationIpHash: input.ipHash,
-    verificationUserAgentHash: input.userAgentHash,
-  });
-  await updateProfileConsentStatus(consent.profileId, "EXPLICIT_CONSENT_OBTAINED");
-  await updateHouseholdMemberStatus(consent.householdMemberId, "ACTIVE");
-  await appendConsentRecord({
-    profileId: consent.profileId,
-    actorUserId: consent.requestedByUserId,
-    purpose: "PROFILE_MANAGEMENT",
-    method: "DOUBLE_OPT_IN_EMAIL",
-    status: "EXPLICIT_CONSENT_OBTAINED",
-    statementText: CONSENT_STATEMENT,
-    householdConsentId: consent.id,
-  });
-  return { status: "VERIFIED" as const };
+export async function decideHouseholdConsent(raw: unknown) {
+  return decideInvitationRecord(parseWithSchema(householdDecisionSchema, raw));
 }
-
-export { CONSENT_STATEMENT };

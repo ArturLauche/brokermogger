@@ -12,6 +12,7 @@ import {
   assertValidEmailAddress,
   detectSuspiciousContent,
   sanitiseHeaderValue,
+  stripInvisible,
 } from "@/lib/security/sanitize";
 
 import type { EmailAddress, EmailMessage } from "./types";
@@ -82,6 +83,11 @@ export function assertSafeBody(value: string, fieldName: string): string {
   }
 
   const normalised = value.replace(/\r\n/g, "\n");
+  if (stripInvisible(normalised) !== normalised) {
+    throw unsafe(`The field "${fieldName}" contains invisible formatting characters.`, {
+      fieldName,
+    });
+  }
   if (normalised.includes("\r")) {
     throw unsafe(`The field "${fieldName}" must not contain carriage returns.`, {
       fieldName,

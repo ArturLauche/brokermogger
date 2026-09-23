@@ -74,6 +74,11 @@ export const TRANSITIONS: Readonly<Record<RequestStatus, readonly TransitionRule
     },
   ],
   APPROVED: [
+    {
+      to: "DRAFT",
+      actors: ["USER"],
+      description: "Approval withdrawn before dispatch for editing",
+    },
     { to: "SENT", actors: ["SYSTEM"], description: "Dispatched to the broker" },
     {
       to: "NEEDS_USER_ACTION",
@@ -186,6 +191,11 @@ export const TRANSITIONS: Readonly<Record<RequestStatus, readonly TransitionRule
   ],
   NEEDS_USER_ACTION: [
     {
+      to: "DRAFT",
+      actors: ["USER"],
+      description: "Manual submission draft reopened before submission",
+    },
+    {
       to: "WAITING_FOR_BROKER",
       actors: ["USER", "SYSTEM"],
       description: "User completed the action",
@@ -297,6 +307,7 @@ export const TRANSITIONS: Readonly<Record<RequestStatus, readonly TransitionRule
     { to: "CLOSED", actors: ["USER"], description: "Closed by user" },
   ],
   FAILED: [
+    { to: "DRAFT", actors: ["USER"], description: "New draft after a confirmed failure" },
     {
       to: "AWAITING_USER_APPROVAL",
       actors: ["USER"],

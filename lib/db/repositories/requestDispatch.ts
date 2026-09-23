@@ -96,7 +96,7 @@ export async function beginApprovedDispatch(
         },
         select: { id: true, valueBi: true },
       });
-      assertEnvelopeMatchesRequest(envelope, request, identifiers);
+      assertEnvelopeMatchesRequest(envelope, request, identifiers, request.profile);
       const household = assertCurrentProfileConsent(request.profile);
       const proof = await tx.consentRecord.findFirst({
         where: {

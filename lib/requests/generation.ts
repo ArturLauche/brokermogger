@@ -5,7 +5,8 @@ import type { ContactMethodType, RequestChannel, RequestType } from "@prisma/cli
 import { recordAudit } from "@/lib/audit/service";
 import { evaluateBrokerSendable, preferredContact } from "@/lib/brokers/sendable";
 import { getEffectiveFairUse, getSetting } from "@/lib/config/runtimeSettings";
-import { assertConsentAllowsRequests } from "@/lib/consent/status";
+import { assertCurrentProfileConsent } from "@/lib/consent/current";
+import { profileIdentityDigest } from "./envelope";
 import { AppError } from "@/lib/core/errors";
 import { findAccountCreatedAt } from "@/lib/db/repositories/account";
 import {
@@ -58,7 +59,11 @@ export interface GenerateInput {
   identifierIds: string[];
 }
 
-export async function generateRequests(actor: ActorContext, input: GenerateInput) {
+export async function prepareRequestDrafts(
+  actor: ActorContext,
+  input: GenerateInput,
+  existing?: { id: string; reference: string | null }
+) {
   requirePermission(actor, "request:create", { ownerUserId: actor.userId });
 
   const brokerIds = normalizeBrokerIds(input.brokerIds);
@@ -76,14 +81,7 @@ export async function generateRequests(actor: ActorContext, input: GenerateInput
   }
 
   const profile = await getOwnedProfile(actor, input.profileId);
-  const latestConsent = profile.householdMember?.consents[0];
-  assertConsentAllowsRequests({
-    profileId: profile.id,
-    kind: profile.kind,
-    consentStatus: profile.consentStatus,
-    consentVerifiedAt:
-      latestConsent?.verifiedAt ?? (profile.kind === "SELF" ? new Date() : null),
-  });
+  assertCurrentProfileConsent(profile);
 
   const jurisdictions = await listActiveJurisdictions();
   const rules = await listPublishedLegalRules();
@@ -269,8 +267,8 @@ export async function generateRequests(actor: ActorContext, input: GenerateInput
       unusualVolume,
     });
 
-    const requestId = randomUUID();
-    const reference = requestReference(requestId);
+    const requestId = existing?.id ?? randomUUID();
+    const reference = existing?.reference ?? requestReference(requestId);
     const consentStatement =
       profile.kind === "SELF"
         ? ""
@@ -330,6 +328,7 @@ export async function generateRequests(actor: ActorContext, input: GenerateInput
           "request.reference": reference,
           "broker.name": broker.tradingNames[0] ?? broker.legalName,
         },
+        profileDigest: profileIdentityDigest(profile),
         identifierDigest: sha256Hex(
           selectedIdentifiers
             .map((item) => `${item.id}:${item.valueBi}`)
@@ -340,6 +339,11 @@ export async function generateRequests(actor: ActorContext, input: GenerateInput
     });
   }
 
+  return { drafts, fairUse };
+}
+
+export async function generateRequests(actor: ActorContext, input: GenerateInput) {
+  const { drafts, fairUse } = await prepareRequestDrafts(actor, input);
   const requestIds = await createPreparedDrafts(actor, drafts, fairUse);
   for (const id of requestIds) {
     await recordAudit({

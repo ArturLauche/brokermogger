@@ -14,7 +14,7 @@ import {
   prepareFollowUpDraft,
   sendApprovedRequest,
 } from "@/lib/requests/lifecycle";
-import { readApprovalEnvelope } from "@/lib/requests/envelope";
+import { readApprovalEnvelope, profileIdentityDigest } from "@/lib/requests/envelope";
 import { testActor } from "../../helpers/actor";
 import { testPrisma } from "../../helpers/db";
 import { workflowFixture } from "../../helpers/workflow";
@@ -54,6 +54,7 @@ async function draft(household = false) {
             contactEmailBi: "synthetic-unused",
             contactEmailMasked: "a***@example.org",
             tokenHash: "synthetic-token",
+            scope: { profileDigest: profileIdentityDigest(fixture.profile) },
             statementText: "Synthetic consent proof",
             statementHash: "synthetic-hash",
             expiresAt: new Date(Date.now() + 60_000),

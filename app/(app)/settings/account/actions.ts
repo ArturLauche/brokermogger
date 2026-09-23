@@ -8,29 +8,29 @@ import { updateOwnedAccount, revokeSession } from "@/lib/db/repositories/account
 import { recordAudit } from "@/lib/audit/service";
 import { formString, parseWithSchema } from "@/lib/validation/form";
 import { entityIdSchema } from "@/lib/validation/ids";
-import { z } from "zod";
+import { type ActionState, failedAction } from "@/lib/validation/actionResult";
 
-export async function updateAccountAction(formData: FormData): Promise<void> {
+export type AccountFields = { name: string; timezone: string };
+export async function updateAccountAction(
+  _: ActionState<AccountFields>,
+  data: FormData
+): Promise<ActionState<AccountFields>> {
   const actor = await requireActor();
-  const parsed = z
-    .object({
-      name: z.string().trim().min(1).max(80),
-      timezone: z.string().trim().min(1).max(80),
-    })
-    .safeParse({
-      name: formString(formData, "name"),
-      timezone: formString(formData, "timezone") || "UTC",
+  const values = {
+    name: formString(data, "name"),
+    timezone: formString(data, "timezone"),
+  };
+  try {
+    await updateOwnedAccount(actor, values);
+    await recordAudit({
+      actor,
+      action: "account.updated",
+      resourceType: "user",
+      resourceId: actor.userId,
     });
-  if (!parsed.success) {
-    redirect("/settings/account?error=validation");
+  } catch (error) {
+    return failedAction(error, values);
   }
-  await updateOwnedAccount(actor, parsed.data);
-  await recordAudit({
-    actor,
-    action: "account.updated",
-    resourceType: "user",
-    resourceId: actor.userId,
-  });
   redirect("/settings/account?saved=1");
 }
 

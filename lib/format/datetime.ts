@@ -5,3 +5,33 @@ export function formatUtcStamp(value: Date): string {
 export function formatIsoDate(value: Date | null | undefined): string {
   return value ? value.toISOString().slice(0, 10) : "—";
 }
+
+/** Create once per screen/request; date-only legal and report boundaries use formatIsoDate. */
+export function createDateFormatter(timeZone: string) {
+  let zone = timeZone;
+  try {
+    new Intl.DateTimeFormat("en-GB", { timeZone: zone }).format();
+  } catch {
+    zone = "UTC";
+  }
+  const stamp = new Intl.DateTimeFormat("en-GB", {
+    timeZone: zone,
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
+  const date = new Intl.DateTimeFormat("en-GB", {
+    timeZone: zone,
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+  return {
+    timeZone: zone,
+    formatStamp: (value: Date) => stamp.format(value),
+    formatDate: (value: Date | null | undefined) => (value ? date.format(value) : "—"),
+  };
+}

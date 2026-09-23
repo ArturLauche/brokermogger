@@ -50,7 +50,7 @@ export async function commitRequestApproval(actor: ActorContext, input: Approval
         },
         select: { id: true, valueBi: true },
       });
-      assertEnvelopeMatchesRequest(envelope, request, identifiers);
+      assertEnvelopeMatchesRequest(envelope, request, identifiers, request.profile);
       const consent = assertCurrentProfileConsent(request.profile);
       if (
         request.approvedSnapshotId === snapshot.id &&

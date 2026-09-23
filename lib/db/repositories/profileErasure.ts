@@ -4,6 +4,9 @@ import { prisma, withAppendOnlyDeletes } from "@/lib/db/client";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
 import { randomUUID } from "node:crypto";
+import { lockActiveAccount } from "./access";
+import { revokeProfileConsentInTx } from "./profileConsent";
+import { blindIndex, decryptField } from "@/lib/security/crypto";
 import { parseJobPayload } from "@/lib/jobs/payloads";
 
 export async function eraseProfileContent(
@@ -20,19 +23,67 @@ export async function eraseProfileContent(
     ownerUserId: profile.ownerUserId,
   });
   await withAppendOnlyDeletes(async (tx) => {
-    await tx.$executeRaw`SELECT 1 FROM "User" WHERE "id" = ${profile.ownerUserId} FOR UPDATE`;
-    if (
-      identifierId &&
-      !(await tx.profileIdentifier.findFirst({
-        where: { id: identifierId, profileId, deletedAt: null },
-        select: { id: true },
-      }))
-    )
+    await lockActiveAccount(tx, profile.ownerUserId);
+    const current = await tx.userProfile.findFirst({
+      where: { id: profileId, deletedAt: null },
+    });
+    if (!current) throw new NotFoundError();
+    const identifier = identifierId
+      ? await tx.profileIdentifier.findFirst({
+          where: { id: identifierId, profileId, deletedAt: null },
+        })
+      : null;
+    if (identifierId && !identifier)
       throw new NotFoundError("This identifier does not exist.");
+    const value = identifier
+      ? decryptField(identifier.valueEnc, {
+          table: "ProfileIdentifier",
+          column: "valueEnc",
+          recordId: identifier.id,
+        })
+      : null;
+    const eraseName =
+      identifier?.type === "FULL_NAME" &&
+      value !== null &&
+      blindIndex(value, "profile:legalName", "text") === current.legalNameBi;
+    const eraseContact =
+      identifier?.type === "EMAIL" &&
+      value !== null &&
+      blindIndex(value, "profile:email", "email") === current.contactEmailBi;
+    if (eraseName || eraseContact) {
+      if (current.kind === "HOUSEHOLD_ADULT")
+        await revokeProfileConsentInTx(
+          tx,
+          profileId,
+          profile.ownerUserId,
+          "A matching identity field was erased. New household permission is required."
+        );
+      await tx.userProfile.update({
+        where: { id: profileId },
+        data: {
+          ...(eraseName ? { legalNameEnc: null, legalNameBi: null } : {}),
+          ...(eraseContact
+            ? { contactEmailEnc: null, contactEmailBi: null, contactEmailMasked: null }
+            : {}),
+        },
+      });
+      if (eraseContact) {
+        await tx.householdConsent.updateMany({
+          where: { profileId },
+          data: { contactEmailEnc: "", contactEmailBi: "", contactEmailMasked: "" },
+        });
+        await tx.householdMember.updateMany({
+          where: { profileId },
+          data: { invitedEmailEnc: null, invitedEmailBi: null, invitedEmailMasked: null },
+        });
+      }
+    }
     const requests = await tx.removalRequest.findMany({
       where: {
         profileId,
-        ...(identifierId ? { includedIdentifierIds: { has: identifierId } } : {}),
+        ...(identifierId && !eraseName && !eraseContact
+          ? { includedIdentifierIds: { has: identifierId } }
+          : {}),
       },
       select: { id: true },
     });

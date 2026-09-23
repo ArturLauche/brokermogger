@@ -1,5 +1,6 @@
 import type { ContactMethodType, RequestChannel, RequestType } from "@prisma/client";
 
+import { assertCurrentProfileConsent } from "@/lib/consent/current";
 import { env } from "@/lib/config/env";
 import { AppError } from "@/lib/core/errors";
 import { prisma } from "@/lib/db/client";
@@ -87,8 +88,13 @@ export async function createPreparedDrafts(
             deletedAt: null,
             consentStatus: { in: ["SELF", "EXPLICIT_CONSENT_OBTAINED"] },
           },
-          select: { id: true },
+          include: {
+            householdMember: {
+              include: { consents: { orderBy: { createdAt: "desc" }, take: 1 } },
+            },
+          },
         });
+        for (const profile of profiles) assertCurrentProfileConsent(profile);
         if (profiles.length !== profileIds.length)
           throw new AppError({
             code: "FORBIDDEN",

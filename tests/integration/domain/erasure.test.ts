@@ -30,6 +30,13 @@ describe("account erasure", () => {
     const fixture = await workflowFixture();
     await generateRequests(fixture.actor, fixture.input);
     await softDeleteIdentifier(fixture.actor, fixture.identifier.id);
+    expect(
+      (
+        await testPrisma.userProfile.findUniqueOrThrow({
+          where: { id: fixture.profile.id },
+        })
+      ).contactEmailEnc
+    ).toBeNull();
     expect(await testPrisma.profileIdentifier.count()).toBe(0);
     expect(await testPrisma.requestSnapshot.count()).toBe(0);
     await expect(
