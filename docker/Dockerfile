@@ -1,14 +1,14 @@
 # syntax=docker/dockerfile:1
 # Keep the image tag in sync with .nvmrc (engines: >=22.22.2; jsdom 30).
 
-FROM node:22.23.2-alpine AS deps
+FROM node:26.9.0-alpine AS deps
 WORKDIR /app
 RUN apk add --no-cache libc6-compat openssl
 COPY package.json package-lock.json ./
 ENV npm_config_engine_strict=true
 RUN npm ci
 
-FROM node:22.23.2-alpine AS builder
+FROM node:26.9.0-alpine AS builder
 WORKDIR /app
 RUN apk add --no-cache libc6-compat openssl
 ENV SKIP_ENV_VALIDATION=true
@@ -18,7 +18,7 @@ COPY . .
 RUN npx prisma generate
 RUN npm run build
 
-FROM node:22.23.2-alpine AS runner
+FROM node:26.9.0-alpine AS runner
 WORKDIR /app
 RUN apk add --no-cache libc6-compat openssl
 ENV NODE_ENV=production
