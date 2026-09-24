@@ -9,7 +9,7 @@ export async function loadRequestForDecision(
   tx: PrismaTransaction,
   actor: ActorContext,
   id: string,
-  action: "request:approve" | "request:send" | "request:update"
+  action: "request:approve" | "request:send" | "request:update" | "request:recordOutcome"
 ) {
   const ref = await tx.removalRequest.findFirst({
     where: { id, deletedAt: null },
@@ -35,6 +35,7 @@ export async function loadRequestForDecision(
   const request = await tx.removalRequest.findFirst({
     where: { id, deletedAt: null, profile: { deletedAt: null, ownerUserId: ref.userId } },
     include: {
+      user: { select: { timezone: true } },
       profile: {
         select: {
           id: true,

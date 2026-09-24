@@ -130,6 +130,44 @@ export async function createPrivateFileIntent(
     ) {
       throw new NotFoundError("This request does not exist.");
     }
+    if (input.kind === "IDENTITY_DOCUMENT") {
+      const verification =
+        input.removalRequestId &&
+        (await tx.removalRequest.findFirst({
+          where: {
+            id: input.removalRequestId,
+            userId: input.userId,
+            deletedAt: null,
+            status: "BROKER_REQUESTED_VERIFICATION",
+            responses: {
+              some: {
+                classification: "VERIFICATION_REQUESTED",
+                confirmedAt: { not: null },
+                deletedAt: null,
+              },
+            },
+          },
+          select: { profileId: true },
+        }));
+      const consent =
+        input.identityConsentRecordId &&
+        (await tx.consentRecord.findFirst({
+          where: {
+            id: input.identityConsentRecordId,
+            actorUserId: input.userId,
+            removalRequestId: input.removalRequestId,
+            purpose: "IDENTITY_VERIFICATION",
+            revokedAt: null,
+          },
+          select: { id: true },
+        }));
+      if (!verification || !consent)
+        throw new AppError({
+          code: "CONSENT_INVALID",
+          message:
+            "A current broker verification request and your explicit storage consent are required.",
+        });
+    }
     return tx.evidenceFile.create({
       data: {
         ...input,

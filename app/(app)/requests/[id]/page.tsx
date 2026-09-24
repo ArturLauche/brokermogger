@@ -16,6 +16,7 @@ import { getOwnedRequest } from "@/lib/db/repositories/requests";
 import { formatIsoDate } from "@/lib/format/datetime";
 import { getDateFormatter } from "@/app/_lib/datetime";
 import { canTransition } from "@/lib/requests/stateMachine";
+import { ReconciliationForm, VerificationForm } from "./manual-forms";
 
 import {
   closeRequestAction,
@@ -35,12 +36,12 @@ export default async function RequestDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; saved?: string }>;
 }) {
   const actor = await requireActorOrRedirect();
   const { formatStamp } = await getDateFormatter();
   const { id } = await params;
-  const { error } = await searchParams;
+  const { error, saved } = await searchParams;
 
   let request;
   try {
@@ -74,6 +75,54 @@ export default async function RequestDetailPage({
             Error code: <code>{error}</code>
           </AlertDescription>
         </Alert>
+      ) : null}
+      {["submission", "reconciliation", "verification"].includes(saved ?? "") ? (
+        <p role="status" className="text-sm">
+          Your update is recorded in the request history.
+        </p>
+      ) : null}
+      {request.channel !== "EMAIL" &&
+      request.status === "NEEDS_USER_ACTION" &&
+      request.approvedSnapshotId === snapshot?.id ? (
+        <section className="space-y-3 border-y py-5" aria-labelledby="manual-next-step">
+          <h2 id="manual-next-step" className="text-lg font-semibold">
+            Ready for you to submit
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            You approved this message. Nothing has been submitted yet. Follow the broker’s
+            steps and record your submission.
+          </p>
+          <Button asChild>
+            <Link href={`/requests/${request.id}/submit`}>Submit manually</Link>
+          </Button>
+        </section>
+      ) : null}
+      {request.outboundEmails.map((attempt) => (
+        <section
+          key={attempt.id}
+          className="space-y-4 border-y py-5"
+          aria-labelledby={`uncertain-${attempt.id}`}
+        >
+          <h2 id={`uncertain-${attempt.id}`} className="text-lg font-semibold">
+            Resolve uncertain delivery
+          </h2>
+          <p className="text-sm">
+            Attempt started{" "}
+            {attempt.dispatchStartedAt
+              ? formatStamp(attempt.dispatchStartedAt)
+              : "at an unknown time"}
+            . Automatic sending is paused.
+          </p>
+          <ReconciliationForm requestId={request.id} outboundEmailId={attempt.id} />
+        </section>
+      ))}
+      {request.status === "BROKER_REQUESTED_VERIFICATION" ? (
+        <section className="space-y-4 border-y py-5" aria-labelledby="verification-step">
+          <h2 id="verification-step" className="text-lg font-semibold">
+            The broker requested verification
+          </h2>
+          <VerificationForm requestId={request.id} />
+        </section>
       ) : null}
       <DefinitionList
         layout="inline"
@@ -138,7 +187,7 @@ export default async function RequestDetailPage({
           />
         ) : null}
         <Button asChild variant="outline">
-          <Link href="/evidence">Upload evidence</Link>
+          <Link href={`/evidence?requestId=${request.id}`}>Upload evidence</Link>
         </Button>
       </div>
       <Tabs defaultValue="timeline">
@@ -169,13 +218,48 @@ export default async function RequestDetailPage({
           </Card>
         </TabsContent>
         <TabsContent value="snapshot">
-          <pre className="rounded-xl border p-4 font-mono text-xs whitespace-pre-wrap">
-            {snapshot
-              ? `Subject: ${snapshot.subject}\n\n${snapshot.body}`
-              : "No snapshot has been rendered yet."}
-          </pre>
+          <details className="border-y py-4">
+            <summary className="cursor-pointer text-sm font-medium">
+              Reveal request text (contains personal data)
+            </summary>
+            <pre className="mt-4 font-sans text-base leading-7 break-words whitespace-pre-wrap">
+              {snapshot
+                ? `Subject: ${snapshot.subject}\n\n${snapshot.body}`
+                : "No snapshot has been rendered yet."}
+            </pre>
+          </details>
         </TabsContent>
         <TabsContent value="evidence">
+          {request.manualSubmissions.length ? (
+            <section className="mb-6 space-y-3">
+              <h2 className="text-lg font-semibold">Manual submissions</h2>
+              <ul className="space-y-2 text-sm">
+                {request.manualSubmissions.map((submission) => (
+                  <li key={submission.id}>
+                    Submitted {formatIsoDate(submission.submittedOn)}
+                    {submission.receivedOn
+                      ? ` · Receipt ${formatIsoDate(submission.receivedOn)}`
+                      : " · Receipt date unknown"}
+                    {submission.evidenceFileId ? (
+                      <>
+                        {" "}
+                        ·{" "}
+                        <a
+                          className="underline"
+                          href={`/api/evidence/${submission.evidenceFileId}/download`}
+                        >
+                          View receipt
+                        </a>
+                      </>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-sm text-muted-foreground">
+                Dates recorded by the account holder.
+              </p>
+            </section>
+          ) : null}
           <p className="text-sm text-muted-foreground">
             Files for this request are listed under{" "}
             <Link className="underline" href="/evidence">

@@ -1,5 +1,5 @@
 import { AppError } from "@/lib/core/errors";
-import { prisma } from "@/lib/db/client";
+import { prisma, type PrismaTransaction } from "@/lib/db/client";
 import type { ActorContext } from "@/lib/permissions/actor";
 import {
   identifierDigest,
@@ -11,9 +11,36 @@ import type { PreparedDraft } from "./requestGeneration";
 import { assertCurrentProfileConsent, loadRequestForDecision } from "./requestDecision";
 import { applyRequestStatusInTx, insertSnapshot, type SnapshotInput } from "./requests";
 
+async function assertCurrentMessageNotSubmitted(
+  tx: PrismaTransaction,
+  request: { id: string; currentSnapshotId: string | null }
+) {
+  if (!request.currentSnapshotId) return;
+  const [manual, accepted] = await Promise.all([
+    tx.manualSubmission.count({
+      where: { removalRequestId: request.id, snapshotId: request.currentSnapshotId },
+    }),
+    tx.outboundEmail.count({
+      where: {
+        removalRequestId: request.id,
+        snapshotId: request.currentSnapshotId,
+        dispatchState: "ACCEPTED",
+        status: { not: "BOUNCED" },
+      },
+    }),
+  ]);
+  if (manual || accepted)
+    throw new AppError({
+      code: "CONFLICT",
+      message:
+        "This message was already submitted. Record the response or prepare a follow-up from its timeline.",
+    });
+}
+
 export async function reopenRequestDraft(actor: ActorContext, requestId: string) {
   return prisma.$transaction(async (tx) => {
     const request = await loadRequestForDecision(tx, actor, requestId, "request:update");
+    await assertCurrentMessageNotSubmitted(tx, request);
     if (request.status === "DRAFT") return { requestId };
     if (
       await tx.outboundEmail.count({
@@ -87,12 +114,7 @@ export async function replaceRequestDraft(
           message:
             "A previous send has an uncertain outcome. Resolve it before preparing another message.",
         });
-      if (request.status === "NEEDS_USER_ACTION" && request.sentAt)
-        throw new AppError({
-          code: "CONFLICT",
-          message:
-            "Record the broker response or prepare a follow-up; this request has already been submitted.",
-        });
+      await assertCurrentMessageNotSubmitted(tx, request);
       const previous = await tx.requestSnapshot.findUniqueOrThrow({
         where: { id: input.previousSnapshotId },
       });

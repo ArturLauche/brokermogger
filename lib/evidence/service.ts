@@ -47,12 +47,13 @@ export async function uploadEvidence(
     profileId = request.profileId;
     if (
       input.kind === "IDENTITY_DOCUMENT" &&
-      !request.responses.some(
-        (response) =>
-          response.classification === "VERIFICATION_REQUESTED" &&
-          response.confirmedAt &&
-          !response.deletedAt
-      )
+      (request.status !== "BROKER_REQUESTED_VERIFICATION" ||
+        !request.responses.some(
+          (response) =>
+            response.classification === "VERIFICATION_REQUESTED" &&
+            response.confirmedAt &&
+            !response.deletedAt
+        ))
     ) {
       throw new ValidationError(
         "Identity documents are only accepted when a request actually asked for identity proof."

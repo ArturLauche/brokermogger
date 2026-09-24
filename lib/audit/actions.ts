@@ -40,6 +40,7 @@ export const AUDIT_ACTIONS = [
   // Requests
   "request.created",
   "request.rendered",
+  "request.downloaded",
   "request.status_changed",
   "request.approved",
   "request.approval_rejected",

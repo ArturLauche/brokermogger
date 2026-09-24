@@ -35,6 +35,7 @@ export const ACTIONS = [
   "request:create",
   "request:update",
   "request:approve",
+  "request:recordOutcome",
   "request:send",
   "request:close",
   "evidence:read",
@@ -104,6 +105,7 @@ const OWNER_ACTIONS = new Set<Action>([
   "request:create",
   "request:update",
   "request:approve",
+  "request:recordOutcome",
   "request:send",
   "request:close",
   "evidence:read",
@@ -170,8 +172,8 @@ export function can(
   resource: ResourceRef = {}
 ): Decision {
   if (actor.isSystem) {
-    if (action === "request:approve")
-      return deny("Approval requires the account holder’s explicit confirmation.");
+    if (action === "request:approve" || action === "request:recordOutcome")
+      return deny("This action requires the account holder’s explicit confirmation.");
     return ALLOW;
   }
 

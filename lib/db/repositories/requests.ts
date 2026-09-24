@@ -45,7 +45,18 @@ export async function getOwnedRequest(actor: ActorContext, requestId: string) {
       events: { orderBy: { createdAt: "asc" } },
       legalRuleVersion: true,
       templateVersion: true,
-      responses: { orderBy: { receivedAt: "asc" } },
+      responses: { where: { deletedAt: null }, orderBy: { receivedAt: "asc" } },
+      manualSubmissions: { orderBy: { createdAt: "desc" } },
+      outboundEmails: {
+        where: { dispatchState: { in: ["AMBIGUOUS", "RECONCILIATION_REQUIRED"] } },
+        select: {
+          id: true,
+          snapshotId: true,
+          dispatchStartedAt: true,
+          dispatchState: true,
+        },
+        orderBy: { createdAt: "desc" },
+      },
       evidenceFiles: { where: { deletedAt: null }, orderBy: { createdAt: "desc" } },
     },
   });
@@ -68,6 +79,8 @@ export async function getOwnedRequest(actor: ActorContext, requestId: string) {
       snapshots: [],
       responses: [],
       evidenceFiles: [],
+      manualSubmissions: [],
+      outboundEmails: [],
       profile: {
         ...request.profile,
         displayName: "Private profile",

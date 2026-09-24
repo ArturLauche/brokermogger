@@ -7,7 +7,6 @@ import { readFile, rm } from "node:fs/promises";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { env } from "@/lib/config/env";
 import { clearMockOutbox, getMockOutbox, MockEmailProvider } from "@/lib/email";
 
 const provider = new MockEmailProvider();
@@ -17,7 +16,12 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  await rm(env.MOCK_EMAIL_DIR, { recursive: true, force: true });
+  // Other test files can be writing their own local mail at the same time.
+  await Promise.all(
+    getMockOutbox().map((entry) =>
+      entry.filePath ? rm(entry.filePath, { force: true }) : Promise.resolve()
+    )
+  );
 });
 
 describe("mock email provider", () => {
@@ -67,8 +71,10 @@ describe("mock email provider", () => {
     });
 
     expect(getMockOutbox()).toHaveLength(1);
+    const file = getMockOutbox()[0]?.filePath;
     clearMockOutbox();
     expect(getMockOutbox()).toHaveLength(0);
+    if (file) await rm(file, { force: true });
   });
 
   it("refuses a magic link for an invalid address", async () => {

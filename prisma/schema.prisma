@@ -1083,6 +1083,7 @@ model RemovalRequest {
   notifications  Notification[]
   consentRecords ConsentRecord[]
   outboundEmails OutboundEmail[]
+  manualSubmissions ManualSubmission[]
 
   @@index([userId, status])
   @@index([profileId, status])
@@ -1152,9 +1153,26 @@ model RequestSnapshot {
   updatedAt DateTime @updatedAt
 
   removalRequest RemovalRequest @relation(fields: [removalRequestId], references: [id], onDelete: Cascade)
+  manualSubmission ManualSubmission?
 
   @@unique([removalRequestId, version])
   @@index([contentHash])
+}
+
+/// A user-recorded submission of an approved snapshot through a manual channel.
+model ManualSubmission {
+  id String @id @default(cuid())
+  removalRequestId String
+  snapshotId String @unique
+  submittedOn DateTime @db.Date
+  receivedOn DateTime? @db.Date
+  evidenceFileId String?
+  recordedByUserId String
+  createdAt DateTime @default(now())
+  removalRequest RemovalRequest @relation(fields: [removalRequestId], references: [id], onDelete: Cascade)
+  snapshot RequestSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  evidenceFile EvidenceFile? @relation(fields: [evidenceFileId], references: [id], onDelete: SetNull)
+  @@index([removalRequestId, createdAt])
 }
 
 model BrokerResponse {
@@ -1237,6 +1255,7 @@ model EvidenceFile {
   profile        UserProfile?    @relation(fields: [profileId], references: [id], onDelete: SetNull)
   removalRequest RemovalRequest? @relation(fields: [removalRequestId], references: [id], onDelete: SetNull)
   reports        Report[]
+  manualSubmissions ManualSubmission[]
 
   @@index([userId, kind])
   @@index([removalRequestId])
@@ -1471,6 +1490,8 @@ model OutboundEmail {
   approvalConsentRecordId String?
   dispatchState DispatchState @default(PREPARED)
   dispatchToken String?
+  reconciledAt DateTime?
+  reconciledById String?
   dispatchStartedAt DateTime?
   lastDispatchAt DateTime?
   idempotencyKey String? @unique

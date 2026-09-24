@@ -174,3 +174,21 @@ verification, and production key/build checks against the compiled app.
   delivery and a separate database schema kept all test activity local.
 - The redirect fix passed typecheck, lint, formatting, ten authentication unit
   tests and production compilation. Two workflow browser tests passed.
+
+### Manual submission and delivery recovery
+
+- Approved manual messages have downloadable text, contextual portal/postal steps,
+  account-local submission/receipt dates and optional evidence. A transaction pins
+  the exact approved snapshot, records dates and appends status history. Duplicate
+  submissions are idempotent; account/profile erasure removes these new records.
+- Uncertain provider attempts have an explicit, owner-confirmed reconciliation
+  action. Active workers, foreign accounts and conflicting outcomes are rejected.
+  Non-acceptance requires a new reviewed draft; acceptance never claims delivery.
+- Verification actions are available after a confirmed broker request. Optional
+  identity storage also rechecks that current state inside the file transaction.
+- Eight new integration regressions passed alongside approval, dispatch, editing,
+  evidence and erasure regressions: 29 tests across five files. The new migration
+  applied to the isolated database. Browser coverage of these new screens will
+  accompany the response workflow; it has not yet been run.
+- Fixed an existing parallel-test race: mock-email tests now remove only their own
+  files instead of deleting the shared mail directory while other tests write it.

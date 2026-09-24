@@ -28,7 +28,7 @@ export const dynamic = "force-dynamic";
 export default async function EvidencePage({
   searchParams,
 }: {
-  searchParams: Promise<{ stored?: string; error?: string }>;
+  searchParams: Promise<{ stored?: string; error?: string; requestId?: string }>;
 }) {
   const actor = await requireActorOrRedirect();
   const { active } = await resolveActiveProfileForRequest(actor);
@@ -141,6 +141,11 @@ export default async function EvidencePage({
           <select
             id="requestId"
             name="requestId"
+            defaultValue={
+              requests.some((request) => request.id === params.requestId)
+                ? params.requestId
+                : ""
+            }
             className="h-9 rounded-lg border border-input px-2"
           >
             <option value="">None</option>

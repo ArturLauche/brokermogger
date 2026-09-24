@@ -10,15 +10,11 @@ import { validateOutboundMessage } from "@/lib/email/validate";
 import { parseJobPayload } from "@/lib/jobs/payloads";
 import type { JobLease } from "@/lib/jobs/types";
 import type { ActorContext } from "@/lib/permissions/actor";
-import {
-  assertEnvelopeMatchesRequest,
-  readApprovalEnvelope,
-} from "@/lib/requests/envelope";
 import { needsDeliveryReconciliation } from "@/lib/requests/dispatchPolicy";
-import { readSnapshotText } from "@/lib/requests/snapshot";
 import { sha256Hex } from "@/lib/security/crypto";
 
-import { assertCurrentProfileConsent, loadRequestForDecision } from "./requestDecision";
+import { readApprovedMessageInTx } from "./requestApprovedMessage";
+import { loadRequestForDecision } from "./requestDecision";
 import { applyRequestStatusInTx } from "./requests";
 
 async function leaseInTx(tx: PrismaTransaction, job: JobLease, requestId: string) {
@@ -71,55 +67,11 @@ export async function beginApprovedDispatch(
           kind: "stopped",
           message: "This request is no longer queued for dispatch.",
         };
-      const snapshot = await tx.requestSnapshot.findFirst({
-        where: { id: input.snapshotId, removalRequestId: request.id },
-      });
-      if (
-        !snapshot ||
-        !snapshot.envelopeHash ||
-        !request.approvalConsentRecordId ||
-        request.approvedSnapshotId !== snapshot.id ||
-        request.approvedEnvelopeHash !== snapshot.envelopeHash ||
-        request.approvedByUserId !== request.userId
-      )
-        throw new AppError({
-          code: "CONFLICT",
-          message: "This message requires fresh approval of its complete envelope.",
-        });
-      const envelope = readApprovalEnvelope(snapshot);
-      const text = readSnapshotText(snapshot);
-      const identifiers = await tx.profileIdentifier.findMany({
-        where: {
-          profileId: request.profileId,
-          id: { in: request.includedIdentifierIds },
-          deletedAt: null,
-        },
-        select: { id: true, valueBi: true },
-      });
-      assertEnvelopeMatchesRequest(envelope, request, identifiers, request.profile);
-      const household = assertCurrentProfileConsent(request.profile);
-      const proof = await tx.consentRecord.findFirst({
-        where: {
-          id: request.approvalConsentRecordId,
-          actorUserId: request.userId,
-          removalRequestId: request.id,
-          profileId: request.profileId,
-          purpose: "REQUEST_SUBMISSION",
-          revokedAt: null,
-        },
-      });
-      if (
-        !proof ||
-        proof.status !== request.profile.consentStatus ||
-        (proof.expiresAt && proof.expiresAt <= new Date()) ||
-        (household && proof.householdConsentId !== household.id) ||
-        (proof.evidence as { envelopeHash?: unknown }).envelopeHash !==
-          snapshot.envelopeHash
-      )
-        throw new AppError({
-          code: "CONSENT_INVALID",
-          message: "The approval proof is no longer valid. Review the message again.",
-        });
+      const { snapshot, envelope, text, proof } = await readApprovedMessageInTx(
+        tx,
+        request,
+        input.snapshotId
+      );
       const purpose = envelope.followUpNumber > 0 ? "BROKER_FOLLOW_UP" : "BROKER_REQUEST";
       const ledger = await tx.outboundEmail.findUnique({
         where: {

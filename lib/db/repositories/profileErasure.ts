@@ -106,6 +106,9 @@ export async function eraseProfileContent(
     await tx.profileIdentifier.deleteMany({
       where: { profileId, ...(identifierId ? { id: identifierId } : {}) },
     });
+    await tx.manualSubmission.deleteMany({
+      where: { removalRequestId: { in: requestIds } },
+    });
     await tx.requestSnapshot.deleteMany({
       where: { removalRequestId: { in: requestIds } },
     });

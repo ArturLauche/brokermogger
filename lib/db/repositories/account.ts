@@ -163,6 +163,7 @@ export async function anonymiseDeletedAccount(
     await tx.profileIdentifier.deleteMany({
       where: { profile: { ownerUserId: userId } },
     });
+    await tx.manualSubmission.deleteMany({ where: { removalRequest: { userId } } });
     await tx.requestSnapshot.deleteMany({ where: { removalRequest: { userId } } });
     await tx.removalRequestEvent.deleteMany({ where: { removalRequest: { userId } } });
     await tx.brokerResponse.deleteMany({ where: { removalRequest: { userId } } });
