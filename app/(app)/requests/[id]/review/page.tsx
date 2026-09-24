@@ -136,7 +136,11 @@ export default async function ReviewRequestPage({
       </Card>
       <p className="sr-only">{APPROVAL_CHECKBOX_LABEL}</p>
       {snapshot?.envelopeHash ? (
-        <ReviewApprovalForm requestId={request.id} envelopeHash={snapshot.envelopeHash} />
+        <ReviewApprovalForm
+          requestId={request.id}
+          envelopeHash={snapshot.envelopeHash}
+          manual={request.channel !== "EMAIL"}
+        />
       ) : (
         <Alert variant="destructive">
           <AlertTitle>No rendered text</AlertTitle>

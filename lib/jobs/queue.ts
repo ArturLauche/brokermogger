@@ -121,6 +121,15 @@ export async function runClaimedJob(
     // Recurring success uses `repeatAfterSeconds` inside markJobCompleted.
     // `retryAfterSeconds` is a failed attempt that should run again later.
     if (result.retryAfterSeconds && result.retryAfterSeconds > 0) {
+      if (job.attemptCount >= job.maxAttempts) {
+        await markJobFailed({
+          job,
+          attemptCount: job.attemptCount,
+          errorMessage: result.message,
+          durationMs,
+        });
+        return;
+      }
       await markJobRetryable({
         job,
         attemptCount: job.attemptCount,

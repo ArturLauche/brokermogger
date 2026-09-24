@@ -38,6 +38,10 @@ export const ACTIONS = [
   "request:recordOutcome",
   "request:send",
   "request:close",
+  "response:read",
+  "response:record",
+  "response:confirm",
+  "response:delete",
   "evidence:read",
   "evidence:download",
   "evidence:upload",
@@ -108,6 +112,10 @@ const OWNER_ACTIONS = new Set<Action>([
   "request:recordOutcome",
   "request:send",
   "request:close",
+  "response:read",
+  "response:record",
+  "response:confirm",
+  "response:delete",
   "evidence:read",
   "evidence:download",
   "evidence:upload",
@@ -172,7 +180,11 @@ export function can(
   resource: ResourceRef = {}
 ): Decision {
   if (actor.isSystem) {
-    if (action === "request:approve" || action === "request:recordOutcome")
+    if (
+      action === "request:approve" ||
+      action === "request:recordOutcome" ||
+      action === "response:confirm"
+    )
       return deny("This action requires the account holder’s explicit confirmation.");
     return ALLOW;
   }

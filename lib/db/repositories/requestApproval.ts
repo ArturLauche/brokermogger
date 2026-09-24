@@ -15,6 +15,7 @@ import { blindIndex, encryptField, sha256Hex } from "@/lib/security/crypto";
 import { maskEmail } from "@/lib/security/masking";
 
 import { appendConsentRecordInTx } from "./consent";
+import { sendingIdentityInTx } from "./inboundMailboxes";
 import { assertCurrentProfileConsent, loadRequestForDecision } from "./requestDecision";
 import { appendRequestEventInTx, applyRequestStatusInTx } from "./requests";
 
@@ -50,7 +51,13 @@ export async function commitRequestApproval(actor: ActorContext, input: Approval
         },
         select: { id: true, valueBi: true },
       });
-      assertEnvelopeMatchesRequest(envelope, request, identifiers, request.profile);
+      assertEnvelopeMatchesRequest(
+        envelope,
+        request,
+        identifiers,
+        request.profile,
+        await sendingIdentityInTx(tx, request.userId)
+      );
       const consent = assertCurrentProfileConsent(request.profile);
       if (
         request.approvedSnapshotId === snapshot.id &&

@@ -15,6 +15,11 @@ import {
 } from "@prisma/client";
 
 import { prisma } from "@/lib/db/client";
+import { receivedWebhookSchema } from "@/lib/email/receiving";
+import { minimalDeliveryPayload } from "@/lib/email/delivery";
+import { receivingOwner } from "./inboundMailboxes";
+import { lockJobLeaseInTx } from "./jobLease";
+import type { JobLease } from "@/lib/jobs/types";
 import { randomUUID } from "node:crypto";
 import { decryptField, encryptField } from "@/lib/security/crypto";
 
@@ -167,22 +172,80 @@ export async function recordWebhookEvent(
   }
 
   try {
-    const id = randomUUID();
-    const created = await prisma.emailWebhookEvent.create({
-      data: {
-        id,
-        provider: input.provider,
-        eventId: input.eventId,
-        eventType: input.eventType,
-        payloadJson: {},
-        payloadEnc: encryptField(JSON.stringify(input.payloadJson), {
-          table: "EmailWebhookEvent",
-          column: "payloadEnc",
-          recordId: id,
-        }),
-        signatureVerified: input.signatureVerified,
-      },
-      select: { id: true, processedAt: true },
+    const created = await prisma.$transaction(async (tx) => {
+      const id = randomUUID();
+      const payloadData = input.payloadJson.data;
+      const providerMessageId =
+        payloadData &&
+        typeof payloadData === "object" &&
+        "email_id" in payloadData &&
+        typeof payloadData.email_id === "string" &&
+        payloadData.email_id.length <= 200
+          ? payloadData.email_id
+          : null;
+      let ownerUserId: string | null = null;
+      let processingError: string | null = null;
+      let privatePayload: unknown = null;
+      if (!input.signatureVerified) processingError = "signature_not_verified";
+      else if (input.eventType === "email.received") {
+        const received = receivedWebhookSchema.safeParse(input.payloadJson);
+        privatePayload = received.success ? received.data : null;
+        ownerUserId = received.success
+          ? await receivingOwner(received.data.data.to, tx)
+          : null;
+        if (!ownerUserId) processingError = "unknown_or_ambiguous_recipient";
+      } else {
+        privatePayload = minimalDeliveryPayload(input.payloadJson);
+        if (!privatePayload) processingError = "invalid_delivery_event";
+        const data = input.payloadJson.data;
+        const messageId =
+          data &&
+          typeof data === "object" &&
+          "email_id" in data &&
+          typeof data.email_id === "string"
+            ? data.email_id
+            : null;
+        if (messageId) {
+          const matches = await tx.outboundEmail.findMany({
+            where: { providerMessageId: messageId, provider: "RESEND" },
+            select: { userId: true },
+            take: 2,
+          });
+          if (matches.length === 1) ownerUserId = matches[0]!.userId;
+        }
+      }
+      if (ownerUserId) {
+        await tx.$executeRaw`SELECT 1 FROM "User" WHERE id = ${ownerUserId} FOR UPDATE`;
+        if (
+          !(await tx.user.findFirst({
+            where: { id: ownerUserId, status: "ACTIVE", deletionRequestedAt: null },
+            select: { id: true },
+          }))
+        )
+          processingError = "account_inactive";
+      }
+      return tx.emailWebhookEvent.create({
+        data: {
+          id,
+          provider: input.provider,
+          eventId: input.eventId,
+          eventType: input.eventType,
+          providerMessageId,
+          ownerUserId,
+          payloadJson: {},
+          payloadEnc: processingError
+            ? null
+            : encryptField(JSON.stringify(privatePayload), {
+                table: "EmailWebhookEvent",
+                column: "payloadEnc",
+                recordId: id,
+              }),
+          signatureVerified: input.signatureVerified,
+          processedAt: processingError ? new Date() : null,
+          processingError,
+        },
+        select: { id: true, processedAt: true },
+      });
     });
 
     return { id: created.id, duplicate: false, processedAt: created.processedAt };
@@ -198,17 +261,25 @@ export async function recordWebhookEvent(
   }
 }
 
+export function getWebhookPayload(event: {
+  id: string;
+  payloadEnc: string | null;
+  payloadJson: Prisma.JsonValue;
+}): Prisma.JsonValue {
+  return event.payloadEnc
+    ? (JSON.parse(
+        decryptField(event.payloadEnc, {
+          table: "EmailWebhookEvent",
+          column: "payloadEnc",
+          recordId: event.id,
+        })
+      ) as Prisma.JsonValue)
+    : event.payloadJson;
+}
+
 export async function getWebhookEventById(id: string) {
   const event = await prisma.emailWebhookEvent.findUnique({ where: { id } });
-  if (!event?.payloadEnc) return event;
-  const payload = JSON.parse(
-    decryptField(event.payloadEnc, {
-      table: "EmailWebhookEvent",
-      column: "payloadEnc",
-      recordId: id,
-    })
-  ) as Prisma.JsonValue;
-  return { ...event, payloadJson: payload };
+  return event ? { ...event, payloadJson: getWebhookPayload(event) } : null;
 }
 
 export async function listUnprocessedWebhookEvents(take = 50) {
@@ -248,5 +319,23 @@ export async function findOutboundEmailByProviderMessageId(providerMessageId: st
       removalRequestId: true,
       userId: true,
     },
+  });
+}
+
+export async function discardWebhookEvent(id: string, job: JobLease, reason: string) {
+  return prisma.$transaction(async (tx) => {
+    if (
+      !(await lockJobLeaseInTx(tx, job, "PROCESS_EMAIL_WEBHOOK", { webhookEventId: id }))
+    )
+      return;
+    await tx.emailWebhookEvent.updateMany({
+      where: { id, processedAt: null },
+      data: {
+        payloadEnc: null,
+        payloadJson: {},
+        processedAt: new Date(),
+        processingError: reason,
+      },
+    });
   });
 }

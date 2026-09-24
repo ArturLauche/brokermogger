@@ -15,6 +15,7 @@ import {
   sha256Hex,
 } from "@/lib/security/crypto";
 import { getStorage } from "@/lib/storage";
+import { backfillWebhookPayloads } from "./webhookPrivacy";
 
 export async function backfillPrivatePayloads(take = 100) {
   if (env.ALLOW_EXTERNAL_SENDING)
@@ -30,6 +31,7 @@ export async function backfillPrivatePayloads(take = 100) {
     labels: 0,
     tokens: 0,
     outbound: 0,
+    responses: 0,
   };
   const users = await prisma.user.findMany({
     where: {
@@ -82,25 +84,7 @@ export async function backfillPrivatePayloads(take = 100) {
     });
     counts.snapshots += 1;
   }
-  const webhooks = await prisma.emailWebhookEvent.findMany({
-    where: { payloadEnc: null },
-    take,
-    orderBy: { id: "asc" },
-  });
-  for (const event of webhooks) {
-    await prisma.emailWebhookEvent.update({
-      where: { id: event.id },
-      data: {
-        payloadJson: {},
-        payloadEnc: encryptField(JSON.stringify(event.payloadJson), {
-          table: "EmailWebhookEvent",
-          column: "payloadEnc",
-          recordId: event.id,
-        }),
-      },
-    });
-    counts.webhooks += 1;
-  }
+  counts.webhooks = await backfillWebhookPayloads(take);
   const outgoing = await prisma.outboundEmail.findMany({
     where: { replyTo: { not: null } },
     take,
@@ -119,6 +103,79 @@ export async function backfillPrivatePayloads(take = 100) {
       data: { replyToEnc, replyTo: null },
     });
     counts.outbound += 1;
+  }
+  const responses = await prisma.brokerResponse.findMany({
+    where: {
+      OR: [
+        { fromAddress: { not: null } },
+        { bodyPreview: { not: null } },
+        { rawMetadata: { not: {} } },
+      ],
+    },
+    take,
+    orderBy: { id: "asc" },
+  });
+  for (const response of responses) {
+    const context = (column: string) => ({
+      table: "BrokerResponse",
+      column,
+      recordId: response.id,
+    });
+    const oldMetadata = response.metadataEnc
+      ? (JSON.parse(decryptField(response.metadataEnc, context("metadataEnc"))) as Record<
+          string,
+          unknown
+        >)
+      : {};
+    const metadata = JSON.stringify({
+      ...oldMetadata,
+      legacyMetadata: response.rawMetadata,
+      ...(response.fromAddress ? { legacyFromAddress: response.fromAddress } : {}),
+      ...(response.bodyPreview
+        ? {
+            legacyBodyPreview: response.bodyPreview,
+            legacyPreviewOnly: !response.bodyEnc,
+          }
+        : {}),
+    });
+    const metadataEnc = encryptField(metadata, context("metadataEnc"));
+    const fromAddressEnc =
+      response.fromAddressEnc ??
+      (response.fromAddress
+        ? encryptField(response.fromAddress, context("fromAddressEnc"))
+        : null);
+    const bodyEnc =
+      response.bodyEnc ??
+      (response.bodyPreview
+        ? encryptField(response.bodyPreview, context("bodyEnc"))
+        : null);
+    if (
+      decryptField(metadataEnc, context("metadataEnc")) !== metadata ||
+      (fromAddressEnc &&
+        !response.fromAddressEnc &&
+        decryptField(fromAddressEnc, context("fromAddressEnc")) !==
+          response.fromAddress) ||
+      (bodyEnc &&
+        !response.bodyEnc &&
+        decryptField(bodyEnc, context("bodyEnc")) !== response.bodyPreview)
+    )
+      throw new AppError({
+        code: "CONFLICT",
+        message:
+          "Legacy reply encryption did not verify. Migration stopped before clearing any source content.",
+      });
+    await prisma.brokerResponse.update({
+      where: { id: response.id },
+      data: {
+        fromAddressEnc,
+        bodyEnc,
+        metadataEnc,
+        fromAddress: null,
+        bodyPreview: null,
+        rawMetadata: {},
+      },
+    });
+    counts.responses += 1;
   }
   const files = await prisma.evidenceFile.findMany({
     where: {
@@ -173,6 +230,7 @@ export async function backfillPrivatePayloads(take = 100) {
       counts.webhooks +
       counts.files +
       counts.tokens +
+      counts.responses +
       counts.outbound ===
     0
   ) {

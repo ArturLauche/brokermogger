@@ -205,6 +205,7 @@ describe("manual submission of approved messages", () => {
     });
     await testPrisma.brokerResponse.create({
       data: {
+        userId: f.user.id,
         removalRequestId: f.request.id,
         brokerId: f.brokers[0]!.id,
         receivedAt: new Date(),

@@ -17,6 +17,7 @@ import { formatIsoDate } from "@/lib/format/datetime";
 import { getDateFormatter } from "@/app/_lib/datetime";
 import { canTransition } from "@/lib/requests/stateMachine";
 import { ReconciliationForm, VerificationForm } from "./manual-forms";
+import { RESPONSE_LABELS } from "@/lib/responses/labels";
 
 import {
   closeRequestAction,
@@ -58,7 +59,8 @@ export default async function RequestDetailPage({
     request.status === "AWAITING_USER_APPROVAL" ||
     request.status === "MANUAL_REVIEW_REQUIRED";
   const canClose = canTransition(request.status, "CLOSED", "USER");
-  const canComplete = canTransition(request.status, "COMPLETED", "USER");
+  const canComplete =
+    Boolean(request.sentAt) && canTransition(request.status, "COMPLETED", "USER");
   const canFollowUp = canTransition(request.status, "FOLLOW_UP_SCHEDULED", "USER");
 
   return (
@@ -166,12 +168,16 @@ export default async function RequestDetailPage({
           </form>
         ) : null}
         {canComplete ? (
-          <form action={markCompletedAction}>
-            <input type="hidden" name="requestId" value={request.id} />
-            <Button type="submit" variant="outline">
-              Mark completed
-            </Button>
-          </form>
+          <ConfirmSubmitButton
+            action={markCompletedAction}
+            hidden={{ requestId: request.id }}
+            label="Mark completed"
+            title="Confirm reported completion"
+            description="Use this when you verified completion outside the recorded correspondence."
+            consequences={[
+              "This records your confirmation and cancels queued sends and follow-ups. It does not guarantee removal or recall an accepted email.",
+            ]}
+          />
         ) : null}
         {canClose ? (
           <ConfirmSubmitButton
@@ -269,10 +275,60 @@ export default async function RequestDetailPage({
           </p>
         </TabsContent>
         <TabsContent value="responses">
-          <p className="text-sm text-muted-foreground">
-            Broker replies recorded on this request: {request.responses?.length ?? 0}.
-            Incoming mail is classified when a provider webhook is configured.
-          </p>
+          <section className="space-y-4" aria-labelledby="request-replies">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 id="request-replies" className="text-lg font-semibold">
+                Broker replies
+              </h2>
+              <Button asChild>
+                <Link href={`/requests/${request.id}/responses/new`}>Record a reply</Link>
+              </Button>
+            </div>
+            {request.responses.length ? (
+              <ul className="divide-y">
+                {request.responses.map((response) => (
+                  <li
+                    key={response.id}
+                    className="flex flex-wrap items-center justify-between gap-3 py-3"
+                  >
+                    <div>
+                      <p className="text-sm">
+                        {response.confirmedAt
+                          ? RESPONSE_LABELS[response.classification]
+                          : "Awaiting your review"}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {response.receivedOn
+                          ? formatIsoDate(response.receivedOn)
+                          : formatStamp(response.receivedAt)}
+                      </p>
+                    </div>
+                    <Link
+                      className="text-sm underline"
+                      href={`/responses/${response.id}`}
+                    >
+                      Review reply
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No replies recorded. Paste a broker response or attach evidence, then
+                confirm its meaning. Received email also needs your confirmation before
+                changing this request.
+              </p>
+            )}
+            {request._count.responses > request.responses.length ? (
+              <p className="text-sm">
+                Showing the latest 25 of {request._count.responses} replies.{" "}
+                <Link href="/responses" className="underline">
+                  Browse all correspondence
+                </Link>
+                .
+              </p>
+            ) : null}
+          </section>
         </TabsContent>
       </Tabs>
     </div>

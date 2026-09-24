@@ -5,25 +5,23 @@
  * Idempotent: a processed event is left untouched. Unknown event types are
  * marked processed without changing request status.
  */
-import { recordAudit } from "@/lib/audit/service";
 import {
-  findOutboundEmailByProviderMessageId,
   getWebhookEventById,
-  markWebhookEventProcessed,
   recordWebhookEvent,
-  updateOutboundEmail,
+  discardWebhookEvent,
   type WebhookEventInsert,
   type WebhookEventResult,
 } from "@/lib/db/repositories/outboundEmail";
+import { applyStoredDeliveryEvent } from "@/lib/db/repositories/deliveryEvents";
+import { commitReceivedEmail } from "@/lib/db/repositories/receiving";
+import { receivingOwner } from "@/lib/db/repositories/inboundMailboxes";
+import {
+  receivedWebhookSchema,
+  retrieveReceivedEmail,
+  type RetrievedCorrespondence,
+} from "@/lib/email/receiving";
 import { enqueueJob } from "@/lib/jobs/queue";
-import { createLogger } from "@/lib/observability/logger";
-import { systemActor } from "@/lib/permissions/actor";
-import { applyDeliveryOutcome } from "@/lib/requests/lifecycle";
-
-import { classifyEmailWebhook, providerMessageIdFromPayload } from "./datetime";
-import type { JobResult } from "./types";
-
-const log = createLogger("jobs.email-webhook");
+import type { ClaimedJob, JobResult } from "./types";
 
 /**
  * Enqueue processing for a stored provider event. Duplicate deliveries that
@@ -41,6 +39,7 @@ export async function enqueueUnprocessedEmailWebhook(stored: {
     type: "PROCESS_EMAIL_WEBHOOK",
     payload: { webhookEventId: stored.id },
     idempotencyKey: `webhook:${stored.id}`,
+    maxAttempts: 12,
   });
   return { enqueued: true };
 }
@@ -54,76 +53,33 @@ export async function storeAndQueueEmailWebhook(
 }
 
 export async function processStoredEmailWebhook(
-  webhookEventId: string
+  webhookEventId: string,
+  job: ClaimedJob<"PROCESS_EMAIL_WEBHOOK">
 ): Promise<JobResult> {
   const event = await getWebhookEventById(webhookEventId);
-  if (!event) {
-    return { message: "Webhook event not found." };
-  }
-  if (event.processedAt) {
-    return { message: "Webhook event already processed." };
-  }
-
-  const payload =
-    event.payloadJson && typeof event.payloadJson === "object"
-      ? (event.payloadJson as Record<string, unknown>)
-      : {};
-  const outcome = classifyEmailWebhook(event.eventType);
-  const providerMessageId = providerMessageIdFromPayload(payload);
-  const ledger = providerMessageId
-    ? await findOutboundEmailByProviderMessageId(providerMessageId)
-    : null;
-
-  if (!ledger) {
-    await markWebhookEventProcessed(event.id, {
-      processingError: providerMessageId ? "ledger_not_found" : "missing_provider_id",
-    });
+  if (!event || event.processedAt)
+    return { message: "Webhook event already processed or erased." };
+  if (event.eventType !== "email.received")
+    return applyStoredDeliveryEvent(webhookEventId, job);
+  const parsed = receivedWebhookSchema.safeParse(event.payloadJson);
+  if (
+    !event.signatureVerified ||
+    !parsed.success ||
+    !event.ownerUserId ||
+    (await receivingOwner(parsed.data.data.to)) !== event.ownerUserId
+  ) {
+    await discardWebhookEvent(webhookEventId, job, "invalid_or_inactive_recipient");
     return {
-      message: `Recorded ${event.eventType} without a matching outbound email.`,
-      metadata: { outcome, matched: false },
+      message: "Received email without an active private account recipient discarded.",
     };
   }
-
-  const now = new Date();
-  if (outcome === "delivered") {
-    await updateOutboundEmail(ledger.id, {
-      status: "DELIVERED",
-      metadata: { webhookEventType: event.eventType },
-    });
-  } else if (outcome === "bounced") {
-    await updateOutboundEmail(ledger.id, {
-      status: "BOUNCED",
-      failedAt: now,
-      lastError: "Provider reported a bounce.",
-      metadata: { webhookEventType: event.eventType },
-    });
-  } else if (outcome === "complained") {
-    await updateOutboundEmail(ledger.id, {
-      status: "COMPLAINED",
-      metadata: { webhookEventType: event.eventType },
-    });
+  let mail: RetrievedCorrespondence;
+  try {
+    mail = await retrieveReceivedEmail(parsed.data.data.email_id);
+  } catch (error) {
+    if (job.attemptCount < job.maxAttempts) throw error;
+    // Make a lasting retrieval failure visible to the owner with a manual import path.
+    mail = { available: false, reason: "retrieval_failed" };
   }
-
-  if (ledger.removalRequestId && (outcome === "delivered" || outcome === "bounced")) {
-    const actor = systemActor(`webhook:${event.id}`);
-    await applyDeliveryOutcome(actor, ledger.removalRequestId, outcome);
-  }
-
-  if (outcome === "bounced" || outcome === "complained") {
-    const actor = systemActor(`webhook:${event.id}`);
-    await recordAudit({
-      actor,
-      action: outcome === "bounced" ? "system.email_bounced" : "system.email_complaint",
-      resourceType: "removal_request",
-      resourceId: ledger.removalRequestId,
-      metadata: { webhookEventType: event.eventType },
-    });
-  }
-
-  await markWebhookEventProcessed(event.id, { outboundEmailId: ledger.id });
-  log.info({ eventType: event.eventType, outcome }, "Processed email webhook");
-  return {
-    message: `Processed ${event.eventType}.`,
-    metadata: { outcome, matched: true },
-  };
+  return commitReceivedEmail(webhookEventId, mail, job);
 }

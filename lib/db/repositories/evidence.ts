@@ -71,6 +71,31 @@ export async function getOwnedEvidenceForDownload(
   return file;
 }
 
+export async function hasPendingVerification(actor: ActorContext, requestId: string) {
+  const request = await prisma.removalRequest.findFirst({
+    where: { id: requestId, deletedAt: null },
+    select: { userId: true },
+  });
+  if (!request) throw new NotFoundError("This request does not exist.");
+  requirePermission(actor, "evidence:upload", { ownerUserId: request.userId });
+  return Boolean(
+    await prisma.removalRequest.findFirst({
+      where: {
+        id: requestId,
+        status: "BROKER_REQUESTED_VERIFICATION",
+        responses: {
+          some: {
+            classification: "VERIFICATION_REQUESTED",
+            confirmedAt: { not: null },
+            deletedAt: null,
+          },
+        },
+      },
+      select: { id: true },
+    })
+  );
+}
+
 export interface PrivateFileIntent {
   id: string;
   userId: string;

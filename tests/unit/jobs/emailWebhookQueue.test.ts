@@ -11,18 +11,9 @@ vi.mock("@/lib/jobs/queue", () => ({
 
 vi.mock("@/lib/db/repositories/outboundEmail", () => ({
   recordWebhookEvent: mocks.recordWebhookEvent,
-  findOutboundEmailByProviderMessageId: vi.fn(),
   getWebhookEventById: vi.fn(),
-  markWebhookEventProcessed: vi.fn(),
-  updateOutboundEmail: vi.fn(),
-}));
-
-vi.mock("@/lib/audit/service", () => ({
-  recordAudit: vi.fn(),
-}));
-
-vi.mock("@/lib/requests/lifecycle", () => ({
-  applyDeliveryOutcome: vi.fn(),
+  getWebhookPayload: vi.fn(),
+  discardWebhookEvent: vi.fn(),
 }));
 
 const { enqueueUnprocessedEmailWebhook, storeAndQueueEmailWebhook } =

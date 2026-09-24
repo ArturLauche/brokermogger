@@ -3,6 +3,41 @@
  */
 import { prisma, withAppendOnlyDeletes } from "@/lib/db/client";
 
+function unmatchedDeliveryWhere(cutoff: Date) {
+  return {
+    ownerUserId: null,
+    outboundEmailId: null,
+    eventType: { not: "email.received" },
+    receivedAt: { lt: cutoff },
+    OR: [{ payloadEnc: { not: null } }, { processedAt: null }],
+  };
+}
+
+export async function countExpiredUnmatchedDelivery(cutoff: Date) {
+  return prisma.emailWebhookEvent.count({ where: unmatchedDeliveryWhere(cutoff) });
+}
+
+export async function expireUnmatchedDelivery(cutoff: Date, take: number) {
+  const rows = await prisma.emailWebhookEvent.findMany({
+    where: unmatchedDeliveryWhere(cutoff),
+    select: { id: true },
+    take,
+  });
+  if (!rows.length) return 0;
+  // Recheck the predicate in case a receipt acquired ownership while we selected the batch.
+  return (
+    await prisma.emailWebhookEvent.updateMany({
+      where: { ...unmatchedDeliveryWhere(cutoff), id: { in: rows.map((row) => row.id) } },
+      data: {
+        processedAt: new Date(),
+        processingError: "unmatched_delivery_expired",
+        payloadEnc: null,
+        payloadJson: {},
+      },
+    })
+  ).count;
+}
+
 export async function deleteJobLogsOlderThan(
   cutoff: Date,
   take: number

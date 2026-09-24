@@ -21,6 +21,8 @@ import {
 } from "@/lib/db/repositories/requests";
 import {
   countAuditLogsOlderThan,
+  countExpiredUnmatchedDelivery,
+  expireUnmatchedDelivery,
   countConsentRecordsOlderThan,
   countJobLogsOlderThan,
   countNotificationsOlderThan,
@@ -85,12 +87,16 @@ export async function runRetentionSweep(input: { dryRun: boolean }): Promise<Job
     notifications: 0,
     outboundEmail: 0,
     webhookEvents: 0,
+    expiredUnmatchedDelivery: 0,
     auditLogs: 0,
     consentRecords: 0,
     rateLimitBuckets: 0,
   };
 
   if (input.dryRun) {
+    counts.expiredUnmatchedDelivery = await countExpiredUnmatchedDelivery(
+      daysAgo(now, 1)
+    );
     const [
       evidence,
       temporaryIdentity,
@@ -134,6 +140,9 @@ export async function runRetentionSweep(input: { dryRun: boolean }): Promise<Job
   }
 
   const unfinished = await listUnfinishedFilePurges(BATCH);
+  counts.expiredUnmatchedDelivery = await drainCount((take) =>
+    expireUnmatchedDelivery(daysAgo(now, 1), take)
+  );
   await mapPool(unfinished, 5, purgePrivateFile);
   counts.evidence = unfinished.length + (await purgeEvidenceBatch(evidenceCutoff));
   counts.temporaryIdentity = await purgeTemporaryIdentity();

@@ -461,6 +461,8 @@ model User {
   adminActionsTarget AdminAction[]      @relation("AdminActionTarget")
   householdConsents  HouseholdConsent[] @relation("HouseholdConsentRequester")
   outboundEmails     OutboundEmail[]
+  brokerResponses    BrokerResponse[]
+  inboundMailboxes   InboundMailbox[]
 
   @@index([status])
   @@index([role])
@@ -1177,9 +1179,12 @@ model ManualSubmission {
 
 model BrokerResponse {
   id               String         @id @default(cuid())
-  removalRequestId String
-  brokerId         String
+  userId           String
+  removalRequestId String?
+  brokerId         String?
   receivedAt       DateTime
+  /// User-supplied calendar date for manually recorded correspondence.
+  receivedOn       DateTime? @db.Date
   channel          RequestChannel @default(EMAIL)
 
   fromAddress String?
@@ -1193,7 +1198,14 @@ model BrokerResponse {
   classifiedBy             ActorType                    @default(SYSTEM)
   requiresUserAction       Boolean                      @default(false)
   confirmedAt              DateTime?
+  confirmedById            String?
+  classificationRevision   Int @default(0)
+  appliedStatus            RequestStatus?
+  suggestedClassification  BrokerResponseClassification @default(UNCLEAR)
   providerEventId          String? @unique
+  submissionKey            String? @unique
+  /// Versioned encrypted original provider/legacy metadata, never rendered as HTML.
+  metadataEnc              String?
 
   evidenceFileId String?
   rawMetadata    Json    @default("{}")
@@ -1203,11 +1215,26 @@ model BrokerResponse {
   deletedAt   DateTime?
   createdById String?
 
-  removalRequest RemovalRequest @relation(fields: [removalRequestId], references: [id], onDelete: Cascade)
-  broker         Broker         @relation(fields: [brokerId], references: [id])
+  user           User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  removalRequest RemovalRequest? @relation(fields: [removalRequestId], references: [id], onDelete: Cascade)
+  broker         Broker?         @relation(fields: [brokerId], references: [id])
+  webhookEvents  EmailWebhookEvent[]
 
   @@index([removalRequestId, receivedAt])
   @@index([classification])
+  @@index([userId, createdAt, id])
+}
+
+/// Random reply addresses belong to one account; message references never identify an owner.
+model InboundMailbox {
+  id String @id @default(cuid())
+  userId String
+  domain String
+  addressEnc String
+  addressBi String @unique
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([userId, domain])
 }
 
 // ---------------------------------------------------------------------------
@@ -1525,6 +1552,7 @@ model EmailWebhookEvent {
   /// Provider event id, used for idempotent ingestion.
   eventId   String @unique
   eventType String
+  providerMessageId String?
 
   /// Empty for encrypted events; legacy values are migrated and cleared.
   payloadJson       Json @default("{}")
@@ -1536,15 +1564,19 @@ model EmailWebhookEvent {
   processedAt     DateTime?
   processingError String?
   outboundEmailId String?
+  brokerResponseId String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   outboundEmail OutboundEmail? @relation(fields: [outboundEmailId], references: [id], onDelete: SetNull)
+  brokerResponse BrokerResponse? @relation(fields: [brokerResponseId], references: [id], onDelete: Cascade)
 
   @@index([processedAt])
   @@index([eventType, receivedAt])
   @@index([ownerUserId])
+  @@index([brokerResponseId])
+  @@index([providerMessageId, processedAt])
 }
 
 // ---------------------------------------------------------------------------

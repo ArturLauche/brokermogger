@@ -51,6 +51,9 @@ export const AUDIT_ACTIONS = [
   "request.manual_review_flagged",
   "request.manual_review_resolved",
   "broker_response.recorded",
+  "broker_response.confirmed",
+  "broker_response.matched",
+  "broker_response.deleted",
 
   // Evidence and reports
   "evidence.uploaded",

@@ -11,7 +11,6 @@ import type {
   RequestType,
 } from "@prisma/client";
 import {
-  currentSendingIdentity,
   sealApprovalEnvelope,
   profileIdentityDigest,
   identifierDigest,
@@ -26,6 +25,7 @@ import { recordAuditOrThrow } from "@/lib/audit/service";
 import { encryptSnapshotText, readSnapshotText } from "@/lib/requests/snapshot";
 import { assertTransition, type TransitionActor } from "@/lib/requests/stateMachine";
 import { canonicalJson, chainHash, sha256Hex } from "@/lib/security/crypto";
+import { sendingIdentityInTx } from "./inboundMailboxes";
 
 export const DEFAULT_LIST_LIMIT = 100;
 export const MAX_LIST_LIMIT = 200;
@@ -45,7 +45,20 @@ export async function getOwnedRequest(actor: ActorContext, requestId: string) {
       events: { orderBy: { createdAt: "asc" } },
       legalRuleVersion: true,
       templateVersion: true,
-      responses: { where: { deletedAt: null }, orderBy: { receivedAt: "asc" } },
+      responses: {
+        where: { deletedAt: null },
+        orderBy: { receivedAt: "desc" },
+        take: 25,
+        select: {
+          id: true,
+          receivedAt: true,
+          receivedOn: true,
+          classification: true,
+          confirmedAt: true,
+          deletedAt: true,
+        },
+      },
+      _count: { select: { responses: { where: { deletedAt: null } } } },
       manualSubmissions: { orderBy: { createdAt: "desc" } },
       outboundEmails: {
         where: { dispatchState: { in: ["AMBIGUOUS", "RECONCILIATION_REQUIRED"] } },
@@ -402,7 +415,7 @@ export async function insertSnapshot(
     channel: request.channel,
     destinationType: request.destinationType,
     destination: request.destinationValue,
-    ...currentSendingIdentity(),
+    ...(await sendingIdentityInTx(tx, request.userId, true)),
     identifierIds: [...request.includedIdentifierIds].sort(),
     identifierDigest: input.identifierDigest,
     profileDigest: profileIdentityDigest(request.profile),

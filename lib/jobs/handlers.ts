@@ -97,7 +97,7 @@ export function createJobHandlers(): JobHandlerRegistry {
     },
 
     async PROCESS_EMAIL_WEBHOOK(job): Promise<JobResult> {
-      const result = await processStoredEmailWebhook(job.payload.webhookEventId);
+      const result = await processStoredEmailWebhook(job.payload.webhookEventId, job);
       const leftover = await listUnprocessedWebhookEvents(1);
       const next = leftover[0];
       if (next && next.id !== job.payload.webhookEventId) {
@@ -105,6 +105,7 @@ export function createJobHandlers(): JobHandlerRegistry {
           type: "PROCESS_EMAIL_WEBHOOK",
           payload: { webhookEventId: next.id },
           idempotencyKey: `webhook:${next.id}`,
+          maxAttempts: 12,
         });
       }
       return result;

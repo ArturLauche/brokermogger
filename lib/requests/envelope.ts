@@ -47,11 +47,11 @@ const envelopeSchema = z.object({
 });
 export type ApprovalEnvelope = z.infer<typeof envelopeSchema>;
 
-export function currentSendingIdentity() {
+export function currentSendingIdentity(replyTo?: string) {
   return {
     fromAddress: sanitiseHeaderValue(env.EMAIL_FROM, "fromAddress", 320),
     replyTo: assertValidEmailAddress(
-      env.EMAIL_REPLY_TO ?? parseAddress(env.EMAIL_FROM).address,
+      replyTo ?? env.EMAIL_REPLY_TO ?? parseAddress(env.EMAIL_FROM).address,
       "replyTo"
     ),
   };
@@ -155,11 +155,12 @@ export function assertEnvelopeMatchesRequest(
     followUpCount: number;
   },
   identifiers: readonly { id: string; valueBi: string }[],
-  profile: ProfileIdentity
+  profile: ProfileIdentity,
+  sendingIdentity = currentSendingIdentity()
 ) {
   const current: ApprovalEnvelope = {
     ...envelope,
-    ...currentSendingIdentity(),
+    ...sendingIdentity,
     requestId: request.id,
     profileId: request.profileId,
     brokerId: request.brokerId,

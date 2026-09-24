@@ -1,6 +1,7 @@
 import { recordAudit } from "@/lib/audit/service";
 import { getOwnedRequest } from "@/lib/db/repositories/requests";
 import { reopenRequestDraft } from "@/lib/db/repositories/requestEditing";
+import { confirmRequestCompletion } from "@/lib/db/repositories/responses";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
 
@@ -43,13 +44,7 @@ export async function markRequestCompleted(actor: ActorContext, requestId: strin
   requirePermission(actor, "request:update", { ownerUserId: actor.userId });
   const request = await getOwnedRequest(actor, requestId);
   requirePermission(actor, "request:update", { ownerUserId: request.userId });
-  await transition(
-    actor,
-    request.id,
-    request.status,
-    "COMPLETED",
-    "The account holder marked this request completed."
-  );
+  await confirmRequestCompletion(actor, request.id);
   await recordAudit({
     actor,
     action: "request.status_changed",

@@ -69,3 +69,16 @@ Editing matching details now withdraws affected queued approvals. Regenerate the
 letter to use the new fields, review it and approve the new immutable snapshot.
 Messages already accepted by a provider cannot be recalled. Started or ambiguous
 attempts remain in reconciliation instead of being silently retried.
+
+## Correspondence upgrade
+
+The correspondence migration assigns legacy replies to their request owner and
+adds private receiving aliases, confirmation revisions and delivery-event links.
+Run the private-payload backfill again: it encrypts legacy sender/preview/metadata
+fields, verifies their replacements and minimises old delivery callbacks. A
+preview is preserved as a preview, never represented as a complete reply.
+
+Optional receiving configuration changes the reply address in newly generated
+snapshots. Existing approvals must be regenerated and approved again before they
+can use that address. Keep the original receiving domain available for replies to
+historical messages. See [correspondence setup and recovery](correspondence.md).

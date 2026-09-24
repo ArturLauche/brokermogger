@@ -53,8 +53,9 @@ requirements, maintenance and rollback boundaries in the upgrade guide.
 ## Verification log
 
 New validation results are recorded here as the corresponding work is completed.
-Baseline screenshots are retained outside the source tree until the final visual
-comparison is captured. This checklist is a work log, not a claim that unchecked
+The original audit screenshots were lost when the temporary environment reset.
+Recreate the baseline from the base commit in an isolated checkout for the final
+visual comparison. This checklist is a work log, not a claim that unchecked
 features are implemented.
 
 ### Foundation pass
@@ -192,3 +193,39 @@ verification, and production key/build checks against the compiled app.
   accompany the response workflow; it has not yet been run.
 - Fixed an existing parallel-test race: mock-email tests now remove only their own
   files instead of deleting the shared mail directory while other tests write it.
+
+### Correspondence and receiving
+
+- Added manual response recording, a paginated correspondence inbox, private
+  plain-text review, explicit classification/status confirmation, unmatched-reply
+  assignment and content erasure. A saved reply never changes status automatically.
+  Concurrent saves and confirmations are idempotent; stale reviews are rejected.
+  Applying a confirmed outcome cancels pending sends and follow-ups atomically.
+- Added optional signed Resend receiving with per-account random reply aliases
+  sealed in the approval envelope. Full content is retrieved separately through
+  a fixed, bounded provider endpoint. Only a unique full reference within the
+  recipient's account matches a request. Missing/ambiguous references and permanent
+  retrieval failures remain visible for manual review. No remote HTML, images or
+  attachments execute or download in the interface.
+- Encrypted response content and private receiving metadata; extended erasure to
+  unmatched correspondence and aliases. The resumable backfill preserves legacy
+  sender/preview/metadata, verifies encryption and labels previews incomplete.
+  Delivery callbacks retain only required receipt fields, including after upgrade.
+- Delivery updates now fence the worker lease and commit the ledger, lifecycle
+  history and processed marker together. Late callbacks preserve newer drafts;
+  deliveries cannot reverse a bounce or complaint. Unmatched receipt recovery and
+  retention are explicit. Exhausted requested retries become recoverable failed
+  jobs instead of unclaimable retryable rows.
+- Nine migrations applied to both isolated integration and browser schemas.
+  Typecheck, lint, formatting, environment consistency and production compilation
+  passed. All 346 unit/component and 120 integration tests passed; the final
+  receiving/receipt recheck passed another 12 tests after boundary refinements.
+- Chromium passed the complete manual journey: magic-link sign-in, onboarding,
+  draft generation/editing, approval, text download, submission recording, hidden
+  reply review and explicit completion. The two authentication/household browser
+  journeys also passed against the production build with strict staging CSP and
+  simulated delivery. This validates functionality; the known CSP style issues and
+  full visual/accessibility review remain in the production/UI acceptance work.
+- See `docs/correspondence.md` for receiving setup, limits, matching, erasure and
+  recovery. Notifications/preferences, reports/exports, operator tools, sourced
+  coverage/deadlines, interface polish, production work and final PR remain pending.

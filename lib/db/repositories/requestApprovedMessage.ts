@@ -5,6 +5,7 @@ import {
   readApprovalEnvelope,
 } from "@/lib/requests/envelope";
 import { readSnapshotText } from "@/lib/requests/snapshot";
+import { sendingIdentityInTx } from "./inboundMailboxes";
 import {
   assertCurrentProfileConsent,
   type loadRequestForDecision,
@@ -41,7 +42,13 @@ export async function readApprovedMessageInTx(
     },
     select: { id: true, valueBi: true },
   });
-  assertEnvelopeMatchesRequest(envelope, request, identifiers, request.profile);
+  assertEnvelopeMatchesRequest(
+    envelope,
+    request,
+    identifiers,
+    request.profile,
+    await sendingIdentityInTx(tx, request.userId)
+  );
   const household = assertCurrentProfileConsent(request.profile);
   const proof = await tx.consentRecord.findFirst({
     where: {

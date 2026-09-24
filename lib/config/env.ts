@@ -51,6 +51,13 @@ const rawSchema = z.object({
   EMAIL_REPLY_TO: z.email().optional(),
   RESEND_API_KEY: z.string().optional(),
   RESEND_WEBHOOK_SECRET: z.string().optional(),
+  RESEND_RECEIVING_DOMAIN: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .max(253)
+    .regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/)
+    .optional(),
   EMAIL_SANDBOX_REDIRECT_TO: z.email().optional().or(z.literal("")),
   MOCK_EMAIL_DIR: z.string().default(".mail"),
   ALLOW_EXTERNAL_SENDING: booleanFromString.default(false),
@@ -161,6 +168,15 @@ function isExampleKey(key: Buffer): boolean {
 
 function crossFieldChecks(parsed: RawEnv): string[] {
   const problems: string[] = [];
+
+  if (
+    parsed.RESEND_RECEIVING_DOMAIN &&
+    (!parsed.RESEND_API_KEY || !parsed.RESEND_WEBHOOK_SECRET)
+  ) {
+    problems.push(
+      "RESEND_RECEIVING_DOMAIN requires RESEND_API_KEY and RESEND_WEBHOOK_SECRET for authenticated content retrieval."
+    );
+  }
 
   if (parsed.EMAIL_PROVIDER === "resend") {
     if (!parsed.RESEND_API_KEY) {

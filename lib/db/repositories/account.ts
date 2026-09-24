@@ -166,7 +166,8 @@ export async function anonymiseDeletedAccount(
     await tx.manualSubmission.deleteMany({ where: { removalRequest: { userId } } });
     await tx.requestSnapshot.deleteMany({ where: { removalRequest: { userId } } });
     await tx.removalRequestEvent.deleteMany({ where: { removalRequest: { userId } } });
-    await tx.brokerResponse.deleteMany({ where: { removalRequest: { userId } } });
+    await tx.brokerResponse.deleteMany({ where: { userId } });
+    await tx.inboundMailbox.deleteMany({ where: { userId } });
     await tx.emailWebhookEvent.deleteMany({
       where: { OR: [{ ownerUserId: userId }, { outboundEmail: { userId } }] },
     });

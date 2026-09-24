@@ -26,7 +26,7 @@ export interface TransitionRule {
  * Terminal states: CLOSED. FAILED and REJECTED can still be closed or retried
  * through an explicit user action.
  */
-export const TRANSITIONS: Readonly<Record<RequestStatus, readonly TransitionRule[]>> = {
+const BASE_TRANSITIONS: Readonly<Record<RequestStatus, readonly TransitionRule[]>> = {
   DRAFT: [
     { to: "PREPARED", actors: ["USER", "SYSTEM"], description: "Draft rendered" },
     {
@@ -317,6 +317,57 @@ export const TRANSITIONS: Readonly<Record<RequestStatus, readonly TransitionRule
   ],
   CLOSED: [],
 };
+
+// A reply to an earlier submitted message can arrive while its follow-up is
+// drafted or queued. The response repository additionally requires submission
+// history, explicit owner confirmation and the status the owner actually saw.
+const RESPONSE_STATES: readonly RequestStatus[] = [
+  "SENT",
+  "DELIVERED",
+  "WAITING_FOR_BROKER",
+  "BROKER_REQUESTED_VERIFICATION",
+  "NEEDS_USER_ACTION",
+  "FOLLOW_UP_SCHEDULED",
+  "FOLLOW_UP_SENT",
+  "NO_RESPONSE",
+  "ESCALATION_RECOMMENDED",
+  "PARTIALLY_COMPLETED",
+  "REJECTED",
+  "COMPLETED",
+  "AWAITING_USER_APPROVAL",
+  "MANUAL_REVIEW_REQUIRED",
+  "APPROVED",
+];
+const RESPONSE_OUTCOMES: readonly RequestStatus[] = [
+  "COMPLETED",
+  "PARTIALLY_COMPLETED",
+  "REJECTED",
+  "BROKER_REQUESTED_VERIFICATION",
+];
+function withConfirmedResponseTransitions() {
+  const transitions = { ...BASE_TRANSITIONS };
+  for (const from of RESPONSE_STATES) {
+    const rules = [...transitions[from]];
+    for (const to of RESPONSE_OUTCOMES) {
+      if (to === from) continue;
+      const previous = rules.findIndex((rule) => rule.to === to);
+      if (previous === -1)
+        rules.push({
+          to,
+          actors: ["USER"],
+          description: "Broker outcome confirmed by the account holder",
+        });
+      else if (!rules[previous]!.actors.includes("USER"))
+        rules[previous] = {
+          ...rules[previous]!,
+          actors: [...rules[previous]!.actors, "USER"],
+        };
+    }
+    transitions[from] = rules;
+  }
+  return transitions;
+}
+export const TRANSITIONS = withConfirmedResponseTransitions();
 
 export const TERMINAL_STATUSES: readonly RequestStatus[] = ["CLOSED"];
 

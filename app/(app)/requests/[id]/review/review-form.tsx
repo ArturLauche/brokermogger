@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useFormStatus } from "react-dom";
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -11,9 +12,11 @@ import { approveRequestAction } from "../../actions";
 export function ReviewApprovalForm({
   requestId,
   envelopeHash,
+  manual,
 }: {
   requestId: string;
   envelopeHash: string;
+  manual: boolean;
 }) {
   const [checked, setChecked] = useState(false);
   const hintId = "approval-checkbox-hint";
@@ -40,9 +43,28 @@ export function ReviewApprovalForm({
       <p id={hintId} className="text-sm text-muted-foreground">
         The approve button stays disabled until this confirmation is checked.
       </p>
-      <Button type="submit" disabled={!checked} aria-describedby={hintId}>
-        Approve and queue for sending
-      </Button>
+      <ApprovalButton checked={checked} manual={manual} hintId={hintId} />
     </form>
+  );
+}
+
+function ApprovalButton({
+  checked,
+  manual,
+  hintId,
+}: {
+  checked: boolean;
+  manual: boolean;
+  hintId: string;
+}) {
+  const { pending } = useFormStatus();
+  return (
+    <Button type="submit" disabled={!checked || pending} aria-describedby={hintId}>
+      {pending
+        ? "Approving…"
+        : manual
+          ? "Approve for manual submission"
+          : "Approve and queue for sending"}
+    </Button>
   );
 }

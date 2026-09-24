@@ -11,6 +11,7 @@ import type {
 import { readApprovedMessageInTx } from "./requestApprovedMessage";
 import { loadRequestForDecision } from "./requestDecision";
 import { appendRequestEventInTx, applyRequestStatusInTx } from "./requests";
+import { requeueUnmatchedDeliveryInTx } from "./deliveryEvents";
 
 export async function getApprovedManualMessage(actor: ActorContext, requestId: string) {
   return prisma.$transaction(async (tx) => {
@@ -253,6 +254,8 @@ export async function persistDeliveryReconciliation(
       });
     const isCurrent =
       ledger.snapshotId !== null && ledger.snapshotId === request.currentSnapshotId;
+    if (accepted && input.providerMessageId)
+      await requeueUnmatchedDeliveryInTx(tx, request.userId, input.providerMessageId);
     if (isCurrent && request.status === "APPROVED")
       await applyRequestStatusInTx(tx, {
         requestId: request.id,

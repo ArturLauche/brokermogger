@@ -3,5 +3,5 @@ export { generateRequests, type GenerateInput } from "./generation";
 export { approveRequest } from "./approval";
 export { sendApprovedRequest } from "./dispatch";
 export { returnRequestToDraft, closeRequest, markRequestCompleted } from "./actions";
-export { markNoResponse, applyDeliveryOutcome } from "./responses";
+export { markNoResponse } from "./responses";
 export { prepareFollowUp, prepareFollowUpDraft } from "./followUp";

@@ -21,6 +21,26 @@ async function queued(key = "lease-test") {
 }
 
 describe("fenced job leases", () => {
+  it("marks an exhausted requested retry failed so an operator can recover it", async () => {
+    await insertJob({
+      type: "RETENTION_SWEEP",
+      payload: { dryRun: true },
+      idempotencyKey: "exhausted",
+      maxAttempts: 1,
+    });
+    const [job] = await claimDueJobs("worker", 1);
+    await runClaimedJob(job!, {
+      RETENTION_SWEEP: async () => ({
+        message: "Waiting for a receipt.",
+        retryAfterSeconds: 60,
+      }),
+    });
+    expect(
+      await testPrisma.backgroundJob.findUniqueOrThrow({ where: { id: job!.id } })
+    ).toMatchObject({ status: "FAILED", attemptCount: 1, leaseToken: null });
+    await retryJobRow(job!.id);
+    expect((await claimDueJobs("recovered", 1))[0]?.id).toBe(job!.id);
+  });
   it("gives concurrent workers distinct jobs", async () => {
     await queued("one");
     await queued("two");

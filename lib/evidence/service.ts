@@ -11,6 +11,7 @@ import {
   getOwnedEvidence,
   listOwnedEvidence,
   markEvidenceAccessed,
+  hasPendingVerification,
 } from "@/lib/db/repositories/evidence";
 import { getOwnedRequest } from "@/lib/db/repositories/requests";
 import type { ActorContext } from "@/lib/permissions/actor";
@@ -47,13 +48,7 @@ export async function uploadEvidence(
     profileId = request.profileId;
     if (
       input.kind === "IDENTITY_DOCUMENT" &&
-      (request.status !== "BROKER_REQUESTED_VERIFICATION" ||
-        !request.responses.some(
-          (response) =>
-            response.classification === "VERIFICATION_REQUESTED" &&
-            response.confirmedAt &&
-            !response.deletedAt
-        ))
+      !(await hasPendingVerification(actor, request.id))
     ) {
       throw new ValidationError(
         "Identity documents are only accepted when a request actually asked for identity proof."
