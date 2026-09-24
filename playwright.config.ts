@@ -1,10 +1,12 @@
 import { defineConfig, devices } from "@playwright/test";
+import { resolve } from "node:path";
 import { config as loadDotenv } from "dotenv";
 
 loadDotenv({ path: ".env", quiet: true });
 
 const baseURL = process.env.E2E_BASE_URL ?? "http://127.0.0.1:3000";
 const isCI = Boolean(process.env.CI);
+process.env.MOCK_EMAIL_DIR ??= resolve(".tmp/e2e-mail");
 
 export default defineConfig({
   testDir: "./e2e",
@@ -46,6 +48,7 @@ export default defineConfig({
           timeout: 180_000,
           env: {
             EMAIL_PROVIDER: "mock",
+            MOCK_EMAIL_DIR: process.env.MOCK_EMAIL_DIR,
             ALLOW_EXTERNAL_SENDING: "false",
             APP_ENV: process.env.APP_ENV ?? "development",
             PORT: "3000",

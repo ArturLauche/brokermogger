@@ -162,3 +162,15 @@ verification, and production key/build checks against the compiled app.
 - Browser workflow validation, responsive/visual polish and the remaining response,
   manual submission, notifications, reports, exports and operator tools are still
   pending. This checkpoint does not mark the overall plan complete.
+
+### Authentication browser regression
+
+- A production browser run exposed an Auth.js callback that used the internal
+  `localhost` host rather than the configured application URL. Redirects now use
+  the canonical instance origin and reject off-instance targets.
+- Actual magic-link sign-in, resumable onboarding, profile and identifier edits,
+  timezone validation, session-clearing sign-out, and public household permission
+  acceptance/withdrawal passed in Chromium against the production build. Mock
+  delivery and a separate database schema kept all test activity local.
+- The redirect fix passed typecheck, lint, formatting, ten authentication unit
+  tests and production compilation. Two workflow browser tests passed.

@@ -32,6 +32,7 @@ import {
   sessionCookieOptions,
   secureCookiesEnabled,
 } from "./cookies";
+import { authRedirect } from "./redirect";
 import { sendMagicLinkVerificationRequest } from "./magicLink";
 import { buildUserActor, readRequestContext } from "./requestContext";
 
@@ -118,6 +119,9 @@ export const authConfig: NextAuthConfig = {
     error: "/login/error",
   },
   callbacks: {
+    async redirect({ url }) {
+      return authRedirect(url, env.APP_BASE_URL);
+    },
     /**
      * The only gate that can stop a sign in. Returning false makes Auth.js
      * redirect to `/login/error?error=AccessDenied`.
