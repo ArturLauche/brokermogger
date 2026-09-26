@@ -1,3 +1,4 @@
+import { createNotificationInTx } from "./notifications";
 import { AppError } from "@/lib/core/errors";
 import { prisma } from "@/lib/db/client";
 import { parseJobPayload } from "@/lib/jobs/payloads";
@@ -126,21 +127,16 @@ export async function commitFollowUpDraft(
         "The follow-up draft is ready for review. Nothing will be sent without fresh approval.",
     });
     const dedupeKey = `follow-up-approval:${request.id}:${input.followUpNumber}`;
-    await tx.notification.upsert({
-      where: { userId_dedupeKey: { userId: request.userId, dedupeKey } },
-      update: {},
-      create: {
-        userId: request.userId,
-        profileId: request.profileId,
-        removalRequestId: request.id,
-        type: "APPROVAL_NEEDED",
-        channel: "IN_APP",
-        severity: "ACTION_REQUIRED",
-        title: "Follow-up ready to review",
-        body: "A follow-up draft is waiting for your review and approval.",
-        actionUrl: `/requests/${request.id}/review`,
-        dedupeKey,
-      },
+    await createNotificationInTx(tx, {
+      userId: request.userId,
+      profileId: request.profileId,
+      removalRequestId: request.id,
+      type: "APPROVAL_NEEDED",
+      severity: "ACTION_REQUIRED",
+      title: "Follow-up ready to review",
+      body: "A follow-up draft is waiting for your review and approval.",
+      actionUrl: `/requests/${request.id}/review`,
+      dedupeKey,
     });
     return { created: true };
   });

@@ -229,3 +229,24 @@ verification, and production key/build checks against the compiled app.
 - See `docs/correspondence.md` for receiving setup, limits, matching, erasure and
   recovery. Notifications/preferences, reports/exports, operator tools, sourced
   coverage/deadlines, interface polish, production work and final PR remain pending.
+
+### Notification inbox and preferences
+
+- Added an ownership-scoped inbox with stable pagination, unread/all/dismissed
+  filters, read/unread, dismiss/restore and safe contextual links. Email remains
+  off by default and requires a verified account holder's explicit opt-in.
+- New notifications and their optional email jobs commit atomically. Generic
+  reminders carry no broker names, profile details or reply content. Dispatch
+  checks the current consent identifier, account state, unread state and worker
+  lease. Opt-out, reading and dismissal cancel pending work; opting back in never
+  revives older emails. In-flight cancellation remains honestly unconfirmed.
+- Migrated legacy unsent notifications to in-app updates and cancelled their
+  unproven email jobs. Fixed the deadline-warning query so in-app-only warnings
+  do not repeatedly occupy the first batch. See `docs/notifications.md`.
+- Ten migrations applied to integration and browser schemas. Typecheck, lint,
+  formatting and production compilation passed. All 346 unit/component tests,
+  50 relevant integration tests and all three Chromium workflow journeys passed.
+  Browser coverage includes opt-in/out, household-triggered notifications,
+  read/dismiss/restore, sign-out and manual correspondence. Delivery stayed local.
+- Reports/exports and the remaining approved scope are still in progress; no PR
+  has been opened yet.

@@ -9,7 +9,6 @@ import { mapPool } from "@/lib/async/pool";
 import { getSetting } from "@/lib/config/runtimeSettings";
 import {
   anonymiseDeletedAccount,
-  findAccountEmailById,
   listAccountFilesForErasure,
   finishAccountErasure,
 } from "@/lib/db/repositories/account";
@@ -18,12 +17,8 @@ import {
   listRetentionDueEvidence,
   listUnfinishedFilePurges,
 } from "@/lib/db/repositories/evidence";
-import {
-  getNotification,
-  markNotificationEmailed,
-} from "@/lib/db/repositories/notifications";
 import { listUnprocessedWebhookEvents } from "@/lib/db/repositories/outboundEmail";
-import { getEmailProvider } from "@/lib/email";
+import { dispatchNotificationEmail } from "@/lib/notifications/service";
 import { monthsAgo } from "@/lib/jobs/datetime";
 import { runDeadlineWatch, runRecheckReminder } from "@/lib/jobs/deadlineWatch";
 import { processStoredEmailWebhook } from "@/lib/jobs/emailWebhook";
@@ -70,30 +65,7 @@ export function createJobHandlers(): JobHandlerRegistry {
     },
 
     async DISPATCH_NOTIFICATION(job): Promise<JobResult> {
-      const notification = await getNotification(job.payload.notificationId);
-      if (!notification) {
-        return { message: "Notification no longer exists." };
-      }
-      if (notification.emailedAt) {
-        return { message: "Notification email already sent." };
-      }
-      if (notification.channel !== "EMAIL") {
-        return { message: "In-app notification only." };
-      }
-
-      const email = await findAccountEmailById(notification.userId);
-      if (!email) {
-        return { message: "Account has no email address." };
-      }
-
-      await getEmailProvider().sendNotificationEmail({
-        to: { address: email },
-        subject: notification.title,
-        text: notification.body,
-        notificationId: notification.id,
-      });
-      await markNotificationEmailed(notification.id);
-      return { message: "Notification email sent." };
+      return dispatchNotificationEmail(job);
     },
 
     async PROCESS_EMAIL_WEBHOOK(job): Promise<JobResult> {

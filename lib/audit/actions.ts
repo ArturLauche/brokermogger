@@ -15,6 +15,7 @@ export const AUDIT_ACTIONS = [
   "auth.session.revoked",
   "account.created",
   "account.updated",
+  "account.notification_preferences_updated",
   "account.deletion_requested",
   "account.deletion_completed",
   "account.export_requested",

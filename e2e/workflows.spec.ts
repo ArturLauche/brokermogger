@@ -56,6 +56,18 @@ test.describe("profile and household workflows", () => {
     const email = `household-${randomUUID()}@example.org`;
     const invitedEmail = `adult-${randomUUID()}@example.org`;
     await signIn(page, email);
+    await page.goto("/notifications");
+    const preference = page.getByLabel(
+      "Email me when a new notification needs my attention"
+    );
+    await expect(preference).not.toBeChecked();
+    await preference.check();
+    await page.getByRole("button", { name: "Save notification preferences" }).click();
+    await expect(
+      page.getByText("Email reminders are on for new notifications.", { exact: true })
+    ).toBeVisible();
+    await page.reload();
+    await expect(preference).toBeChecked();
     await page.goto("/household");
     await fillProfile(page, invitedEmail, "Morgan Browser");
     await page.getByLabel(/I confirm this person is an adult/).check();
@@ -79,6 +91,32 @@ test.describe("profile and household workflows", () => {
       ).toBeVisible();
       await page.reload();
       await expect(page.getByText("Permission granted", { exact: true })).toBeVisible();
+      await page.goto("/notifications");
+      await expect(
+        page.getByRole("heading", { name: "Household invitation accepted" })
+      ).toBeVisible();
+      await page.getByRole("button", { name: "Mark read", exact: true }).click();
+      await expect(
+        page.getByRole("heading", { name: "You have no unread notifications" })
+      ).toBeVisible();
+      await page.getByLabel("Show", { exact: true }).selectOption("all");
+      await page.getByRole("button", { name: "Apply filter" }).click();
+      await page.getByRole("button", { name: "Dismiss", exact: true }).click();
+      await page.getByLabel("Show", { exact: true }).selectOption("dismissed");
+      await page.getByRole("button", { name: "Apply filter" }).click();
+      await page.getByRole("button", { name: "Restore", exact: true }).click();
+      await expect(
+        page.getByRole("heading", { name: "No notifications in this view" })
+      ).toBeVisible();
+      await preference.uncheck();
+      await page.getByRole("button", { name: "Save notification preferences" }).click();
+      await expect(
+        page.getByText(
+          "Email reminders are off. Your in-app notifications remain available.",
+          { exact: true }
+        )
+      ).toBeVisible();
+      await page.goto("/household");
       await adult.getByRole("button", { name: "Withdraw my permission" }).click();
       await expect(
         adult.getByRole("heading", { name: "Permission withdrawn" })

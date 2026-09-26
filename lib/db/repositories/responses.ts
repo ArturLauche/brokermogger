@@ -1,3 +1,4 @@
+import { createNotificationInTx } from "./notifications";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { type RequestStatus } from "@prisma/client";
@@ -50,22 +51,17 @@ export async function notifyResponseInTx(
   }
 ) {
   const dedupeKey = `broker-response:${input.id}`;
-  await tx.notification.upsert({
-    where: { userId_dedupeKey: { userId: input.userId, dedupeKey } },
-    create: {
-      userId: input.userId,
-      profileId: input.profileId,
-      removalRequestId: input.removalRequestId,
-      type: "BROKER_RESPONSE_RECEIVED",
-      channel: "IN_APP",
-      title: "Correspondence to review",
-      body: input.removalRequestId
-        ? "A reply is ready for your review. Confirm its meaning before changing the request status."
-        : "A message reached your private reply address. Choose its request after reviewing the message.",
-      actionUrl: `/responses/${input.id}`,
-      dedupeKey,
-    },
-    update: {},
+  await createNotificationInTx(tx, {
+    userId: input.userId,
+    profileId: input.profileId,
+    removalRequestId: input.removalRequestId,
+    type: "BROKER_RESPONSE_RECEIVED",
+    title: "Correspondence to review",
+    body: input.removalRequestId
+      ? "A reply is ready for your review. Confirm its meaning before changing the request status."
+      : "A message reached your private reply address. Choose its request after reviewing the message.",
+    actionUrl: `/responses/${input.id}`,
+    dedupeKey,
   });
 }
 

@@ -1,3 +1,4 @@
+import { createNotificationInTx } from "./notifications";
 import type { PrismaTransaction } from "@/lib/db/client";
 import { prisma } from "@/lib/db/client";
 import { evaluateBrokerSendable } from "@/lib/brokers/sendable";
@@ -288,33 +289,23 @@ export async function finishApprovedDispatch(
             ? "Awaiting a broker reply. Acceptance does not guarantee delivery or removal."
             : "The provider suppressed delivery.",
       });
-      await tx.notification.upsert({
-        where: {
-          userId_dedupeKey: {
-            userId: request.userId,
-            dedupeKey: `request-sent:${input.ledgerId}`,
-          },
-        },
-        create: {
-          userId: request.userId,
-          profileId: request.profileId,
-          removalRequestId: request.id,
-          type: "REQUEST_SENT",
-          channel: "IN_APP",
-          title: simulated
-            ? "Dispatch simulated"
-            : sent
-              ? "Request sent"
-              : "Request not sent",
-          body: simulated
-            ? "Your approved request was captured locally. Nothing left the instance."
-            : sent
-              ? "The provider accepted your approved message. Delivery will be tracked separately."
-              : "Check the request for the next step.",
-          actionUrl: `/requests/${request.id}`,
-          dedupeKey: `request-sent:${input.ledgerId}`,
-        },
-        update: {},
+      await createNotificationInTx(tx, {
+        userId: request.userId,
+        profileId: request.profileId,
+        removalRequestId: request.id,
+        type: "REQUEST_SENT",
+        title: simulated
+          ? "Dispatch simulated"
+          : sent
+            ? "Request sent"
+            : "Request not sent",
+        body: simulated
+          ? "Your approved request was captured locally. Nothing left the instance."
+          : sent
+            ? "The provider accepted your approved message. Delivery will be tracked separately."
+            : "Check the request for the next step.",
+        actionUrl: `/requests/${request.id}`,
+        dedupeKey: `request-sent:${input.ledgerId}`,
       });
     }
     return true;

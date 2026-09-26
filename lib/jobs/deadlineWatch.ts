@@ -64,27 +64,17 @@ export async function runDeadlineWatch(windowDays: number): Promise<JobResult> {
     if (warnings.length === 0) break;
     for (const request of warnings) {
       try {
-        const notification = await createNotification({
-          user: { connect: { id: request.userId } },
-          profile: { connect: { id: request.profileId } },
-          removalRequest: { connect: { id: request.id } },
+        await createNotification(actor, {
+          userId: request.userId,
+          profileId: request.profileId,
+          removalRequestId: request.id,
           type: "DEADLINE_APPROACHING",
-          channel: "EMAIL",
           severity: "WARNING",
           title: "Response date approaching",
           body: "A broker request is approaching the response date recorded for it. This is a reminder, not a guarantee that the broker will answer.",
           actionUrl: `/requests/${request.id}`,
           dedupeKey: `deadline-warning:${request.id}`,
         });
-        if (notification.emailedAt === null && notification.channel === "EMAIL") {
-          await enqueueJob({
-            type: "DISPATCH_NOTIFICATION",
-            payload: { notificationId: notification.id },
-            idempotencyKey: `notify:${notification.id}`,
-            relatedUserId: request.userId,
-            relatedRequestId: request.id,
-          });
-        }
         warned += 1;
       } catch (error) {
         log.warn(
@@ -168,25 +158,16 @@ export async function runRecheckReminder(removalRequestId: string): Promise<JobR
     };
   }
 
-  const notification = await createNotification({
-    user: { connect: { id: request.userId } },
-    profile: { connect: { id: request.profileId } },
-    removalRequest: { connect: { id: request.id } },
+  await createNotification(actor, {
+    userId: request.userId,
+    profileId: request.profileId,
+    removalRequestId: request.id,
     type: "RECHECK_RECOMMENDED",
-    channel: "EMAIL",
     severity: "ACTION_REQUIRED",
     title: "Recheck this broker listing",
     body: "The response date for this request has passed. Open the broker's own published page and check whether the listing is still there. This product does not scrape or log in on your behalf.",
     actionUrl: `/requests/${request.id}`,
     dedupeKey: `recheck:${request.id}`,
-  });
-
-  await enqueueJob({
-    type: "DISPATCH_NOTIFICATION",
-    payload: { notificationId: notification.id },
-    idempotencyKey: `notify:${notification.id}`,
-    relatedUserId: request.userId,
-    relatedRequestId: request.id,
   });
 
   await recordAudit({

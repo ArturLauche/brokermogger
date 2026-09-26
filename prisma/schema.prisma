@@ -1309,6 +1309,13 @@ model Notification {
   dismissedAt DateTime?
   emailedAt   DateTime?
 
+  /// Email is separately opted in; legacy or in-app notifications have no consent ID.
+  emailConsentId String?
+  emailDispatchState DispatchState?
+  emailDispatchStartedAt DateTime?
+  emailLeaseToken String?
+  emailProvider EmailProviderKind?
+
   /// Stable key to avoid duplicate notifications for the same trigger.
   dedupeKey String?
   metadata  Json    @default("{}")
@@ -1323,6 +1330,7 @@ model Notification {
   @@unique([userId, dedupeKey])
   @@index([userId, readAt])
   @@index([userId, createdAt])
+  @@index([userId, createdAt, id])
 }
 
 model Report {

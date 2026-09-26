@@ -82,3 +82,10 @@ Optional receiving configuration changes the reply address in newly generated
 snapshots. Existing approvals must be regenerated and approved again before they
 can use that address. Keep the original receiving domain available for replies to
 historical messages. See [correspondence setup and recovery](correspondence.md).
+
+## Notification preferences
+
+The notification migration cancels unsent legacy email jobs and retains those
+updates in the inbox. They have no proof of the new explicit email opt-in. Users
+can enable reminders for future notifications in `/notifications#preferences`.
+See [notification behavior and cancellation](notifications.md).

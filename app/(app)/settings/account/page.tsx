@@ -13,6 +13,7 @@ import {
 import { requireActorOrRedirect, getSessionUser } from "@/lib/auth";
 import { getOwnedAccount } from "@/lib/db/repositories/account";
 import { AccountForm } from "./account-form";
+import Link from "next/link";
 import { maskEmail } from "@/lib/security/masking";
 import { getDateFormatter } from "@/app/_lib/datetime";
 
@@ -52,6 +53,19 @@ export default async function AccountSettingsPage({
         initial={{ name: account.name ?? "", timezone: account.timezone }}
         maskedEmail={user ? maskEmail(user.email) : "—"}
       />
+
+      <section className="space-y-3 border-t pt-6">
+        <h2 className="text-lg font-semibold">Notifications</h2>
+        <p className="text-sm text-muted-foreground">
+          Review in-app updates and choose whether to receive optional email reminders.
+        </p>
+        <Link
+          className="inline-flex min-h-11 items-center text-sm underline underline-offset-4"
+          href="/notifications#preferences"
+        >
+          Manage notification preferences
+        </Link>
+      </section>
 
       <section className="flex flex-col gap-3">
         <h2 className="font-heading text-base font-medium">Sessions</h2>

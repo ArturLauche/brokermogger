@@ -755,6 +755,7 @@ export async function listOverdueWaitingRequests(now: Date, take = 50) {
   return prisma.removalRequest.findMany({
     where: {
       deletedAt: null,
+      user: { status: "ACTIVE", deletionRequestedAt: null },
       status: { in: WAITING_FOR_DEADLINE },
       deadlineAt: { lte: now },
     },
@@ -779,10 +780,11 @@ export async function listDeadlineWarningRequests(input: {
   return prisma.removalRequest.findMany({
     where: {
       deletedAt: null,
+      user: { status: "ACTIVE", deletionRequestedAt: null },
       status: { in: WAITING_FOR_DEADLINE },
       deadlineAt: { gt: input.now, lte: input.warningBefore },
       notifications: {
-        none: { type: "DEADLINE_APPROACHING", emailedAt: { not: null } },
+        none: { type: "DEADLINE_APPROACHING" },
       },
     },
     select: {

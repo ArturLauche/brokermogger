@@ -15,6 +15,7 @@ import {
   LayoutDashboardIcon,
   ListChecksIcon,
   InboxIcon,
+  BellIcon,
   LockIcon,
   PaperclipIcon,
   SendIcon,
@@ -29,6 +30,7 @@ export type AppRole = "USER" | "MAINTAINER" | "INSTANCE_ADMIN";
 
 export const NAV_ICONS = {
   correspondence: InboxIcon,
+  notifications: BellIcon,
   dashboard: LayoutDashboardIcon,
   onboarding: ListChecksIcon,
   vault: LockIcon,
@@ -116,6 +118,13 @@ export const APP_NAV_ITEMS: readonly NavItem[] = [
     icon: "correspondence",
     group: "workspace",
     description: "Broker replies and unmatched messages awaiting your review.",
+  },
+  {
+    href: "/notifications",
+    label: "Notifications",
+    icon: "notifications",
+    group: "workspace",
+    description: "Updates, reminders and email preferences.",
   },
   {
     href: "/evidence",

@@ -104,26 +104,6 @@ export async function markAccountDeletionRequested(actor: ActorContext) {
   });
 }
 
-/**
- * Worker notification dispatch: the email address only. Do not reuse
- * authentication-layer account summaries here.
- */
-export async function findAccountEmailById(userId: string): Promise<string | null> {
-  const row = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      id: true,
-      email: true,
-      emailEnc: true,
-      status: true,
-      deletionRequestedAt: true,
-    },
-  });
-  return row && row.status === "ACTIVE" && !row.deletionRequestedAt
-    ? readAccountEmail(row).email
-    : null;
-}
-
 export async function findAccountCreatedAt(userId: string): Promise<Date | null> {
   const row = await prisma.user.findUnique({
     where: { id: userId },

@@ -1,3 +1,4 @@
+import { createNotificationInTx } from "./notifications";
 import { randomUUID } from "node:crypto";
 import { AppError, NotFoundError } from "@/lib/core/errors";
 import { prisma, type PrismaTransaction } from "@/lib/db/client";
@@ -289,20 +290,16 @@ export async function decideInvitationRecord(input: HouseholdDecisionInput) {
       householdConsentId: consent.id,
       evidence: { profileDigest: scope.profileDigest, decision: input.decision },
     });
-    await tx.notification.create({
-      data: {
-        userId: consent.requestedByUserId,
-        profileId: consent.profileId,
-        type: "HOUSEHOLD_CONSENT_UPDATE",
-        title: accepted
-          ? "Household invitation accepted"
-          : "Household invitation declined",
-        body: accepted
-          ? "The adult confirmed permission. Review each request before sending."
-          : "No requests can be prepared or sent for this profile.",
-        actionUrl: "/household",
-        dedupeKey: `household-decision:${consent.id}`,
-      },
+    await createNotificationInTx(tx, {
+      userId: consent.requestedByUserId,
+      profileId: consent.profileId,
+      type: "HOUSEHOLD_CONSENT_UPDATE",
+      title: accepted ? "Household invitation accepted" : "Household invitation declined",
+      body: accepted
+        ? "The adult confirmed permission. Review each request before sending."
+        : "No requests can be prepared or sent for this profile.",
+      actionUrl: "/household",
+      dedupeKey: `household-decision:${consent.id}`,
     });
     return { status, consentId: consent.id };
   });

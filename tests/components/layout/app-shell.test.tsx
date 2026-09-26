@@ -66,6 +66,7 @@ describe("AppShell", () => {
       "/brokers",
       "/requests",
       "/responses",
+      "/notifications",
       "/evidence",
       "/reports",
       "/settings/account",

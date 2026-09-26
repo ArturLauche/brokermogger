@@ -130,7 +130,7 @@ describe("runDeadlineWatch", () => {
     expect(mocks.markNoResponse).not.toHaveBeenCalled();
   });
 
-  it("re-enqueues a deadline warning when the notification exists but was never emailed", async () => {
+  it("delegates notification and optional email scheduling to the preference-aware transaction", async () => {
     mocks.listDeadlineWarningRequests.mockResolvedValueOnce([
       {
         id: "req-3",
@@ -147,13 +147,15 @@ describe("runDeadlineWatch", () => {
 
     await runDeadlineWatch(14);
 
-    expect(mocks.enqueueJob).toHaveBeenCalledWith(
+    expect(mocks.createNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ isSystem: true }),
       expect.objectContaining({
-        type: "DISPATCH_NOTIFICATION",
-        payload: { notificationId: "n-existing" },
-        idempotencyKey: "notify:n-existing",
+        userId: "user-1",
+        removalRequestId: "req-3",
+        type: "DEADLINE_APPROACHING",
       })
     );
+    expect(mocks.enqueueJob).not.toHaveBeenCalled();
   });
 });
 
