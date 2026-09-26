@@ -62,6 +62,9 @@ export const AUDIT_ACTIONS = [
   "evidence.deleted",
   "evidence.purged",
   "report.generated",
+  "report.requested",
+  "report.retried",
+  "report.cancelled",
   "report.downloaded",
 
   // Admin and maintainer

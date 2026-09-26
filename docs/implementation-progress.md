@@ -250,3 +250,30 @@ verification, and production key/build checks against the compiled app.
   read/dismiss/restore, sign-out and manual correspondence. Delivery stayed local.
 - Reports/exports and the remaining approved scope are still in progress; no PR
   has been opened yet.
+
+### Complete, private reports
+
+- Report requests validate dates and actual profile ownership, deduplicate form
+  submission, and commit the report and queued job atomically. Calendar ranges
+  capture the account timezone and include the entire end day across daylight
+  saving changes. Historical files retain their original UTC interpretation.
+- Generation reads narrow pages of 250 without the previous 10,000-row cap.
+  Account and lease checks protect every page and final publication. Generated
+  files remain inaccessible until the report, file and notification commit.
+  Failed or cancelled uploads have durable cleanup; successful publication is
+  preserved even if its commit response is lost.
+- Added progress, automatic status refresh, filtering, stable pagination,
+  cancellation, retry, private JSON/PDF downloads and explicit error/loading/empty
+  states. Dates and entered fields survive validation failure. Reports distinguish
+  recorded manual/real provider contact from draft or simulated work.
+- Eleven migrations applied to integration and browser schemas. Typecheck, lint,
+  formatting, production compilation and 349 unit/component tests passed. Eight
+  new report integration tests passed, followed by 24 report/evidence/erasure/
+  notification regressions. Coverage includes atomic enqueue failure, concurrent
+  submissions, foreign privileged access, 10,002 requests, stale leases, storage
+  failure/retry and account/profile deletion during storage.
+- The production Chromium correspondence journey now includes a completed request,
+  invalid/valid report input, leased generation, private download and ready
+  notification. See `docs/reports.md` for semantics and recovery. In-memory final
+  rendering remains a documented performance measurement target, alongside the
+  rest of the approved implementation scope.

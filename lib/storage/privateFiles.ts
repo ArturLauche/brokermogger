@@ -25,13 +25,15 @@ export async function storePrivateFile(
     body: Buffer;
     expiresAt?: Date | null;
     identityConsentRecordId?: string | null;
+    /** Generated artifacts remain inaccessible until their fenced transaction publishes them. */
+    deferReady?: boolean;
   }
 ) {
   const id = randomUUID();
   const storage = getStorage();
   const key = `private/${input.userId}/${id}`;
   // Durable intent first: a crash at any later point remains visible to cleanup.
-  await createPrivateFileIntent(actor, {
+  const intent = await createPrivateFileIntent(actor, {
     id,
     userId: input.userId,
     profileId: input.profileId ?? null,
@@ -63,7 +65,7 @@ export async function storePrivateFile(
       contentType: "application/octet-stream",
       temporary: Boolean(input.expiresAt),
     });
-    return await markPrivateFileReady(id);
+    return input.deferReady ? intent : await markPrivateFileReady(id);
   } catch (error) {
     // If the database is unavailable the original UPLOADING intent still exists.
     await markPrivateFilePurgePending(id).catch(() => undefined);

@@ -89,3 +89,10 @@ The notification migration cancels unsent legacy email jobs and retains those
 updates in the inbox. They have no proof of the new explicit email opt-in. Users
 can enable reminders for future notifications in `/notifications#preferences`.
 See [notification behavior and cancellation](notifications.md).
+
+## Report generation
+
+The report migration adds inclusive calendar boundaries, a captured timezone,
+progress and fenced job/file publication. Historical files remain unchanged.
+Restart app and worker together after migration. See [report generation and
+recovery](reports.md) for date semantics, legacy jobs and file cleanup.

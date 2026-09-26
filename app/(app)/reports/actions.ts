@@ -1,36 +1,65 @@
 "use server";
 
 import { redirect } from "next/navigation";
-
-import { requireActor } from "@/lib/auth";
-import { requestReport } from "@/lib/reports/service";
-import { reportFormatSchema } from "@/lib/validation/enums";
-import { formString } from "@/lib/validation/form";
-import { isoDateSchema, optionalEntityIdSchema } from "@/lib/validation/ids";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { requireActor } from "@/lib/auth";
+import { changeReportJob, requestReport } from "@/lib/reports/service";
+import { failedAction, type ActionState } from "@/lib/validation/actionResult";
+import { formString, parseWithSchema } from "@/lib/validation/form";
 
-export async function generateReportAction(formData: FormData): Promise<void> {
+export type ReportFormValues = {
+  dateFrom: string;
+  dateTo: string;
+  profileId: string;
+  format: string;
+  submissionKey: string;
+};
+export async function generateReportAction(
+  _previous: ActionState<ReportFormValues>,
+  form: FormData
+): Promise<ActionState<ReportFormValues>> {
   const actor = await requireActor();
-  const parsed = z
-    .object({
-      dateFrom: isoDateSchema,
-      dateTo: isoDateSchema,
-      profileId: optionalEntityIdSchema,
-      format: reportFormatSchema,
-    })
-    .safeParse({
-      dateFrom: formString(formData, "dateFrom"),
-      dateTo: formString(formData, "dateTo"),
-      profileId: formString(formData, "profileId"),
-      format: formString(formData, "format") || "JSON",
-    });
-  if (!parsed.success) {
-    redirect("/reports?error=validation");
-  }
+  const values = {
+    dateFrom: formString(form, "dateFrom"),
+    dateTo: formString(form, "dateTo"),
+    profileId: formString(form, "profileId"),
+    format: formString(form, "format"),
+    submissionKey: formString(form, "submissionKey"),
+  };
+  let id: string;
   try {
-    await requestReport(actor, parsed.data);
-  } catch {
-    redirect("/reports?error=failed");
+    ({ id } = await requestReport(actor, {
+      ...values,
+      profileId: values.profileId || null,
+    }));
+  } catch (error) {
+    return failedAction(error, values);
   }
-  redirect("/reports?queued=1");
+  revalidatePath("/reports");
+  redirect(`/reports?queued=${id}#report-${id}`);
+}
+export async function changeReportJobAction(
+  _previous: ActionState<{ id: string; operation: string }>,
+  form: FormData
+): Promise<ActionState<{ id: string; operation: string }>> {
+  const actor = await requireActor();
+  const values = { id: formString(form, "id"), operation: formString(form, "operation") };
+  try {
+    const operation = parseWithSchema(z.enum(["retry", "cancel"]), values.operation);
+    await changeReportJob(actor, { id: values.id, operation });
+  } catch (error) {
+    return failedAction(error, values);
+  }
+  revalidatePath("/reports");
+  return {
+    status: "success",
+    message:
+      values.operation === "retry"
+        ? "Report queued again."
+        : "Report generation cancelled.",
+    code: null,
+    fieldErrors: {},
+    values,
+  };
 }

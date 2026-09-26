@@ -17,6 +17,7 @@ describe("report payload", () => {
           legalBasis: "Art. 17 GDPR",
           deadlineAt: "2026-02-01",
           sentAt: "2026-01-02",
+          contactedAt: "2026-01-02",
         },
         {
           id: "2",

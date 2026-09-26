@@ -90,7 +90,10 @@ export async function eraseProfileContent(
     const requestIds = requests.map((request) => request.id);
     await tx.backgroundJob.updateMany({
       where: {
-        relatedRequestId: { in: requestIds },
+        OR: [
+          { relatedRequestId: { in: requestIds } },
+          { type: "GENERATE_REPORT", relatedUserId: profile.ownerUserId },
+        ],
         status: { in: ["PENDING", "RETRYABLE", "RUNNING"] },
       },
       data: {

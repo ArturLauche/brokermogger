@@ -155,8 +155,6 @@ export async function listOwnedRequests(
 const EXPORT_PAGE_SIZE = 200;
 /** Fail an account export rather than returning a silently truncated file. */
 export const EXPORT_HARD_ROW_LIMIT = 250_000;
-/** Visible report cap. Larger result sets are marked truncated in the report. */
-export const REPORT_MAX_ROWS = 10_000;
 
 async function paginateById<T extends { id: string }>(input: {
   loadPage: (cursor: string | undefined) => Promise<T[]>;
@@ -646,53 +644,6 @@ export async function listRejectedBrokerIds(
   });
 
   return new Set(rows.map((row) => row.brokerId));
-}
-
-export async function listRequestsForUser(
-  userId: string,
-  profileId: string | null,
-  range?: { from: Date; to: Date }
-): Promise<{
-  rows: Awaited<ReturnType<typeof loadRequestReportPage>>;
-  truncated: boolean;
-  maxRows: number;
-}> {
-  return paginateById({
-    maxRows: REPORT_MAX_ROWS,
-    onCap: "truncate",
-    loadPage: (cursor) =>
-      loadRequestReportPage({
-        userId,
-        profileId,
-        ...(range ? { range } : {}),
-        ...(cursor ? { cursor } : {}),
-      }),
-  }).then((result) => ({
-    ...result,
-    maxRows: REPORT_MAX_ROWS,
-  }));
-}
-
-async function loadRequestReportPage(input: {
-  userId: string;
-  profileId: string | null;
-  range?: { from: Date; to: Date };
-  cursor?: string;
-}) {
-  return prisma.removalRequest.findMany({
-    where: {
-      userId: input.userId,
-      deletedAt: null,
-      ...(input.profileId ? { profileId: input.profileId } : {}),
-      ...(input.range
-        ? { createdAt: { gte: input.range.from, lte: input.range.to } }
-        : {}),
-    },
-    include: { broker: true, profile: true, jurisdiction: true },
-    orderBy: { id: "asc" },
-    take: EXPORT_PAGE_SIZE,
-    ...(input.cursor ? { skip: 1, cursor: { id: input.cursor } } : {}),
-  });
 }
 
 export async function hasRejectedSimilar(

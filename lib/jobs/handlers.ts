@@ -85,7 +85,7 @@ export function createJobHandlers(): JobHandlerRegistry {
 
     async GENERATE_REPORT(job): Promise<JobResult> {
       const { renderReportForJob } = await import("@/lib/reports/service");
-      return renderReportForJob(job.payload.reportId);
+      return renderReportForJob(job);
     },
 
     async DELETE_ACCOUNT_DATA(job): Promise<JobResult> {

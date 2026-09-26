@@ -113,4 +113,52 @@ test("edits and approves a manual request, records submission, then confirms a r
   await expect(page).toHaveURL(/saved=confirmed/);
   await page.goto(requestUrl);
   await expect(page.getByText("Completed", { exact: true }).first()).toBeVisible();
+
+  await page.goto("/reports");
+  const originalStart = await page.getByLabel("From", { exact: true }).inputValue();
+  const originalEnd = await page.getByLabel("To, inclusive").inputValue();
+  await page.getByLabel("To, inclusive").fill("2020-01-01");
+  await page.getByRole("button", { name: "Generate report", exact: true }).click();
+  await expect(
+    page.getByText("The end date must be on or after the start date.")
+  ).toBeVisible();
+  await expect(page.getByLabel("From", { exact: true })).toHaveValue(originalStart);
+  await page.getByLabel("To, inclusive").fill(originalEnd);
+  await page.getByRole("button", { name: "Generate report", exact: true }).click();
+  await expect(page).toHaveURL(/\/reports\?queued=/);
+  const reportId = new URL(page.url()).searchParams.get("queued")!;
+  await processReport(reportId);
+  await page.getByRole("button", { name: "Refresh status" }).click();
+  await expect(page.getByRole("link", { name: "Download JSON" })).toBeVisible();
+  const response = await page.request.get(`/api/reports/${reportId}/download`);
+  expect(response.status()).toBe(200);
+  expect(response.headers()["cache-control"]).toContain("no-store");
+  expect(response.headers()["content-disposition"]).toContain("brokermogger-report-");
+  const payload = await response.json();
+  expect(payload.requests).toHaveLength(1);
+  expect(payload.requests[0].status).toBe("COMPLETED");
+  expect(payload.brokersContacted).toEqual([brokerName]);
+  expect(JSON.stringify(payload)).not.toContain("Alex Correspondence");
+  await page.goto("/notifications");
+  await expect(page.getByRole("heading", { name: "Your report is ready" })).toBeVisible();
 });
+
+/** Drive the actual leased worker path only in the guarded local browser database. */
+async function processReport(reportId: string) {
+  const db = new PrismaClient();
+  try {
+    const report = await db.report.findUniqueOrThrow({ where: { id: reportId } });
+    await db.backgroundJob.update({
+      where: { id: report.jobId! },
+      data: { priority: 0 },
+    });
+    const { claimDueJobs } = await import("../lib/db/repositories/jobs");
+    const { runClaimedJob } = await import("../lib/jobs/queue");
+    const { renderReportForJob } = await import("../lib/reports/service");
+    const [job] = await claimDueJobs("browser-report", 1);
+    expect(job!.id).toBe(report.jobId);
+    await runClaimedJob(job!, { GENERATE_REPORT: renderReportForJob });
+  } finally {
+    await db.$disconnect();
+  }
+}

@@ -308,6 +308,7 @@ enum NotificationType {
   ACCOUNT_SECURITY_EVENT
   FAIR_USE_LIMIT_REACHED
   HOUSEHOLD_CONSENT_UPDATE
+  REPORT_READY
 }
 
 enum NotificationChannel {
@@ -1344,6 +1345,17 @@ model Report {
   format   ReportFormat @default(PDF)
   status   ReportStatus @default(PENDING)
 
+  /// Calendar labels stay in dateFrom/dateTo; these instants include the entire end day.
+  timeZone String @default("UTC")
+  rangeStartAt DateTime
+  rangeEndAt DateTime
+  submissionKey String? @unique
+  jobId String? @unique
+  generationLeaseToken String?
+  sourceCutoffAt DateTime?
+  processedRequests Int @default(0)
+  totalRequests Int @default(0)
+
   evidenceFileId String?
   /// Aggregated, non-sensitive summary rendered in the UI.
   summary        Json      @default("{}")
@@ -1357,8 +1369,10 @@ model Report {
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   profile      UserProfile?  @relation(fields: [profileId], references: [id], onDelete: SetNull)
   evidenceFile EvidenceFile? @relation(fields: [evidenceFileId], references: [id], onDelete: SetNull)
+  job BackgroundJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
 
   @@index([userId, status])
+  @@index([userId, createdAt, id])
   @@index([deletedAt])
 }
 
@@ -1465,6 +1479,7 @@ model BackgroundJob {
   updatedAt DateTime @updatedAt
 
   logs BackgroundJobLog[]
+  report Report?
 
   @@index([status, runAt])
   @@index([type, status])
