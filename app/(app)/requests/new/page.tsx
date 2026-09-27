@@ -11,10 +11,13 @@ import {
   listBrokersForDirectory,
   listActiveJurisdictions,
   listPublishedLegalRules,
+  getBrokersWithContacts,
 } from "@/lib/db/repositories/catalog";
 import { evaluateConsent } from "@/lib/consent/status";
 import { resolveJurisdiction } from "@/lib/jurisdiction/resolve";
 import { isAppError } from "@/lib/core/errors";
+import { entityIdSchema } from "@/lib/validation/ids";
+import { MAX_BROKERS_PER_WORKFLOW } from "@/lib/requests/fairUse";
 
 import { createWorkflow } from "./actions";
 
@@ -29,7 +32,12 @@ export default async function NewRequestPage({
   const actor = await requireActorOrRedirect();
   const { active } = await resolveActiveProfileForRequest(actor);
   const params = await searchParams;
-  const preselected = new Set((params.brokers ?? "").split(",").filter(Boolean));
+  const preselected = new Set(
+    (params.brokers ?? "")
+      .split(",")
+      .filter((id) => entityIdSchema.safeParse(id).success)
+      .slice(0, MAX_BROKERS_PER_WORKFLOW)
+  );
 
   if (!active) {
     return (
@@ -55,7 +63,14 @@ export default async function NewRequestPage({
       (profile.kind === "SELF" ? new Date() : null),
   });
 
-  const brokers = await listBrokersForDirectory({});
+  const [directory, selected] = await Promise.all([
+    listBrokersForDirectory({}),
+    getBrokersWithContacts([...preselected]),
+  ]);
+  // A directory cache or page limit must never silently drop an explicit selection.
+  const brokers = [
+    ...new Map([...directory, ...selected].map((broker) => [broker.id, broker])).values(),
+  ];
   const jurisdictions = await listActiveJurisdictions();
   const rules = await listPublishedLegalRules();
   let jurisdictionCard: {
@@ -204,7 +219,7 @@ export default async function NewRequestPage({
         <section className="flex flex-col gap-2 rounded-xl border p-4">
           <h2 className="font-heading text-base font-medium">Brokers</h2>
           <div className="max-h-80 overflow-auto">
-            {brokers.slice(0, 60).map((broker) => (
+            {brokers.map((broker) => (
               <label key={broker.id} className="flex items-center gap-2 py-1 text-sm">
                 <input
                   type="checkbox"

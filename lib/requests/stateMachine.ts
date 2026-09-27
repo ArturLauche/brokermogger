@@ -89,6 +89,11 @@ const BASE_TRANSITIONS: Readonly<Record<RequestStatus, readonly TransitionRule[]
     { to: "CLOSED", actors: ["USER"], description: "Withdrawn before sending" },
   ],
   SENT: [
+    {
+      to: "NO_RESPONSE",
+      actors: ["SYSTEM"],
+      description: "Recorded response date passed",
+    },
     { to: "DELIVERED", actors: ["SYSTEM"], description: "Delivery confirmed" },
     {
       to: "WAITING_FOR_BROKER",
@@ -107,6 +112,11 @@ const BASE_TRANSITIONS: Readonly<Record<RequestStatus, readonly TransitionRule[]
     },
   ],
   DELIVERED: [
+    {
+      to: "NO_RESPONSE",
+      actors: ["SYSTEM"],
+      description: "Recorded response date passed",
+    },
     {
       to: "WAITING_FOR_BROKER",
       actors: ["SYSTEM"],

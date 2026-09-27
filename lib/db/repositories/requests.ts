@@ -61,7 +61,9 @@ export async function getOwnedRequest(actor: ActorContext, requestId: string) {
       _count: { select: { responses: { where: { deletedAt: null } } } },
       manualSubmissions: { orderBy: { createdAt: "desc" } },
       outboundEmails: {
-        where: { dispatchState: { in: ["AMBIGUOUS", "RECONCILIATION_REQUIRED"] } },
+        where: {
+          dispatchState: { in: ["DISPATCHING", "AMBIGUOUS", "RECONCILIATION_REQUIRED"] },
+        },
         select: {
           id: true,
           snapshotId: true,
@@ -626,7 +628,14 @@ export async function listOverdueWaitingRequests(now: Date, take = 50) {
     where: {
       deletedAt: null,
       user: { status: "ACTIVE", deletionRequestedAt: null },
-      status: { in: WAITING_FOR_DEADLINE },
+      profile: { deletedAt: null },
+      OR: [
+        { status: { in: WAITING_FOR_DEADLINE } },
+        {
+          status: "NO_RESPONSE",
+          notifications: { none: { dedupeKey: { startsWith: "deadline-handled:" } } },
+        },
+      ],
       deadlineAt: { lte: now },
     },
     select: {

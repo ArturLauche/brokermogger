@@ -211,9 +211,10 @@ describe("atomic message approval and dispatch", () => {
     expect(
       await testPrisma.backgroundJob.count({ where: { type: "PREPARE_FOLLOW_UP" } })
     ).toBe(1);
+    const [followUp] = await claimDueJobs("follow-up", 1);
     await concurrently([
-      prepareFollowUpDraft(systemActor("follow-up"), fixture.request.id, 1),
-      prepareFollowUpDraft(systemActor("follow-up"), fixture.request.id, 1),
+      prepareFollowUpDraft(systemActor(followUp!.id), fixture.request.id, 1, followUp!),
+      prepareFollowUpDraft(systemActor(followUp!.id), fixture.request.id, 1, followUp!),
     ]);
     const current = await getOwnedRequest(fixture.actor, fixture.request.id);
     expect(current.followUpCount).toBe(1);
@@ -260,12 +261,70 @@ describe("atomic message approval and dispatch", () => {
         fixture.payload.snapshotId,
         fixture.job
       )
-    ).rejects.toMatchObject({ code: "CONSENT_INVALID" });
+    ).resolves.toMatchObject({
+      message: expect.stringContaining("consent is no longer valid"),
+    });
+    expect((await getOwnedRequest(fixture.actor, fixture.request.id)).status).toBe(
+      "NEEDS_USER_ACTION"
+    );
+    expect((await testPrisma.outboundEmail.findFirstOrThrow()).dispatchState).toBe(
+      "CANCELLED"
+    );
     expect(getMockOutbox()).toHaveLength(0);
   });
 
-  it("rechecks the selected identifier and the exact broker contact before sending", async () => {
+  it.each(["broker", "identifier"])(
+    "holds a changed %s and requires fresh approval",
+    async (change) => {
+      const fixture = await approveAndClaim();
+      if (change === "broker")
+        await testPrisma.brokerContactMethod.updateMany({
+          where: { brokerId: fixture.brokers[0]!.id },
+          data: { isActive: false },
+        });
+      else
+        await testPrisma.profileIdentifier.update({
+          where: { id: fixture.identifier.id },
+          data: { valueBi: "changed-index" },
+        });
+      const result = await sendApprovedRequest(
+        systemActor(fixture.job.id),
+        fixture.request.id,
+        fixture.payload.attempt,
+        fixture.payload.snapshotId,
+        fixture.job
+      );
+      expect(result.message).toMatch(/stopped before contacting/);
+      const held = await getOwnedRequest(fixture.actor, fixture.request.id);
+      expect(held.status).toBe("NEEDS_USER_ACTION");
+      expect(held.approvedSnapshotId).toBeNull();
+      expect(
+        (
+          await testPrisma.backgroundJob.findUniqueOrThrow({
+            where: { id: fixture.job.id },
+          })
+        ).status
+      ).toBe("CANCELLED");
+      expect((await testPrisma.outboundEmail.findFirstOrThrow()).dispatchState).toBe(
+        "CANCELLED"
+      );
+      expect(
+        await testPrisma.notification.count({
+          where: { dedupeKey: `dispatch-held:${fixture.job.id}` },
+        })
+      ).toBe(1);
+      expect(getMockOutbox()).toHaveLength(0);
+      await expect(approveRequest(fixture.actor, fixture.command)).rejects.toMatchObject({
+        code: "CONFLICT",
+      });
+    }
+  );
+
+  it("keeps an uncertain attempt for reconciliation when a live gate changes", async () => {
     const fixture = await approveAndClaim();
+    vi.spyOn(getEmailProvider(), "sendEmail").mockRejectedValueOnce(
+      new Error("injected timeout")
+    );
     const send = () =>
       sendApprovedRequest(
         systemActor(fixture.job.id),
@@ -274,16 +333,18 @@ describe("atomic message approval and dispatch", () => {
         fixture.payload.snapshotId,
         fixture.job
       );
+    await expect(send()).rejects.toMatchObject({ code: "EMAIL_FAILED" });
     await testPrisma.brokerContactMethod.updateMany({
       where: { brokerId: fixture.brokers[0]!.id },
       data: { isActive: false },
     });
-    await expect(send()).rejects.toMatchObject({ code: "BROKER_NOT_SENDABLE" });
-    await testPrisma.profileIdentifier.update({
-      where: { id: fixture.identifier.id },
-      data: { valueBi: "changed-index" },
-    });
-    await expect(send()).rejects.toMatchObject({ code: "CONFLICT" });
+    expect((await send()).message).toMatch(/uncertain outcome/);
+    expect((await testPrisma.outboundEmail.findFirstOrThrow()).dispatchState).toBe(
+      "RECONCILIATION_REQUIRED"
+    );
+    expect(
+      (await getOwnedRequest(fixture.actor, fixture.request.id)).approvedSnapshotId
+    ).toBeNull();
     expect(getMockOutbox()).toHaveLength(0);
   });
 

@@ -303,3 +303,34 @@ verification, and production key/build checks against the compiled app.
   still in memory and remains a performance measurement target. Follow-up and
   blocked-send recovery, operator tools, legal coverage, full interface polish,
   production verification and the final PR remain in progress.
+
+### Follow-up and blocked-dispatch recovery
+
+- A regression reproduced the deadline watch leaving a queued follow-up in
+  `NO_RESPONSE`, where its worker skipped it. Scheduling now commits status,
+  preparation, reminder and notification together and records `nextFollowUpAt`.
+  Initial reminders use the recorded response date; follow-up spacing also
+  respects the last submission. Existing stranded `NO_RESPONSE` rows are eligible
+  for recovery. Cap exhaustion suggests review without filing an escalation.
+- Follow-up preparation, deadline warnings and recheck reminders now fence their
+  worker leases at publication. Cancelled or failed preparation can be retried
+  without duplicate drafts, and the request screen shows pending/failed states.
+- Changed consent, contact or sending configuration stops a queued attempt with
+  an actionable timeline entry and notification. Fresh approval is required.
+  Uncertain provider attempts remain in reconciliation. An expired worker that
+  died during dispatch is also visible; reconciliation serializes with job claims.
+- All 349 unit/component tests passed. The full integration run passed the 151
+  other cases; all 10 follow-up regressions passed after correcting a fixture to
+  respect the database's consent constraint. Typecheck, lint, formatting and
+  production compilation passed. The production Chromium journey passed failed
+  preparation, retry, fresh approval and manual follow-up submission, then reply,
+  report and private export. See `docs/follow-up-recovery.md`.
+- The browser check also found that an explicit broker selection could disappear
+  behind the cached directory. Selected IDs are now loaded directly, and the
+  additional 60-row truncation was removed. Full directory pagination remains in
+  the UI pass.
+- Contextual final reminders/escalation, completed-onboarding checks, current
+  contact selection when regenerating follow-ups, legal deadlines and immutable
+  catalogue versions remain next. Also correct sandbox redirects being counted
+  as real broker contact in reports. Operator tools, interface/production/
+  performance work and PR delivery remain open.

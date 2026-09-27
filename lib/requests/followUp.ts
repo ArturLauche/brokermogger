@@ -2,6 +2,7 @@ import { profileIdentityDigest } from "./envelope";
 import {
   scheduleRequestFollowUp,
   commitFollowUpDraft,
+  canPrepareFollowUp,
 } from "@/lib/db/repositories/requestFollowUp";
 
 import { recordAudit } from "@/lib/audit/service";
@@ -12,13 +13,13 @@ import { getOwnedProfile } from "@/lib/db/repositories/profiles";
 import { getOwnedRequest } from "@/lib/db/repositories/requests";
 import { countryDisplayName } from "@/lib/jurisdiction/types";
 import type { ActorContext } from "@/lib/permissions/actor";
+import type { JobLease } from "@/lib/jobs/types";
+import { parseJobPayload } from "@/lib/jobs/payloads";
 import { REQUEST_TYPE_LABELS } from "@/lib/requests/labels";
-import { canTransition } from "@/lib/requests/stateMachine";
 import { decryptField, sha256Hex } from "@/lib/security/crypto";
 import { renderTemplate } from "@/lib/templates/renderer";
 
 import { formatIdentifierList, requestReference } from "./rendering";
-import { transition } from "./transitions";
 export async function prepareFollowUp(actor: ActorContext, requestId: string) {
   const result = await scheduleRequestFollowUp(
     actor,
@@ -37,45 +38,28 @@ export async function prepareFollowUp(actor: ActorContext, requestId: string) {
 export async function prepareFollowUpDraft(
   actor: ActorContext,
   requestId: string,
-  followUpNumber: number
+  followUpNumber: number,
+  job: JobLease
 ): Promise<{ message: string }> {
-  const request = await getOwnedRequest(actor, requestId);
-  if (
-    request.status === "AWAITING_USER_APPROVAL" &&
-    request.followUpCount >= followUpNumber
-  ) {
-    return { message: "Follow up draft already awaits approval." };
-  }
-
+  parseJobPayload("PREPARE_FOLLOW_UP", { removalRequestId: requestId, followUpNumber });
   const maxFollowUps = await getSetting("followUpMaxAttempts");
-  if (followUpNumber > maxFollowUps) {
-    if (canTransition(request.status, "ESCALATION_RECOMMENDED", "SYSTEM")) {
-      await transition(
-        actor,
-        request.id,
-        request.status,
-        "ESCALATION_RECOMMENDED",
-        "Maximum follow ups prepared. Escalation is never filed automatically."
-      );
-      return {
-        message: "Follow up limit reached. Escalation was recommended to the user.",
-      };
-    }
+  if (!(await canPrepareFollowUp(actor, requestId, followUpNumber, job, maxFollowUps)))
     return {
-      message: `Follow up limit reached. Escalation cannot be recommended from status ${request.status}.`,
+      message:
+        "The follow-up is no longer eligible or this worker no longer holds its lease.",
     };
-  }
-
-  if (request.status !== "FOLLOW_UP_SCHEDULED")
-    return { message: "This request no longer needs a follow-up draft." };
-
+  const request = await getOwnedRequest(actor, requestId);
   const snapshot = await renderFollowUpSnapshot(actor, request, followUpNumber);
-  await commitFollowUpDraft(actor, {
+  const result = await commitFollowUpDraft(actor, {
     requestId: request.id,
     followUpNumber,
+    job,
+    maxFollowUps,
     previousSnapshotId: request.currentSnapshotId,
     snapshot,
   });
+  if (!result.created)
+    return { message: "The follow-up changed before publication. No draft was added." };
 
   await recordAudit({
     actor,

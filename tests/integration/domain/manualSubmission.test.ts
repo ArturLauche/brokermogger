@@ -72,7 +72,13 @@ describe("manual submission of approved messages", () => {
     expect(submitted.status).toBe("WAITING_FOR_BROKER");
     expect(submitted.sentAt).toBeTruthy();
     await prepareFollowUp(f.actor, f.request.id);
-    await prepareFollowUpDraft(systemActor("manual-follow-up"), f.request.id, 1);
+    const [followUpJob] = await claimDueJobs("manual-follow-up", 1);
+    await prepareFollowUpDraft(
+      systemActor(followUpJob!.id),
+      f.request.id,
+      1,
+      followUpJob!
+    );
     const followUp = await getOwnedRequest(f.actor, f.request.id);
     expect(followUp.currentSnapshotId).not.toBe(f.input.snapshotId);
     await approveRequest(f.actor, {

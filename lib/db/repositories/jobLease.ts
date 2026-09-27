@@ -7,7 +7,7 @@ export async function lockJobLeaseInTx(
   tx: PrismaTransaction,
   job: JobLease,
   type: JobType,
-  payload: Record<string, string>
+  payload: Record<string, string | number | boolean>
 ) {
   const rows = await tx.$queryRaw<{ id: string }[]>`
     SELECT id FROM "BackgroundJob" WHERE id = ${job.id} AND "leaseToken" = ${job.leaseToken}

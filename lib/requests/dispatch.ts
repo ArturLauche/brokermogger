@@ -5,6 +5,7 @@ import {
   beginApprovedDispatch,
   finishApprovedDispatch,
   recordAmbiguousDispatch,
+  holdBlockedDispatch,
 } from "@/lib/db/repositories/requestDispatch";
 import { getEmailProvider } from "@/lib/email";
 import { consumeBrokerSendThrottles } from "@/lib/email/throttles";
@@ -28,8 +29,19 @@ export async function sendApprovedRequest(
   job: JobLease
 ): Promise<{ message: string }> {
   const input = parseWithSchema(dispatchSchema, { requestId, attempt, snapshotId, job });
-  const prepared = await beginApprovedDispatch(actor, input, false);
+  let prepared;
+  try {
+    prepared = await beginApprovedDispatch(actor, input, false);
+  } catch (error) {
+    const message =
+      error instanceof AppError
+        ? await holdBlockedDispatch(actor, input, error.code)
+        : null;
+    if (message) return { message };
+    throw error;
+  }
   if (prepared.kind === "stopped") return { message: prepared.message };
+  let providerInvoked = false;
   try {
     if (prepared.firstAttempt)
       await consumeBrokerSendThrottles({
@@ -39,6 +51,7 @@ export async function sendApprovedRequest(
     // Recheck the complete gates after throttling, immediately before the provider call.
     const current = await beginApprovedDispatch(actor, input);
     if (current.kind === "stopped") return { message: current.message };
+    providerInvoked = true;
     const result = await getEmailProvider().sendEmail(current.message);
     const saved = await finishApprovedDispatch({
       ...input,
@@ -63,7 +76,12 @@ export async function sendApprovedRequest(
           : "The provider accepted the approved message.",
     };
   } catch (error) {
-    await recordAmbiguousDispatch({ ...input, ledgerId: prepared.ledgerId });
+    if (providerInvoked)
+      await recordAmbiguousDispatch({ ...input, ledgerId: prepared.ledgerId });
+    else if (error instanceof AppError) {
+      const message = await holdBlockedDispatch(actor, input, error.code);
+      if (message) return { message };
+    }
     if (error instanceof AppError) throw error;
     throw new AppError({
       code: "EMAIL_FAILED",

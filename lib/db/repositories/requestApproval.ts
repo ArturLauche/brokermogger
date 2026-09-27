@@ -65,6 +65,12 @@ export async function commitRequestApproval(actor: ActorContext, input: Approval
         request.approvalConsentRecordId
       )
         return { requestId: request.id, alreadyApproved: true };
+      if (!["AWAITING_USER_APPROVAL", "MANUAL_REVIEW_REQUIRED"].includes(request.status))
+        throw new AppError({
+          code: "CONFLICT",
+          message:
+            "This request is not awaiting approval. Regenerate or edit a fresh draft before approving it.",
+        });
       if (!envelope.destination)
         throw new AppError({
           code: "BROKER_NOT_SENDABLE",

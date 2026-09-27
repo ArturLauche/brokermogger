@@ -168,16 +168,12 @@ export async function persistDeliveryReconciliation(
       input.requestId,
       "request:recordOutcome"
     );
-    const running = await tx.backgroundJob.findFirst({
-      where: {
-        relatedRequestId: request.id,
-        type: "SEND_REQUEST",
-        status: "RUNNING",
-        lockExpiresAt: { gt: new Date() },
-      },
-      select: { id: true },
-    });
-    if (running)
+    // Fence a claim/reclaim between the live-worker check and owner confirmation.
+    await tx.$executeRaw`SELECT 1 FROM "BackgroundJob" WHERE "relatedRequestId" = ${request.id} AND type = 'SEND_REQUEST' FOR UPDATE`;
+    const running = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM "BackgroundJob"
+      WHERE "relatedRequestId" = ${request.id} AND type = 'SEND_REQUEST'
+        AND status = 'RUNNING' AND "lockExpiresAt" > NOW()`;
+    if (running.length)
       throw new AppError({
         code: "CONFLICT",
         message:
@@ -204,7 +200,11 @@ export async function persistDeliveryReconciliation(
         });
       return;
     }
-    if (!["AMBIGUOUS", "RECONCILIATION_REQUIRED"].includes(ledger.dispatchState))
+    if (
+      !["DISPATCHING", "AMBIGUOUS", "RECONCILIATION_REQUIRED"].includes(
+        ledger.dispatchState
+      )
+    )
       throw new AppError({
         code: "CONFLICT",
         message: "Only an uncertain send can be reconciled here.",

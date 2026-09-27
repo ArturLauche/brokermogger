@@ -59,7 +59,8 @@ export function createJobHandlers(): JobHandlerRegistry {
       const result = await prepareFollowUpDraft(
         actor,
         job.payload.removalRequestId,
-        job.payload.followUpNumber
+        job.payload.followUpNumber,
+        job
       );
       return { message: result.message };
     },
@@ -143,7 +144,7 @@ export function createJobHandlers(): JobHandlerRegistry {
     },
 
     async DEADLINE_WATCH(job): Promise<JobResult> {
-      const result = await runDeadlineWatch(job.payload.windowDays);
+      const result = await runDeadlineWatch(job.payload.windowDays, job);
       return {
         ...result,
         ...recurringRepeat(job, RECURRING_INTERVAL_SECONDS.DEADLINE_WATCH),
@@ -151,7 +152,7 @@ export function createJobHandlers(): JobHandlerRegistry {
     },
 
     async RECHECK_REMINDER(job): Promise<JobResult> {
-      return runRecheckReminder(job.payload.removalRequestId);
+      return runRecheckReminder(job.payload.removalRequestId, job);
     },
 
     async RETENTION_SWEEP(job): Promise<JobResult> {

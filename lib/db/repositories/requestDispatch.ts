@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { evaluateBrokerSendable } from "@/lib/brokers/sendable";
 import { env } from "@/lib/config/env";
 import { SETTINGS } from "@/lib/config/systemSettings";
-import { AppError } from "@/lib/core/errors";
+import { AppError, type AppErrorCode } from "@/lib/core/errors";
 import { assertAdminSendingEnabled, assertOutboundAllowed } from "@/lib/email/guards";
 import type { EmailMessage, SendResult } from "@/lib/email/types";
 import { validateOutboundMessage } from "@/lib/email/validate";
@@ -41,6 +41,89 @@ export type DispatchPreparation =
       message: EmailMessage;
       firstAttempt: boolean;
     };
+
+const HOLD_REASONS: Partial<Record<AppErrorCode, string>> = {
+  CONFLICT:
+    "The approved message no longer matches the current profile or delivery settings. Regenerate it and review the complete message again.",
+  CONSENT_REQUIRED:
+    "Current profile consent is required. Complete the profile or renew household consent before preparing another message.",
+  CONSENT_INVALID:
+    "Profile or approval consent is no longer valid. Renew it, then regenerate and review the message.",
+  BROKER_NOT_SENDABLE:
+    "The approved broker contact is no longer eligible. Check the broker’s contact details before regenerating the message.",
+  EXTERNAL_SENDING_DISABLED:
+    "The operator has switched off broker sending. Once sending is available, review a fresh draft before queuing it again.",
+  MANUAL_REVIEW_REQUIRED: "The message needs a fresh review before it can be sent.",
+  UNSAFE_INPUT:
+    "The message did not pass outbound validation. Regenerate and review its text.",
+  VALIDATION_FAILED:
+    "The message did not pass outbound validation. Regenerate and review its text.",
+};
+
+/** A rejected live gate cannot leave an approval silently stranded in the queue. */
+export async function holdBlockedDispatch(
+  actor: ActorContext,
+  input: DispatchCommand,
+  code: AppErrorCode
+) {
+  const reason = HOLD_REASONS[code];
+  if (!reason) return null;
+  return prisma.$transaction(async (tx) => {
+    const request = await loadRequestForDecision(
+      tx,
+      actor,
+      input.requestId,
+      "request:send"
+    );
+    const leased = await leaseInTx(tx, input.job, request.id);
+    if (
+      !leased ||
+      leased.snapshotId !== input.snapshotId ||
+      leased.attempt !== input.attempt ||
+      request.status !== "APPROVED" ||
+      request.currentSnapshotId !== input.snapshotId
+    )
+      return null;
+    const uncertain = await tx.outboundEmail.count({
+      where: {
+        removalRequestId: request.id,
+        dispatchState: { in: ["DISPATCHING", "AMBIGUOUS", "RECONCILIATION_REQUIRED"] },
+      },
+    });
+    const message = uncertain
+      ? `${reason} A previous provider attempt has an uncertain outcome. Check provider records before preparing another message; an accepted email cannot be recalled.`
+      : `${reason} This queued attempt was stopped before contacting the provider.`;
+    await applyRequestStatusInTx(tx, {
+      requestId: request.id,
+      from: "APPROVED",
+      to: "NEEDS_USER_ACTION",
+      actor: "SYSTEM",
+      actorUserId: null,
+      message,
+      cancelPendingJobTypes: ["SEND_REQUEST"],
+    });
+    await tx.removalRequest.update({
+      where: { id: request.id },
+      data: {
+        approvedSnapshotId: null,
+        approvedEnvelopeHash: null,
+        approvalConsentRecordId: null,
+      },
+    });
+    await createNotificationInTx(tx, {
+      userId: request.userId,
+      profileId: request.profileId,
+      removalRequestId: request.id,
+      type: "APPROVAL_NEEDED",
+      severity: "ACTION_REQUIRED",
+      title: "Sending needs your attention",
+      body: message,
+      actionUrl: `/requests/${request.id}`,
+      dedupeKey: `dispatch-held:${input.job.id}`,
+    });
+    return message;
+  });
+}
 
 /** Marks the start of dispatch only after re-reading all live gates in one transaction. */
 export async function beginApprovedDispatch(

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { getOwnedResponse, listOwnedResponses } from "@/lib/db/repositories/responses";
 import { getOwnedRequest } from "@/lib/db/repositories/requests";
+import { claimDueJobs } from "@/lib/db/repositories/jobs";
 import { eraseProfileContent } from "@/lib/db/repositories/profileErasure";
 import { backfillPrivatePayloads } from "@/lib/db/repositories/privacyMigration";
 import { systemActor } from "@/lib/permissions/actor";
@@ -182,7 +183,13 @@ describe("recorded correspondence and explicit outcomes", () => {
   it("withdraws a queued follow-up when a reply resolves its submitted predecessor", async () => {
     const f = await fixture();
     await prepareFollowUp(f.actor, f.request.id);
-    await prepareFollowUpDraft(systemActor("reply-follow-up"), f.request.id, 1);
+    const [followUpJob] = await claimDueJobs("reply-follow-up", 1);
+    await prepareFollowUpDraft(
+      systemActor(followUpJob!.id),
+      f.request.id,
+      1,
+      followUpJob!
+    );
     const current = await getOwnedRequest(f.actor, f.request.id);
     const response = await recordResponse(f.actor, f.reply);
     await confirmResponse(f.actor, {

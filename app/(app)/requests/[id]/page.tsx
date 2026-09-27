@@ -15,8 +15,12 @@ import { isAppError } from "@/lib/core/errors";
 import { getOwnedRequest } from "@/lib/db/repositories/requests";
 import { formatIsoDate } from "@/lib/format/datetime";
 import { getDateFormatter } from "@/app/_lib/datetime";
+import { can } from "@/lib/permissions/policy";
 import { canTransition } from "@/lib/requests/stateMachine";
 import { ReconciliationForm, VerificationForm } from "./manual-forms";
+import { getRequestWork } from "@/lib/db/repositories/requestWork";
+import { BackgroundRefresh } from "@/components/common/background-refresh";
+import { SubmitButton } from "@/components/common/submit-button";
 import { RESPONSE_LABELS } from "@/lib/responses/labels";
 
 import {
@@ -54,14 +58,29 @@ export default async function RequestDetailPage({
     throw caught;
   }
 
+  const canManage = can(actor, "request:update", { ownerUserId: request.userId }).allowed;
+  const work = await getRequestWork(actor, request.id);
+  const followUpFailed =
+    canManage &&
+    request.status === "FOLLOW_UP_SCHEDULED" &&
+    (!work.followUp ||
+      ["FAILED", "CANCELLED", "COMPLETED"].includes(work.followUp.status));
+  const sendFailed =
+    canManage &&
+    request.status === "APPROVED" &&
+    (!work.send || ["FAILED", "CANCELLED", "COMPLETED"].includes(work.send.status));
   const snapshot = request.snapshots[0];
   const canReview =
-    request.status === "AWAITING_USER_APPROVAL" ||
-    request.status === "MANUAL_REVIEW_REQUIRED";
-  const canClose = canTransition(request.status, "CLOSED", "USER");
+    canManage &&
+    (request.status === "AWAITING_USER_APPROVAL" ||
+      request.status === "MANUAL_REVIEW_REQUIRED");
+  const canClose = canManage && canTransition(request.status, "CLOSED", "USER");
   const canComplete =
-    Boolean(request.sentAt) && canTransition(request.status, "COMPLETED", "USER");
-  const canFollowUp = canTransition(request.status, "FOLLOW_UP_SCHEDULED", "USER");
+    canManage &&
+    Boolean(request.sentAt) &&
+    canTransition(request.status, "COMPLETED", "USER");
+  const canFollowUp =
+    canManage && canTransition(request.status, "FOLLOW_UP_SCHEDULED", "USER");
 
   return (
     <div className="flex flex-col gap-6">
@@ -70,6 +89,13 @@ export default async function RequestDetailPage({
         description={`${request.requestType.toLowerCase().replaceAll("_", " ")} · ${request.jurisdiction.name}`}
         actions={<StatusBadge kind="request" status={request.status} />}
       />
+      {(request.status === "APPROVED" && !sendFailed) ||
+      (request.status === "FOLLOW_UP_SCHEDULED" && !followUpFailed) ? (
+        <BackgroundRefresh
+          working
+          message="This page checks for updates while work is queued."
+        />
+      ) : null}
       {error ? (
         <Alert variant="destructive">
           <AlertTitle>The action could not be completed</AlertTitle>
@@ -83,7 +109,43 @@ export default async function RequestDetailPage({
           Your update is recorded in the request history.
         </p>
       ) : null}
-      {request.channel !== "EMAIL" &&
+      {canManage && request.status === "FOLLOW_UP_SCHEDULED" ? (
+        <section className="space-y-3 border-y py-5" aria-labelledby="follow-up-state">
+          <h2 id="follow-up-state" className="text-lg font-semibold">
+            {followUpFailed
+              ? "Follow-up preparation needs a retry"
+              : "Follow-up scheduled"}
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            {followUpFailed
+              ? "Preparation did not finish. Try again, or close the request if you no longer need it."
+              : `A draft will be prepared ${request.nextFollowUpAt ? formatStamp(request.nextFollowUpAt) : "shortly"}. It will need your review and fresh approval.`}
+          </p>
+          {followUpFailed ? (
+            <form action={prepareFollowUpAction}>
+              <input type="hidden" name="requestId" value={request.id} />
+              <SubmitButton pendingText="Scheduling…">Retry preparation</SubmitButton>
+            </form>
+          ) : null}
+        </section>
+      ) : null}
+      {sendFailed ||
+      (request.status === "NEEDS_USER_ACTION" &&
+        !request.approvedSnapshotId &&
+        !request.outboundEmails.length) ? (
+        <section className="space-y-3 border-y py-5" aria-labelledby="send-held">
+          <h2 id="send-held" className="text-lg font-semibold">
+            Sending stopped
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Check the latest timeline entry for the reason. Update the profile or broker
+            details if needed, then regenerate and approve a fresh draft. You can also
+            close this request.
+          </p>
+        </section>
+      ) : null}
+      {canManage &&
+      request.channel !== "EMAIL" &&
       request.status === "NEEDS_USER_ACTION" &&
       request.approvedSnapshotId === snapshot?.id ? (
         <section className="space-y-3 border-y py-5" aria-labelledby="manual-next-step">
@@ -113,12 +175,24 @@ export default async function RequestDetailPage({
             {attempt.dispatchStartedAt
               ? formatStamp(attempt.dispatchStartedAt)
               : "at an unknown time"}
-            . Automatic sending is paused.
+            .{" "}
+            {attempt.dispatchState === "RECONCILIATION_REQUIRED"
+              ? "Automatic sending is paused."
+              : "Acceptance is not confirmed. A queued retry may reuse the same approved message."}
           </p>
-          <ReconciliationForm requestId={request.id} outboundEmailId={attempt.id} />
+          {work.send?.status === "RUNNING" &&
+          work.send.lockExpiresAt &&
+          work.send.lockExpiresAt > new Date() ? (
+            <p className="text-sm text-muted-foreground">
+              A send worker is still active. Wait for its result before recording a
+              provider outcome.
+            </p>
+          ) : (
+            <ReconciliationForm requestId={request.id} outboundEmailId={attempt.id} />
+          )}
         </section>
       ))}
-      {request.status === "BROKER_REQUESTED_VERIFICATION" ? (
+      {canManage && request.status === "BROKER_REQUESTED_VERIFICATION" ? (
         <section className="space-y-4 border-y py-5" aria-labelledby="verification-step">
           <h2 id="verification-step" className="text-lg font-semibold">
             The broker requested verification
@@ -141,7 +215,9 @@ export default async function RequestDetailPage({
         ]}
       />
       <div className="flex flex-wrap gap-2">
-        {snapshot &&
+        {canManage &&
+        snapshot &&
+        !request.outboundEmails.length &&
         (request.status === "DRAFT" || canTransition(request.status, "DRAFT", "USER")) ? (
           request.status === "APPROVED" ? (
             <form action={returnToDraftAction}>
@@ -162,9 +238,9 @@ export default async function RequestDetailPage({
         {canFollowUp ? (
           <form action={prepareFollowUpAction}>
             <input type="hidden" name="requestId" value={request.id} />
-            <Button type="submit" variant="outline">
-              Prepare follow up
-            </Button>
+            <SubmitButton variant="outline" pendingText="Scheduling…">
+              Prepare follow-up
+            </SubmitButton>
           </form>
         ) : null}
         {canComplete ? (
@@ -192,9 +268,11 @@ export default async function RequestDetailPage({
             destructive
           />
         ) : null}
-        <Button asChild variant="outline">
-          <Link href={`/evidence?requestId=${request.id}`}>Upload evidence</Link>
-        </Button>
+        {canManage ? (
+          <Button asChild variant="outline">
+            <Link href={`/evidence?requestId=${request.id}`}>Upload evidence</Link>
+          </Button>
+        ) : null}
       </div>
       <Tabs defaultValue="timeline">
         <TabsList>

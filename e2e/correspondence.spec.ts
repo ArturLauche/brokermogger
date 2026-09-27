@@ -17,6 +17,7 @@ test("edits and approves a manual request, records submission, then confirms a r
   expect(process.env.ALLOW_EXTERNAL_SENDING).toBe("false");
   const db = new PrismaClient();
   const brokerName = `Browser portal ${randomUUID()}`;
+  let brokerId: string;
   try {
     await seedJurisdictions(db);
     await seedLegalRules(db);
@@ -24,7 +25,7 @@ test("edits and approves a manual request, records submission, then confirms a r
     const jurisdiction = await db.jurisdiction.findFirstOrThrow({
       where: { countryCode: "DE" },
     });
-    await db.broker.create({
+    const broker = await db.broker.create({
       data: {
         slug: `browser-${randomUUID()}`,
         legalName: brokerName,
@@ -41,6 +42,7 @@ test("edits and approves a manual request, records submission, then confirms a r
         jurisdictionCoverage: { create: { jurisdictionId: jurisdiction.id } },
       },
     });
+    brokerId = broker.id;
   } finally {
     await db.$disconnect();
   }
@@ -51,11 +53,12 @@ test("edits and approves a manual request, records submission, then confirms a r
   await page.getByLabel("Country of residence").selectOption("DE");
   await page.getByRole("button", { name: "Finish setup" }).click();
   await expect(page).toHaveURL(/\/dashboard/);
-  await page.goto("/requests/new");
+  await page.goto(`/requests/new?brokers=${brokerId}`);
   await page.getByLabel(`${brokerName} (demo)`, { exact: true }).check();
   await page.getByRole("button", { name: "Generate drafts" }).click();
   await expect(page).toHaveURL(/\/requests\?created=1/);
   await page.getByRole("link", { name: brokerName, exact: true }).click();
+  await expect(page).toHaveURL(/\/requests\/[a-z0-9-]+$/i);
   const requestUrl = page.url();
   await page.getByRole("link", { name: "Edit draft", exact: true }).click();
   const letter = await page.getByLabel("Request letter").inputValue();
@@ -75,6 +78,34 @@ test("edits and approves a manual request, records submission, then confirms a r
   const download = page.waitForEvent("download");
   await page.getByRole("link", { name: "Download approved text" }).click();
   expect((await download).suggestedFilename()).toMatch(/\.txt$/);
+  await page
+    .getByLabel(
+      "I submitted this exact approved message myself, and these dates are accurate."
+    )
+    .check();
+  await page.getByRole("button", { name: "Record submission", exact: true }).click();
+  await expect(page).toHaveURL(/saved=submission/);
+  await page.getByRole("button", { name: "Prepare follow-up", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Follow-up scheduled", exact: true })
+  ).toBeVisible();
+  const requestId = new URL(requestUrl).pathname.split("/").at(-1)!;
+  await processFollowUp(requestId, true);
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Follow-up preparation needs a retry" })
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Retry preparation", exact: true }).click();
+  await processFollowUp(requestId);
+  await page.getByRole("button", { name: "Refresh status" }).click();
+  await expect(page.getByRole("link", { name: "Review", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Submit manually", exact: true })
+  ).toHaveCount(0);
+  await page.getByRole("link", { name: "Review", exact: true }).click();
+  await page.getByRole("checkbox").check();
+  await page.getByRole("button", { name: "Approve for manual submission" }).click();
+  await page.getByRole("link", { name: "Submit manually" }).click();
   await page
     .getByLabel(
       "I submitted this exact approved message myself, and these dates are accurate."
@@ -210,6 +241,35 @@ async function processExport(exportId: string) {
     const [job] = await claimDueJobs("browser-export", 1);
     expect(job!.id).toBe(data.jobId);
     await runClaimedJob(job!, { GENERATE_ACCOUNT_EXPORT: generateAccountExport });
+  } finally {
+    await db.$disconnect();
+  }
+}
+
+async function processFollowUp(requestId: string, injectFailure = false) {
+  const db = new PrismaClient();
+  try {
+    const row = await db.backgroundJob.findUniqueOrThrow({
+      where: { idempotencyKey: `follow-up:${requestId}:1` },
+    });
+    if (injectFailure) {
+      expect(row.status).toBe("PENDING");
+      await db.backgroundJob.update({
+        where: { id: row.id },
+        data: { status: "FAILED", attemptCount: row.maxAttempts },
+      });
+      return;
+    }
+    await db.backgroundJob.update({ where: { id: row.id }, data: { priority: 0 } });
+    const { claimDueJobs } = await import("../lib/db/repositories/jobs");
+    const { runClaimedJob } = await import("../lib/jobs/queue");
+    const { createJobHandlers } = await import("../lib/jobs/handlers");
+    const [job] = await claimDueJobs("browser-follow-up", 1);
+    expect(job?.id).toBe(row.id);
+    await runClaimedJob(job!, createJobHandlers());
+    expect(
+      (await db.backgroundJob.findUniqueOrThrow({ where: { id: row.id } })).status
+    ).toBe("COMPLETED");
   } finally {
     await db.$disconnect();
   }

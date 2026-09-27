@@ -147,7 +147,7 @@ describe("atomic provider delivery receipts", () => {
     const f = await sent();
     await prepareFollowUp(f.actor, f.request.id);
     const [followUp] = await claimDueJobs("follow-up", 1);
-    await prepareFollowUpDraft(systemActor(followUp!.id), f.request.id, 1);
+    await prepareFollowUpDraft(systemActor(followUp!.id), f.request.id, 1, followUp!);
     await markJobCompleted(followUp!, { message: "Follow-up draft prepared." }, 1);
     const before = await getOwnedRequest(f.actor, f.request.id);
     const { stored, job } = await receipt(f.providerMessageId, "email.bounced");
