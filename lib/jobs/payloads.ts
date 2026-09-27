@@ -32,6 +32,7 @@ const JOB_PAYLOAD_SCHEMAS = {
   GENERATE_REPORT: z.object({
     reportId: entityIdSchema,
   }),
+  GENERATE_ACCOUNT_EXPORT: z.object({ exportId: entityIdSchema }),
   DELETE_ACCOUNT_DATA: z.object({
     userId: entityIdSchema,
     requestedAt: z.string().min(1).max(40),

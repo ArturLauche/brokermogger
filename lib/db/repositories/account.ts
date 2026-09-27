@@ -154,6 +154,7 @@ export async function anonymiseDeletedAccount(
     await tx.outboundEmail.deleteMany({ where: { userId } });
     await tx.notification.deleteMany({ where: { userId } });
     await tx.report.deleteMany({ where: { userId } });
+    await tx.accountExport.deleteMany({ where: { userId } });
     await tx.account.deleteMany({ where: { userId } });
     await tx.session.deleteMany({ where: { userId } });
     await tx.evidenceFile.updateMany({

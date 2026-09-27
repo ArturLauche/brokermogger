@@ -88,6 +88,11 @@ export function createJobHandlers(): JobHandlerRegistry {
       return renderReportForJob(job);
     },
 
+    async GENERATE_ACCOUNT_EXPORT(job): Promise<JobResult> {
+      const { generateAccountExport } = await import("@/lib/exports/service");
+      return generateAccountExport(job);
+    },
+
     async DELETE_ACCOUNT_DATA(job): Promise<JobResult> {
       const actor = systemActor(job.id);
       await anonymiseDeletedAccount(actor, job.payload.userId);
@@ -132,7 +137,7 @@ export function createJobHandlers(): JobHandlerRegistry {
         await purgePrivateFile(file);
       });
       return {
-        message: `Purged ${files.length} temporary identity files.`,
+        message: `Purged ${files.length} expired temporary files.`,
         ...recurringRepeat(job, RECURRING_INTERVAL_SECONDS.PURGE_TEMP_ID_FILES),
       };
     },

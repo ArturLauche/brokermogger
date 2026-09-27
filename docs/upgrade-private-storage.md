@@ -96,3 +96,11 @@ The report migration adds inclusive calendar boundaries, a captured timezone,
 progress and fenced job/file publication. Historical files remain unchanged.
 Restart app and worker together after migration. See [report generation and
 recovery](reports.md) for date semantics, legacy jobs and file cleanup.
+
+## Account exports
+
+The account-export migration adds a separate queue record and 24-hour encrypted
+artifact. It does not generate exports or enable sensitive access automatically.
+Owners confirm sensitive copies explicitly; old approvals cannot be inferred.
+The original masked endpoint now returns schema version 2 with all supported
+record categories. See [export contents, exclusions and recovery](account-exports.md).

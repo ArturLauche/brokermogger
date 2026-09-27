@@ -14,6 +14,7 @@ export interface JobPayloadMap {
   DISPATCH_NOTIFICATION: { notificationId: string };
   PROCESS_EMAIL_WEBHOOK: { webhookEventId: string };
   GENERATE_REPORT: { reportId: string };
+  GENERATE_ACCOUNT_EXPORT: { exportId: string };
   DELETE_ACCOUNT_DATA: { userId: string; requestedAt: string };
   PURGE_EVIDENCE: { olderThanIso: string };
   PURGE_TEMP_ID_FILES: { olderThanIso?: string | undefined };

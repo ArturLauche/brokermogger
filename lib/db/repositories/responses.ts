@@ -1,4 +1,5 @@
 import { createNotificationInTx } from "./notifications";
+import { invalidateAccountExportsInTx } from "./accountExports";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { type RequestStatus } from "@prisma/client";
@@ -482,6 +483,7 @@ export async function linkOwnedResponse(actor: ActorContext, input: LinkResponse
 export async function deleteOwnedResponse(actor: ActorContext, id: string) {
   return prisma.$transaction(async (tx) => {
     const response = await ownedResponseInTx(tx, actor, id, "response:delete");
+    await invalidateAccountExportsInTx(tx, response.userId);
     // Retain an opaque dedupe tombstone so provider retries do not restore erased content.
     await tx.brokerResponse.update({
       where: { id },

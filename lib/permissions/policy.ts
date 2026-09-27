@@ -53,6 +53,7 @@ export const ACTIONS = [
   "notification:preferences",
   "account:read",
   "account:export",
+  "account:exportSensitive",
   "account:delete",
   "admin:console:access",
   "admin:broker:read",
@@ -128,6 +129,7 @@ const OWNER_ACTIONS = new Set<Action>([
   "notification:preferences",
   "account:read",
   "account:export",
+  "account:exportSensitive",
   "account:delete",
 ]);
 
@@ -186,7 +188,8 @@ export function can(
       action === "request:approve" ||
       action === "request:recordOutcome" ||
       action === "response:confirm" ||
-      action === "notification:preferences"
+      action === "notification:preferences" ||
+      action === "account:exportSensitive"
     )
       return deny("This action requires the account holder’s explicit confirmation.");
     return ALLOW;

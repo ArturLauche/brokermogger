@@ -8,6 +8,8 @@ import { AppError, NotFoundError } from "@/lib/core/errors";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { isCrossAccountAccess, requirePermission } from "@/lib/permissions/policy";
 import { recordAuditOrThrow } from "@/lib/audit/service";
+import { invalidateAccountExportsInTx } from "./accountExports";
+import { lockActiveAccount } from "./access";
 
 export async function listOwnedEvidence(actor: ActorContext, profileId: string | null) {
   requirePermission(actor, "evidence:read", { ownerUserId: actor.userId });
@@ -16,6 +18,7 @@ export async function listOwnedEvidence(actor: ActorContext, profileId: string |
       userId: actor.userId,
       deletedAt: null,
       storageState: "READY",
+      kind: { not: "ACCOUNT_EXPORT" },
       ...(profileId ? { profileId } : {}),
     },
     include: { removalRequest: { include: { broker: true } } },
@@ -69,6 +72,29 @@ export async function getOwnedEvidenceForDownload(
   });
   if (!owner) throw new NotFoundError("This file is no longer available.");
   return file;
+}
+
+export async function scheduleOwnedEvidencePurge(actor: ActorContext, id: string) {
+  const ref = await prisma.evidenceFile.findUnique({
+    where: { id },
+    select: { userId: true },
+  });
+  if (!ref) throw new NotFoundError("This file does not exist.");
+  requirePermission(actor, "evidence:delete", { ownerUserId: ref.userId });
+  return prisma.$transaction(async (tx) => {
+    await lockActiveAccount(tx, ref.userId);
+    const file = await tx.evidenceFile.findUniqueOrThrow({ where: { id } });
+    if (file.kind !== "ACCOUNT_EXPORT")
+      await invalidateAccountExportsInTx(tx, file.userId);
+    return tx.evidenceFile.update({
+      where: { id },
+      data: {
+        storageState: "PURGE_PENDING",
+        deletedAt: new Date(),
+        purgeRequestedAt: new Date(),
+      },
+    });
+  });
 }
 
 export async function hasPendingVerification(actor: ActorContext, requestId: string) {
@@ -250,23 +276,10 @@ export async function listUnfinishedFilePurges(take = 100) {
   });
 }
 
-export async function createEvidenceFile(data: Prisma.EvidenceFileCreateInput) {
-  return prisma.evidenceFile.create({ data });
-}
-
 export async function markEvidenceAccessed(id: string) {
   return prisma.evidenceFile.update({
     where: { id },
     data: { accessCount: { increment: 1 }, lastAccessedAt: new Date() },
-  });
-}
-
-export async function softDeleteEvidence(actor: ActorContext, evidenceId: string) {
-  const file = await getOwnedEvidence(actor, evidenceId);
-  requirePermission(actor, "evidence:delete", { ownerUserId: file.userId });
-  return prisma.evidenceFile.update({
-    where: { id: evidenceId },
-    data: { deletedAt: new Date() },
   });
 }
 

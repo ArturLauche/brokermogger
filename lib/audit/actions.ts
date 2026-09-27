@@ -20,6 +20,7 @@ export const AUDIT_ACTIONS = [
   "account.deletion_completed",
   "account.export_requested",
   "account.export_downloaded",
+  "account.export_deleted",
   "account.role_changed",
 
   // Profiles, identifiers, consent
@@ -123,6 +124,7 @@ export const AUDIT_RESOURCE_TYPES = [
   "request_template_version",
   "evidence_file",
   "report",
+  "account_export",
   "background_job",
   "system_setting",
   "notification",

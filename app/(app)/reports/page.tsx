@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import Link from "next/link";
+import { BackgroundRefresh } from "@/components/common/background-refresh";
 import { PageHeader } from "@/components/common/page-header";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -8,7 +9,7 @@ import { getDateFormatter } from "@/app/_lib/datetime";
 import { requireActorOrRedirect } from "@/lib/auth";
 import { dateInTimeZone, formatIsoDate } from "@/lib/format/datetime";
 import { listReports } from "@/lib/reports/service";
-import { ReportForm, ReportJobAction, ReportRefresh } from "./report-forms";
+import { ReportForm, ReportJobAction } from "./report-forms";
 
 export const metadata = { title: "Reports" };
 export const dynamic = "force-dynamic";
@@ -117,7 +118,10 @@ export default async function ReportsPage({
           </div>
           <Button variant="outline">Apply filters</Button>
         </form>
-        <ReportRefresh working={working} />
+        <BackgroundRefresh
+          working={working}
+          message="Status refreshes every 10 seconds. You can leave this page; a notification appears when the report is ready."
+        />
         {page.items.length ? (
           <ul aria-label="Reports" className="divide-y border-y">
             {page.items.map((report) => {

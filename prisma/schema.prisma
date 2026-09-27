@@ -277,6 +277,7 @@ enum EvidenceKind {
   SCREENSHOT
   IDENTITY_DOCUMENT
   REPORT
+  ACCOUNT_EXPORT
   OTHER
 }
 
@@ -309,6 +310,7 @@ enum NotificationType {
   FAIR_USE_LIMIT_REACHED
   HOUSEHOLD_CONSENT_UPDATE
   REPORT_READY
+  ACCOUNT_EXPORT_READY
 }
 
 enum NotificationChannel {
@@ -348,6 +350,7 @@ enum JobType {
   DISPATCH_NOTIFICATION
   PROCESS_EMAIL_WEBHOOK
   GENERATE_REPORT
+  GENERATE_ACCOUNT_EXPORT
   DELETE_ACCOUNT_DATA
   PURGE_EVIDENCE
   PURGE_TEMP_ID_FILES
@@ -418,6 +421,18 @@ enum ReportFormat {
   PDF
 }
 
+enum AccountExportMode {
+  MASKED
+  SENSITIVE
+}
+
+enum AccountExportStatus {
+  PENDING
+  GENERATING
+  READY
+  FAILED
+}
+
 // ---------------------------------------------------------------------------
 // Auth.js core tables
 // ---------------------------------------------------------------------------
@@ -457,6 +472,7 @@ model User {
   evidenceFiles      EvidenceFile[]
   notifications      Notification[]
   reports            Report[]
+  exports            AccountExport[]
   quota              UserQuota?
   adminActions       AdminAction[]      @relation("AdminActionActor")
   adminActionsTarget AdminAction[]      @relation("AdminActionTarget")
@@ -1283,6 +1299,7 @@ model EvidenceFile {
   profile        UserProfile?    @relation(fields: [profileId], references: [id], onDelete: SetNull)
   removalRequest RemovalRequest? @relation(fields: [removalRequestId], references: [id], onDelete: SetNull)
   reports        Report[]
+  exports        AccountExport[]
   manualSubmissions ManualSubmission[]
 
   @@index([userId, kind])
@@ -1374,6 +1391,33 @@ model Report {
   @@index([userId, status])
   @@index([userId, createdAt, id])
   @@index([deletedAt])
+}
+
+/// Temporary owner-requested JSON exports. Never stores the exported plaintext.
+model AccountExport {
+  id String @id @default(cuid())
+  userId String
+  mode AccountExportMode
+  status AccountExportStatus @default(PENDING)
+  submissionKey String @unique
+  jobId String? @unique
+  generationLeaseToken String?
+  sourceCutoffAt DateTime?
+  processedRecords Int @default(0)
+  consentedAt DateTime?
+  consentVersion Int?
+  consentStatementHash String?
+  evidenceFileId String?
+  expiresAt DateTime?
+  generatedAt DateTime?
+  error String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job BackgroundJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  evidenceFile EvidenceFile? @relation(fields: [evidenceFileId], references: [id], onDelete: SetNull)
+  @@index([userId, createdAt, id])
 }
 
 // ---------------------------------------------------------------------------
@@ -1480,6 +1524,7 @@ model BackgroundJob {
 
   logs BackgroundJobLog[]
   report Report?
+  accountExport AccountExport?
 
   @@index([status, runAt])
   @@index([type, status])

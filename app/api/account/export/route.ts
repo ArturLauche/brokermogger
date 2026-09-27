@@ -12,7 +12,8 @@ export async function GET(): Promise<Response> {
       headers: {
         "Content-Type": "application/json",
         "Content-Disposition": 'attachment; filename="brokermogger-export.json"',
-        "Cache-Control": "no-store",
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
       },
     });
   } catch (error) {

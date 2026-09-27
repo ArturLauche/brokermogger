@@ -19,7 +19,7 @@ export function notificationPreferences(value: unknown) {
 /** Older stored notifications must not turn their action link into an external navigation. */
 export function notificationHref(value: string | null): string | null {
   return value &&
-    /^\/(?:requests(?:\/[a-zA-Z0-9-]+(?:\/review)?)?|responses(?:\/[a-zA-Z0-9-]+)?|reports|household|notifications)$/.test(
+    /^\/(?:requests(?:\/[a-zA-Z0-9-]+(?:\/review)?)?|responses(?:\/[a-zA-Z0-9-]+)?|reports|household|notifications|settings\/privacy\/exports)$/.test(
       value
     )
     ? value

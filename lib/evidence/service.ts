@@ -12,6 +12,7 @@ import {
   listOwnedEvidence,
   markEvidenceAccessed,
   hasPendingVerification,
+  scheduleOwnedEvidencePurge,
 } from "@/lib/db/repositories/evidence";
 import { getOwnedRequest } from "@/lib/db/repositories/requests";
 import type { ActorContext } from "@/lib/permissions/actor";
@@ -140,6 +141,7 @@ export async function downloadEvidence(actor: ActorContext, evidenceId: string) 
 export async function deleteEvidence(actor: ActorContext, evidenceId: string) {
   const file = await getOwnedEvidence(actor, evidenceId);
   requirePermission(actor, "evidence:delete", { ownerUserId: file.userId });
+  await scheduleOwnedEvidencePurge(actor, evidenceId);
   try {
     await purgePrivateFile(file);
   } catch (error) {

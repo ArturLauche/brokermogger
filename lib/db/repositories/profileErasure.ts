@@ -8,6 +8,7 @@ import { lockActiveAccount } from "./access";
 import { revokeProfileConsentInTx } from "./profileConsent";
 import { blindIndex, decryptField } from "@/lib/security/crypto";
 import { parseJobPayload } from "@/lib/jobs/payloads";
+import { invalidateAccountExportsInTx } from "./accountExports";
 
 export async function eraseProfileContent(
   actor: ActorContext,
@@ -136,6 +137,7 @@ export async function eraseProfileContent(
       },
     });
     // Reports may include content from more than one profile; invalidate derived copies.
+    await invalidateAccountExportsInTx(tx, profile.ownerUserId);
     await tx.report.deleteMany({ where: { userId: profile.ownerUserId } });
     await tx.evidenceFile.updateMany({
       where: {

@@ -141,6 +141,42 @@ test("edits and approves a manual request, records submission, then confirms a r
   expect(JSON.stringify(payload)).not.toContain("Alex Correspondence");
   await page.goto("/notifications");
   await expect(page.getByRole("heading", { name: "Your report is ready" })).toBeVisible();
+  await page.goto("/settings/privacy/exports");
+  await expect(page.getByRole("radio", { name: /Masked account export/ })).toBeChecked();
+  await page.getByRole("radio", { name: /Sensitive account export/ }).check();
+  await page.getByRole("button", { name: "Create export", exact: true }).click();
+  await expect(
+    page.getByText("Confirm that you want a copy containing unmasked personal data.")
+  ).toBeVisible();
+  await page
+    .getByLabel("I confirm that I want an export containing unmasked personal data.")
+    .check();
+  await page.getByRole("button", { name: "Create export", exact: true }).click();
+  await expect(page).toHaveURL(/exports\?queued=/);
+  const exportId = new URL(page.url()).searchParams.get("queued")!;
+  await processExport(exportId);
+  await page.getByRole("button", { name: "Refresh status" }).click();
+  await expect(page.getByRole("link", { name: "Download sensitive JSON" })).toBeVisible();
+  const sensitive = await page.request.get(`/api/account/exports/${exportId}/download`);
+  expect(sensitive.status()).toBe(200);
+  const personal = await sensitive.json();
+  expect(personal.mode).toBe("SENSITIVE");
+  expect(personal.profiles[0].legalName).toBe("Alex Correspondence");
+  expect(personal.responses[0].content.body).toContain("We have deleted your data.");
+  const masked = await page.request.get("/api/account/export");
+  expect(masked.status()).toBe(200);
+  const maskedText = await masked.text();
+  expect(maskedText).not.toContain("Alex Correspondence");
+  expect(maskedText).not.toContain("We have deleted your data.");
+  await page.getByRole("button", { name: "Delete copy", exact: true }).click();
+  await expect(
+    page.getByText(
+      "Download access is disabled. Any stored copy is scheduled for cleanup."
+    )
+  ).toBeVisible();
+  expect(
+    (await page.request.get(`/api/account/exports/${exportId}/download`)).status()
+  ).toBe(404);
 });
 
 /** Drive the actual leased worker path only in the guarded local browser database. */
@@ -158,6 +194,22 @@ async function processReport(reportId: string) {
     const [job] = await claimDueJobs("browser-report", 1);
     expect(job!.id).toBe(report.jobId);
     await runClaimedJob(job!, { GENERATE_REPORT: renderReportForJob });
+  } finally {
+    await db.$disconnect();
+  }
+}
+
+async function processExport(exportId: string) {
+  const db = new PrismaClient();
+  try {
+    const data = await db.accountExport.findUniqueOrThrow({ where: { id: exportId } });
+    await db.backgroundJob.update({ where: { id: data.jobId! }, data: { priority: 0 } });
+    const { claimDueJobs } = await import("../lib/db/repositories/jobs");
+    const { runClaimedJob } = await import("../lib/jobs/queue");
+    const { generateAccountExport } = await import("../lib/exports/service");
+    const [job] = await claimDueJobs("browser-export", 1);
+    expect(job!.id).toBe(data.jobId);
+    await runClaimedJob(job!, { GENERATE_ACCOUNT_EXPORT: generateAccountExport });
   } finally {
     await db.$disconnect();
   }

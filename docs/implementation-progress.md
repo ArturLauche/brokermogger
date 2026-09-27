@@ -277,3 +277,29 @@ verification, and production key/build checks against the compiled app.
   notification. See `docs/reports.md` for semantics and recovery. In-memory final
   rendering remains a documented performance measurement target, alongside the
   rest of the approved implementation scope.
+
+### Complete account exports
+
+- Added explicit masked and separately confirmed sensitive exports covering 24
+  record categories. Queries use ownership-scoped pages with no silent row cap;
+  credentials, tokens, blind indexes and storage keys are excluded. File contents
+  remain separate private downloads, described in the export manifest and UI.
+- Export requests and jobs commit atomically. Generation and publication check
+  the active account, current consent proof and worker lease. Sensitive copies
+  use encrypted temporary storage, expire after 24 hours, and remain unavailable
+  until publication commits. Lost publication responses preserve completed files.
+- Added generation progress, errors, private downloads, cancellation/deletion and
+  stable pagination. Erasing identifiers, profiles, replies or evidence also
+  invalidates derived copies and queued exports. The original masked download
+  endpoint now covers the same complete record categories.
+- Twelve migrations applied to integration and browser schemas. Typecheck, lint,
+  formatting, production compilation, all 349 unit/component tests and all 149
+  integration tests passed. Twelve export regressions cover atomic failures,
+  competing submissions, ownership, masking, encryption, expiry, stale leases,
+  content erasure, deferred publication and pagination. All three Chromium
+  journeys passed, including sensitive confirmation, generation, download and
+  deletion against the production build with external sending disabled.
+- See `docs/account-exports.md` and the upgrade guide. Final artifact assembly is
+  still in memory and remains a performance measurement target. Follow-up and
+  blocked-send recovery, operator tools, legal coverage, full interface polish,
+  production verification and the final PR remain in progress.
