@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { addIdentifier, createSelfProfile } from "@/lib/db/repositories/profiles";
+import { saveOnboardingRecord } from "@/lib/db/repositories/onboarding";
 import { seedJurisdictions } from "@/prisma/seeds/jurisdictions";
 import { seedLegalRules } from "@/prisma/seeds/legalRules";
 import { seedRequestTemplates } from "@/prisma/seeds/templates";
@@ -16,19 +16,24 @@ export async function workflowFixture(brokerCount = 1) {
     data: { email: `${randomUUID()}@example.org`, createdAt: new Date("2025-01-01") },
   });
   const actor = testActor(user.id);
-  const profile = await createSelfProfile(actor, {
-    displayName: "My profile",
-    legalName: "Alex Sample",
-    countryCode: "DE",
-    region: null,
-    residencyConfirmed: true,
-    contactEmail: "alex@example.org",
+  const setup = await saveOnboardingRecord(actor, {
+    profileId: null,
+    complete: true,
+    identifiers: [],
+    profile: {
+      displayName: "My profile",
+      legalName: "Alex Sample",
+      countryCode: "DE",
+      region: null,
+      residencyConfirmed: true,
+      contactEmail: "alex@example.org",
+    },
   });
-  const identifier = await addIdentifier(actor, profile.id, {
-    type: "EMAIL",
-    value: "alex@example.org",
-    label: "Personal email",
-    isPrimary: true,
+  const profile = await testPrisma.userProfile.findUniqueOrThrow({
+    where: { id: setup.profileId },
+  });
+  const identifier = await testPrisma.profileIdentifier.findFirstOrThrow({
+    where: { profileId: profile.id, type: "EMAIL", isPrimary: true },
   });
   const jurisdiction = await testPrisma.jurisdiction.findFirstOrThrow({
     where: { countryCode: "DE" },

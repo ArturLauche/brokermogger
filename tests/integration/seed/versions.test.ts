@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { Prisma } from "@prisma/client";
 import { seedJurisdictions } from "@/prisma/seeds/jurisdictions";
 import { seedLegalRules } from "@/prisma/seeds/legalRules";
 import { seedRequestTemplates } from "@/prisma/seeds/templates";
@@ -185,6 +186,10 @@ describe("immutable catalogue versions", () => {
     await testPrisma.legalRuleVersion.create({
       data: {
         ...copy,
+        deadlineRule: copy.deadlineRule ?? Prisma.JsonNull,
+        verificationRequirements: copy.verificationRequirements ?? Prisma.JsonNull,
+        templateClauses: copy.templateClauses ?? Prisma.JsonNull,
+        additionalSources: copy.additionalSources ?? Prisma.JsonNull,
         version: 2,
         effectiveFrom: new Date("2099-01-01"),
         legalBasisText: "Future synthetic rule",

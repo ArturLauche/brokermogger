@@ -37,7 +37,14 @@ describe("account erasure", () => {
         })
       ).contactEmailEnc
     ).toBeNull();
-    expect(await testPrisma.profileIdentifier.count()).toBe(0);
+    expect(
+      await testPrisma.profileIdentifier.count({ where: { id: fixture.identifier.id } })
+    ).toBe(0);
+    expect(
+      await testPrisma.profileIdentifier.count({
+        where: { profileId: fixture.profile.id, type: "FULL_NAME" },
+      })
+    ).toBe(1);
     expect(await testPrisma.requestSnapshot.count()).toBe(0);
     await expect(
       addIdentifier(fixture.actor, fixture.profile.id, {
@@ -108,7 +115,7 @@ describe("account erasure", () => {
     await anonymiseDeletedAccount(worker, fixture.user.id);
     expect(await testPrisma.profileIdentifier.count()).toBe(0);
     expect(await testPrisma.requestSnapshot.count()).toBe(0);
-    expect(await testPrisma.consentRecord.count()).toBe(1);
+    expect(await testPrisma.consentRecord.count()).toBe(2);
     await expect(finishAccountErasure(worker, fixture.user.id)).rejects.toThrow(
       /await deletion/
     );

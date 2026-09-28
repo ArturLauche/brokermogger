@@ -8,6 +8,7 @@ export function assertCurrentProfileConsent(
     id: string;
     kind: ProfileKind;
     consentStatus: ConsentStatus;
+    onboardingCompletedAt: Date | null;
     householdMember: {
       revokedAt: Date | null;
       consents: {
@@ -20,6 +21,12 @@ export function assertCurrentProfileConsent(
     } | null;
   }
 ) {
+  if (profile.kind === "SELF" && !profile.onboardingCompletedAt)
+    throw new AppError({
+      code: "CONSENT_REQUIRED",
+      message:
+        "Finish profile setup and confirm your details before preparing or submitting requests.",
+    });
   if (profile.consentStatus === "PENDING_CONSENT")
     assertConsentAllowsRequests({
       profileId: profile.id,

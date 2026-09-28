@@ -11,6 +11,34 @@ import { testPrisma } from "../../helpers/db";
 afterEach(() => vi.restoreAllMocks());
 
 describe("seeded generation", () => {
+  it("requires completed setup before generation, including the transactional recheck", async () => {
+    const fixture = await workflowFixture();
+    const { drafts, fairUse } = await prepareRequestDrafts(fixture.actor, fixture.input);
+    await testPrisma.userProfile.update({
+      where: { id: fixture.profile.id },
+      data: { onboardingCompletedAt: null },
+    });
+    await expect(generateRequests(fixture.actor, fixture.input)).rejects.toMatchObject({
+      code: "CONSENT_REQUIRED",
+    });
+    await expect(
+      createPreparedDrafts(fixture.actor, drafts, fairUse)
+    ).rejects.toMatchObject({ code: "CONSENT_REQUIRED" });
+    expect(await testPrisma.removalRequest.count()).toBe(0);
+    expect(await testPrisma.rateLimitBucket.count()).toBe(0);
+  });
+
+  it.each(["FOLLOW_UP", "FINAL_REMINDER", "ESCALATION"] as const)(
+    "does not allow %s to bypass the existing request workflow",
+    async (requestType) => {
+      const fixture = await workflowFixture();
+      await expect(
+        generateRequests(fixture.actor, { ...fixture.input, requestType })
+      ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+      expect(await testPrisma.removalRequest.count()).toBe(0);
+    }
+  );
+
   it("rejects a profile change between rendering and atomic persistence", async () => {
     const fixture = await workflowFixture();
     const { drafts, fairUse } = await prepareRequestDrafts(fixture.actor, fixture.input);

@@ -96,7 +96,9 @@ describe("household consent lifecycle", () => {
     expect(current.consentStatus).toBe(
       consent.status === "VERIFIED" ? "EXPLICIT_CONSENT_OBTAINED" : "NOT_ALLOWED"
     );
-    expect(await testPrisma.consentRecord.count()).toBe(1);
+    expect(
+      await testPrisma.consentRecord.count({ where: { profileId: fixture.profileId } })
+    ).toBe(1);
     expect(await testPrisma.notification.count()).toBe(1);
   });
 

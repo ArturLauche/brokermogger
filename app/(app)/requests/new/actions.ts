@@ -1,47 +1,54 @@
 "use server";
 
 import { redirect } from "next/navigation";
-
 import { requireActor } from "@/lib/auth";
 import { isAppError } from "@/lib/core/errors";
-import { MAX_BROKERS_PER_WORKFLOW } from "@/lib/requests/fairUse";
 import { generateRequests } from "@/lib/requests/lifecycle";
-import { requestTypeSchema } from "@/lib/validation/enums";
+import { failedAction, type ActionState } from "@/lib/validation/actionResult";
 import { formString, formStrings } from "@/lib/validation/form";
 import { entityIdSchema } from "@/lib/validation/ids";
-import { z } from "zod";
 
-const workflowSchema = z.object({
-  profileId: entityIdSchema,
-  requestType: requestTypeSchema,
-  brokerIds: z
-    .array(entityIdSchema)
-    .min(1)
-    .max(MAX_BROKERS_PER_WORKFLOW)
-    .transform((ids) => [...new Set(ids)]),
-  identifierIds: z.array(entityIdSchema).min(1),
-});
+export type WorkflowFields = {
+  profileId: string;
+  requestType: string;
+  brokerIds: string;
+  identifierIds: string;
+};
+export type WorkflowState = ActionState<WorkflowFields> & {
+  existingRequestIds?: string[];
+};
 
-export async function createWorkflow(formData: FormData): Promise<void> {
+export async function createWorkflow(
+  _previous: WorkflowState,
+  formData: FormData
+): Promise<WorkflowState> {
   const actor = await requireActor();
-  const parsed = workflowSchema.safeParse({
+  const brokerIds = formStrings(formData, "brokerId");
+  const identifierIds = formStrings(formData, "identifierId");
+  const values = {
     profileId: formString(formData, "profileId"),
-    requestType: formString(formData, "requestType") || "DELETION",
-    brokerIds: formStrings(formData, "brokerId"),
-    identifierIds: formStrings(formData, "identifierId"),
-  });
-
-  if (!parsed.success) {
-    redirect("/requests/new?error=VALIDATION_FAILED");
-  }
-
+    requestType: formString(formData, "requestType"),
+    brokerIds: brokerIds.join(","),
+    identifierIds: identifierIds.join(","),
+  };
+  let result;
   try {
-    const result = await generateRequests(actor, parsed.data);
-    redirect(`/requests?created=${result.requestIds.length}`);
+    // The domain boundary validates all callers, including forged contextual types.
+    result = await generateRequests(actor, { ...values, brokerIds, identifierIds });
   } catch (error) {
-    if (isAppError(error)) {
-      redirect(`/requests/new?error=${error.code}`);
-    }
-    throw error;
+    const failed: WorkflowState = failedAction(error, values);
+    failed.fieldErrors = Object.fromEntries(
+      Object.entries(failed.fieldErrors).map(([key, value]) => [key.split(".")[0], value])
+    );
+    if (
+      isAppError(error) &&
+      error.code === "CONFLICT" &&
+      Array.isArray(error.details.requestIds)
+    )
+      failed.existingRequestIds = error.details.requestIds.filter(
+        (id): id is string => entityIdSchema.safeParse(id).success
+      );
+    return failed;
   }
+  redirect(`/requests?created=${result.requestIds.length}`);
 }

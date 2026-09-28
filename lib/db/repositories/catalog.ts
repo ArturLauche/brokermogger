@@ -144,6 +144,21 @@ export async function findPublishedTemplate(input: {
   return { template, version };
 }
 
+/** A single narrow query for the new-request chooser, including generic templates. */
+export async function listPublishedTemplateTypes(jurisdictionId: string) {
+  const rows = await prisma.requestTemplate.findMany({
+    where: {
+      isActive: true,
+      deletedAt: null,
+      OR: [{ jurisdictionId }, { jurisdictionId: null }],
+      versions: { some: { status: "PUBLISHED" } },
+    },
+    select: { requestType: true },
+    distinct: ["requestType"],
+  });
+  return rows.map((row) => row.requestType);
+}
+
 function parseBrokerCategory(value: string | undefined): BrokerCategory | undefined {
   if (!value) return undefined;
   const parsed = brokerCategorySchema.safeParse(value);

@@ -110,7 +110,7 @@ describe("complete account exports with separate sensitive confirmation", () => 
     expect(data.mode).toBe("MASKED");
     for (const category of EXPORT_SECTIONS)
       expect(data[category], category).toBeInstanceOf(Array);
-    expect(data.identifiers).toHaveLength(1);
+    expect(data.identifiers).toHaveLength(2);
     expect(data.snapshots).toHaveLength(1);
     expect(data.responses).toHaveLength(1);
     expect(data.evidenceFiles).toHaveLength(1);

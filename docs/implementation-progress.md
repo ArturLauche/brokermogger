@@ -348,3 +348,23 @@ verification, and production key/build checks against the compiled app.
 - All 19 catalogue/seed/generation integration checks, type checking, lint and
   formatting passed. Migration 13 applied successfully to both isolated test
   schemas. Operator authoring and publication are still to be implemented.
+
+### Request entry and setup consent
+
+- Incomplete self-profile setup now blocks rendering, atomic draft creation,
+  approval and dispatch through the shared consent gate. Regression tests first
+  reproduced the bypass. Workflow fixtures now complete real transactional setup
+  and retain its consent proof; erasure/export tests include the resulting records.
+- Initial generation validates its domain boundary and rejects follow-up, final
+  reminder and escalation types. The new-request form shows only initial types
+  supported by both published rules and templates. It preserves checked values
+  after validation, links duplicate submissions to owned existing requests, and
+  makes broker search and identifier errors accessible. Profile and legal context
+  use headings and a disclosure instead of repeated bordered cards.
+- Production compilation and all 349 unit/component tests passed. Integration
+  ran 170 cases; 168 passed on the full run and the two fixture-count assertions
+  passed in an 11-case targeted rerun after accounting for actual setup records.
+  All three production Chromium journeys passed, including unfinished setup,
+  preserved selections, duplicate navigation, sign-out and household consent.
+  External sending remains disabled. The final full-suite run will repeat these
+  checks after the remaining features and interface work.

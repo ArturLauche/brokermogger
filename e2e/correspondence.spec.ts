@@ -55,11 +55,26 @@ test("edits and approves a manual request, records submission, then confirms a r
   await expect(page).toHaveURL(/\/dashboard/);
   await page.goto(`/requests/new?brokers=${brokerId}`);
   await page.getByLabel(`${brokerName} (demo)`, { exact: true }).check();
+  const identifiers = page.locator('input[name="identifierId"]');
+  for (const identifier of await identifiers.all()) await identifier.uncheck();
+  await page.getByRole("button", { name: "Generate drafts" }).click();
+  await expect(
+    page.getByText("Select at least one matching identifier.", { exact: true })
+  ).toBeVisible();
+  await expect(page.getByLabel(`${brokerName} (demo)`, { exact: true })).toBeChecked();
+  for (const identifier of await identifiers.all()) await identifier.check();
   await page.getByRole("button", { name: "Generate drafts" }).click();
   await expect(page).toHaveURL(/\/requests\?created=1/);
   await page.getByRole("link", { name: brokerName, exact: true }).click();
   await expect(page).toHaveURL(/\/requests\/[a-z0-9-]+$/i);
   const requestUrl = page.url();
+  await page.goto(`/requests/new?brokers=${brokerId}`);
+  await page.getByRole("button", { name: "Generate drafts" }).click();
+  await expect(
+    page.getByRole("link", { name: "Open request 1", exact: true })
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Open request 1", exact: true }).click();
+  await expect(page).toHaveURL(requestUrl);
   await page.getByRole("link", { name: "Edit draft", exact: true }).click();
   const letter = await page.getByLabel("Request letter").inputValue();
   await page

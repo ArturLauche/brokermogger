@@ -41,6 +41,8 @@ import {
 import { evaluateManualReview } from "@/lib/requests/manualReview";
 import { decryptField, sha256Hex } from "@/lib/security/crypto";
 import { renderTemplate } from "@/lib/templates/renderer";
+import { parseWithSchema } from "@/lib/validation/form";
+import { workflowSchema } from "./initial";
 
 import { formatIdentifierList, requestReference } from "./rendering";
 const CHANNEL_BY_CONTACT: Record<ContactMethodType, RequestChannel> = {
@@ -61,10 +63,11 @@ export interface GenerateInput {
 
 export async function prepareRequestDrafts(
   actor: ActorContext,
-  input: GenerateInput,
+  raw: unknown,
   existing?: { id: string; reference: string | null }
 ) {
   requirePermission(actor, "request:create", { ownerUserId: actor.userId });
+  const input = parseWithSchema(workflowSchema, raw);
 
   const brokerIds = normalizeBrokerIds(input.brokerIds);
   assertBrokerSelectionSize(brokerIds.length);
@@ -342,7 +345,7 @@ export async function prepareRequestDrafts(
   return { drafts, fairUse };
 }
 
-export async function generateRequests(actor: ActorContext, input: GenerateInput) {
+export async function generateRequests(actor: ActorContext, input: unknown) {
   const { drafts, fairUse } = await prepareRequestDrafts(actor, input);
   const requestIds = await createPreparedDrafts(actor, drafts, fairUse);
   for (const id of requestIds) {

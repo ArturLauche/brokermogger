@@ -41,6 +41,7 @@ export async function loadRequestForDecision(
           id: true,
           kind: true,
           consentStatus: true,
+          onboardingCompletedAt: true,
           legalNameBi: true,
           contactEmailBi: true,
           countryCode: true,

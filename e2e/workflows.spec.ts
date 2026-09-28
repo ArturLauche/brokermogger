@@ -19,6 +19,13 @@ test.describe("profile and household workflows", () => {
     await expect(page.getByRole("status")).toContainText("Your profile is saved");
     await page.reload();
     await expect(page.getByLabel("Full legal name")).toHaveValue("Alex Browser");
+    await page.goto("/requests/new");
+    await expect(
+      page.getByText("Complete profile consent", { exact: true })
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Generate drafts" })).toHaveCount(0);
+    await page.getByRole("link", { name: "Finish setup", exact: true }).click();
+    await expect(page.getByLabel("Full legal name")).toHaveValue("Alex Browser");
     await page.getByRole("button", { name: "Finish setup" }).click();
     await expect(page).toHaveURL(/\/dashboard/);
     await page.goto("/vault");
