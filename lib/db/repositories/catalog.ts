@@ -52,16 +52,25 @@ export async function listActiveJurisdictions(): Promise<JurisdictionRecord[]> {
 
 export async function listPublishedLegalRules(): Promise<LegalRuleSnapshot[]> {
   return legalRulesCache.getOrLoad(async () => {
+    const now = new Date();
     const versions = await prisma.legalRuleVersion.findMany({
-      where: { status: "PUBLISHED" },
+      where: {
+        status: { in: ["PUBLISHED", "SUPERSEDED", "ARCHIVED"] },
+        effectiveFrom: { lte: now },
+        legalRule: { isActive: true, deletedAt: null, jurisdiction: { isActive: true } },
+      },
       include: { legalRule: true },
-      orderBy: [{ legalRuleId: "asc" }, { version: "desc" }],
+      orderBy: [{ legalRuleId: "asc" }, { effectiveFrom: "desc" }, { version: "desc" }],
     });
     const seen = new Set<string>();
     const latest = versions.filter((version) => {
       if (seen.has(version.legalRuleId)) return false;
       seen.add(version.legalRuleId);
-      return true;
+      // An expired/withdrawn replacement must not silently revive its predecessor.
+      return (
+        version.status === "PUBLISHED" &&
+        (!version.effectiveUntil || version.effectiveUntil > now)
+      );
     });
 
     return latest.map((version) => ({

@@ -334,3 +334,17 @@ verification, and production key/build checks against the compiled app.
   catalogue versions remain next. Also correct sandbox redirects being counted
   as real broker contact in reports. Operator tools, interface/production/
   performance work and PR delivery remain open.
+
+### Published catalogue history
+
+- Database guards now preserve published legal/template content and parent scope.
+  Seed changes append versions, retain operator choices, and never revive retired
+  text after a rollback. Operator-managed entries receive new seed content as
+  drafts. Applicable rule selection excludes inactive, future and expired content.
+- Added history, scope, effective-date and concurrent seed regression tests. The
+  concurrency test reproduced a first-install upsert race; per-parent transaction
+  locks now cover creation as well as version allocation. See
+  `docs/catalogue-versions.md` for upgrade behavior.
+- All 19 catalogue/seed/generation integration checks, type checking, lint and
+  formatting passed. Migration 13 applied successfully to both isolated test
+  schemas. Operator authoring and publication are still to be implemented.
