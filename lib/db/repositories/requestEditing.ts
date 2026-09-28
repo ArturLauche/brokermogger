@@ -1,4 +1,5 @@
 import { AppError } from "@/lib/core/errors";
+import { selectRequestDelivery } from "@/lib/brokers/sendable";
 import { prisma, type PrismaTransaction } from "@/lib/db/client";
 import type { ActorContext } from "@/lib/permissions/actor";
 import {
@@ -186,7 +187,10 @@ export async function replaceRequestDraft(
       if (input.regeneratedSnapshot)
         await tx.removalRequest.update({
           where: { id: request.id },
-          data: { templateVersionId: input.regeneratedSnapshot.templateVersionId },
+          data: {
+            templateVersionId: input.regeneratedSnapshot.templateVersionId,
+            ...selectRequestDelivery(request.broker),
+          },
         });
       if (
         freshSnapshot &&
@@ -208,6 +212,10 @@ export async function replaceRequestDraft(
             freshSnapshot?.legalRuleVersionId ?? request.legalRuleVersionId,
           variables: freshSnapshot?.variables ?? {
             followUpNumber: String(request.followUpCount),
+            followUpKind:
+              request.templateVersion?.template.requestType === "FINAL_REMINDER"
+                ? "FINAL_REMINDER"
+                : "FOLLOW_UP",
           },
           identifierDigest: identifierDigest(identifiers),
           profileDigest:

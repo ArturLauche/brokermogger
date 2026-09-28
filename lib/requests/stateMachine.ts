@@ -229,8 +229,8 @@ const BASE_TRANSITIONS: Readonly<Record<RequestStatus, readonly TransitionRule[]
     },
     {
       to: "ESCALATION_RECOMMENDED",
-      actors: ["SYSTEM"],
-      description: "Follow-up cap reached before approval",
+      actors: ["SYSTEM", "USER"],
+      description: "Follow-up cap reached or user prepares an overdue escalation summary",
     },
     { to: "CLOSED", actors: ["USER"], description: "Closed by user" },
   ],
@@ -295,6 +295,11 @@ const BASE_TRANSITIONS: Readonly<Record<RequestStatus, readonly TransitionRule[]
   ],
   COMPLETED: [{ to: "CLOSED", actors: ["USER", "SYSTEM"], description: "Archived" }],
   PARTIALLY_COMPLETED: [
+    {
+      to: "ESCALATION_RECOMMENDED",
+      actors: ["USER"],
+      description: "User prepares escalation guidance for the unresolved part",
+    },
     {
       to: "FOLLOW_UP_SCHEDULED",
       actors: ["USER", "SYSTEM"],

@@ -51,7 +51,10 @@ export async function regenerateRequestDraft(
     const regeneratedSnapshot = await renderFollowUpSnapshot(
       actor,
       request,
-      request.followUpCount
+      request.followUpCount,
+      request.templateVersion?.template.requestType === "FINAL_REMINDER"
+        ? "FINAL_REMINDER"
+        : "FOLLOW_UP"
     );
     return replaceRequestDraft(actor, {
       ...input,

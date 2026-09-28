@@ -22,6 +22,41 @@ After upgrading, previously stranded `NO_RESPONSE` requests can be picked up by
 the next deadline watch. Active consent and the current follow-up cap still apply.
 Run the app and worker from the same revision; stop old workers during an upgrade.
 
+## Final reminders and escalation preparation
+
+After a follow-up has a recorded manual submission or provider acceptance, the
+request offers a final reminder. It consumes one of the configured reminder slots
+and requires fresh approval. The preparation job records its kind, and publication
+checks that kind along with the lease. Retry keeps the same kind. Editing or
+regenerating a final reminder cannot silently turn it into an ordinary follow-up.
+No further reminders are queued after a final reminder; an overdue result suggests
+reviewing escalation guidance even when the instance's cap is higher.
+
+New and regenerated reminders select the current active contact, preferring verified
+contacts, then the operator's preference and priority. Archived contacts are excluded.
+Changing from email to a portal changes the new approval envelope and requires the
+manual submission flow. Previously submitted snapshots are preserved.
+
+For a rejection, partial completion or overdue submitted request, the owner can
+prepare an escalation summary from the request. This cancels pending reminders in
+the same transaction as the recorded status change. Uncertain delivery must be
+resolved first. The summary lists the historical source, recorded submission and
+receipt information, confirmed classifications and available record counts. It
+distinguishes simulated/sandbox email from real provider acceptance and warns that
+acceptance does not establish receipt. It contains no identifier or correspondence
+plaintext. Private download access requires the account holder, including when an
+administrator has an emergency read grant.
+
+The summary is a preparation aid, not a complaint. The person chooses the authority,
+checks any appeal and filing requirements, writes their own explanation, selects
+supporting records and makes any external submission themselves. The application
+does not contact an authority. Authority acknowledgements can be added as evidence.
+
+Rerun seeds after deploying the catalogue-history migration to receive revised letter
+wording for household requests and partially answered follow-ups. Seed changes add
+versions; approved historical snapshots are unaffected. Existing queued preparation
+jobs without a kind continue as ordinary follow-ups.
+
 ## Blocked or uncertain sends
 
 If a live consent, contact, approval or sending gate changes before dispatch, the

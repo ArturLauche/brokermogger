@@ -44,7 +44,7 @@ export async function getOwnedRequest(actor: ActorContext, requestId: string) {
       snapshots: { orderBy: { version: "desc" }, take: 1 },
       events: { orderBy: { createdAt: "asc" } },
       legalRuleVersion: true,
-      templateVersion: true,
+      templateVersion: { include: { template: { select: { requestType: true } } } },
       responses: {
         where: { deletedAt: null },
         orderBy: { receivedAt: "desc" },

@@ -14,7 +14,9 @@ import {
 import { claimDueJobs, expireStaleLocks } from "@/lib/db/repositories/jobs";
 import { markAccountDeletionRequested } from "@/lib/db/repositories/account";
 import { softDeleteProfile } from "@/lib/db/repositories/profiles";
-import { generateRequests } from "@/lib/requests/lifecycle";
+import { generateRequests, approveRequest } from "@/lib/requests/lifecycle";
+import { getOwnedRequest } from "@/lib/db/repositories/requests";
+import { createJobHandlers } from "@/lib/jobs/handlers";
 import { getStorage, clearMemoryStorage } from "@/lib/storage";
 import { downloadEvidence } from "@/lib/evidence/service";
 import { runClaimedJob } from "@/lib/jobs/queue";
@@ -49,6 +51,30 @@ async function fixture() {
 }
 
 describe("private, complete and recoverable reports", () => {
+  it.each(["MOCK", "SANDBOX", "RESEND"] as const)(
+    "counts %s acceptance according to whether it contacts the broker",
+    async (provider) => {
+      const f = await fixture();
+      const request = await getOwnedRequest(f.actor, f.request.id);
+      await approveRequest(f.actor, {
+        requestId: request.id,
+        envelopeHash: request.snapshots[0]!.envelopeHash,
+        confirmationAccepted: true,
+      });
+      const [send] = await claimDueJobs("report-submission", 1);
+      await runClaimedJob(send!, createJobHandlers());
+      await testPrisma.outboundEmail.updateMany({
+        where: { removalRequestId: request.id },
+        data: { provider },
+      });
+      const report = await requestReport(f.actor, input());
+      await renderReportForJob(await claim());
+      const data = JSON.parse((await downloadReport(f.actor, report.id)).body.toString());
+      expect(data.brokersContacted).toEqual(
+        provider === "RESEND" ? [f.brokers[0]!.legalName] : []
+      );
+    }
+  );
   it("creates the report and job atomically, deduplicates submits and rejects changed inputs", async () => {
     const f = await fixture();
     await testPrisma.$executeRawUnsafe(

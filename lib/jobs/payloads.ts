@@ -10,6 +10,7 @@ import { z } from "zod";
 
 import { ValidationError } from "@/lib/core/errors";
 import { entityIdSchema } from "@/lib/validation/ids";
+import { followUpKindSchema } from "@/lib/requests/followUpKind";
 
 import type { JobPayload, JobPayloadMap } from "./types";
 
@@ -22,6 +23,7 @@ const JOB_PAYLOAD_SCHEMAS = {
   PREPARE_FOLLOW_UP: z.object({
     removalRequestId: entityIdSchema,
     followUpNumber: z.number().int().min(1).max(10),
+    kind: followUpKindSchema.optional(),
   }),
   DISPATCH_NOTIFICATION: z.object({
     notificationId: entityIdSchema,

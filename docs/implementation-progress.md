@@ -368,3 +368,27 @@ verification, and production key/build checks against the compiled app.
   preserved selections, duplicate navigation, sign-out and household consent.
   External sending remains disabled. The final full-suite run will repeat these
   checks after the remaining features and interface work.
+
+### Final reminders and escalation preparation
+
+- Final reminders now require a recorded follow-up, retain their kind through
+  retries and regeneration, and require fresh approval. Lease fencing verifies
+  the requested kind. A submitted final reminder ends automatic follow-ups even
+  when an operator raises the ordinary reminder cap. Regeneration selects the
+  current active contact while preserving every historical approved envelope.
+- Added owner-only escalation preparation and a private text summary. Preparation
+  cancels queued reminders atomically, checks current consent and unresolved
+  delivery, and makes clear that no complaint or authority contact occurred.
+  Summaries distinguish real, manual and simulated contact and exclude personal
+  identifiers and message contents. Reports also exclude sandbox delivery from
+  real broker-contact counts.
+- Seed template revisions remove blank deadline labels, unsupported assumptions
+  that no reply arrived, and wording that conflated the sender with the represented
+  adult. Published historical versions remain unchanged.
+- All 351 unit/component tests, typecheck, lint, formatting and production build
+  passed. Targeted generation/editing/follow-up checks and all 24 follow-up-action,
+  recovery and report integration cases passed; the final 13-case reminder rerun
+  also passed after adding cap and terminal-reminder checks. The production browser
+  journey passed final approval, manual submission, partial reply, escalation,
+  completion, reporting and export with external sending disabled. Operator tools,
+  sourced coverage, interface, production and performance work remain in progress.

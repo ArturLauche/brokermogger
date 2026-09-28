@@ -121,10 +121,11 @@ export async function loadReportPage(job: ReportJob, cursor?: string) {
         outboundEmails: {
           where: {
             dispatchState: "ACCEPTED",
-            provider: { not: "MOCK" },
+            provider: "RESEND",
             sentAt: { not: null },
           },
           take: 1,
+          orderBy: { sentAt: "asc" },
           select: { sentAt: true },
         },
       },

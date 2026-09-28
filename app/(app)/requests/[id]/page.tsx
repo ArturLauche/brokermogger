@@ -22,11 +22,14 @@ import { getRequestWork } from "@/lib/db/repositories/requestWork";
 import { BackgroundRefresh } from "@/components/common/background-refresh";
 import { SubmitButton } from "@/components/common/submit-button";
 import { RESPONSE_LABELS } from "@/lib/responses/labels";
+import { canPrepareEscalation } from "@/lib/requests/escalationEligibility";
+import { getSetting } from "@/lib/config/runtimeSettings";
 
 import {
   closeRequestAction,
   markCompletedAction,
   prepareFollowUpAction,
+  prepareEscalationAction,
   returnToDraftAction,
 } from "../actions";
 
@@ -60,6 +63,7 @@ export default async function RequestDetailPage({
 
   const canManage = can(actor, "request:update", { ownerUserId: request.userId }).allowed;
   const work = await getRequestWork(actor, request.id);
+  const followUpLimit = await getSetting("followUpMaxAttempts");
   const followUpFailed =
     canManage &&
     request.status === "FOLLOW_UP_SCHEDULED" &&
@@ -80,7 +84,11 @@ export default async function RequestDetailPage({
     Boolean(request.sentAt) &&
     canTransition(request.status, "COMPLETED", "USER");
   const canFollowUp =
-    canManage && canTransition(request.status, "FOLLOW_UP_SCHEDULED", "USER");
+    canManage &&
+    Boolean(request.sentAt) &&
+    request.followUpCount < followUpLimit &&
+    request.templateVersion?.template.requestType !== "FINAL_REMINDER" &&
+    canTransition(request.status, "FOLLOW_UP_SCHEDULED", "USER");
 
   return (
     <div className="flex flex-col gap-6">
@@ -114,7 +122,9 @@ export default async function RequestDetailPage({
           <h2 id="follow-up-state" className="text-lg font-semibold">
             {followUpFailed
               ? "Follow-up preparation needs a retry"
-              : "Follow-up scheduled"}
+              : work.followUp?.kind === "FINAL_REMINDER"
+                ? "Final reminder scheduled"
+                : "Follow-up scheduled"}
           </h2>
           <p className="text-sm text-muted-foreground">
             {followUpFailed
@@ -243,6 +253,15 @@ export default async function RequestDetailPage({
             </SubmitButton>
           </form>
         ) : null}
+        {canFollowUp && work.hasSubmittedFollowUp ? (
+          <form action={prepareFollowUpAction}>
+            <input type="hidden" name="requestId" value={request.id} />
+            <input type="hidden" name="kind" value="FINAL_REMINDER" />
+            <SubmitButton variant="outline" pendingText="Scheduling…">
+              Prepare final reminder
+            </SubmitButton>
+          </form>
+        ) : null}
         {canComplete ? (
           <ConfirmSubmitButton
             action={markCompletedAction}
@@ -254,6 +273,22 @@ export default async function RequestDetailPage({
               "This records your confirmation and cancels queued sends and follow-ups. It does not guarantee removal or recall an accepted email.",
             ]}
           />
+        ) : null}
+        {canManage && canPrepareEscalation(request) ? (
+          request.status === "ESCALATION_RECOMMENDED" ? (
+            <Button asChild variant="outline">
+              <Link href={`/requests/${request.id}/escalation`}>
+                Review escalation summary
+              </Link>
+            </Button>
+          ) : (
+            <form action={prepareEscalationAction}>
+              <input type="hidden" name="requestId" value={request.id} />
+              <SubmitButton variant="outline" pendingText="Preparing…">
+                Prepare escalation summary
+              </SubmitButton>
+            </form>
+          )
         ) : null}
         {canClose ? (
           <ConfirmSubmitButton
@@ -274,6 +309,16 @@ export default async function RequestDetailPage({
           </Button>
         ) : null}
       </div>
+      {canManage &&
+      request.sentAt &&
+      request.followUpCount >= followUpLimit &&
+      canTransition(request.status, "FOLLOW_UP_SCHEDULED", "USER") ? (
+        <p className="text-sm text-muted-foreground">
+          This request has reached the instance’s limit of {followUpLimit} prepared
+          reminders. This is an operational limit. Review the correspondence and
+          escalation guidance, or close the request when appropriate.
+        </p>
+      ) : null}
       <Tabs defaultValue="timeline">
         <TabsList>
           <TabsTrigger value="timeline">Timeline</TabsTrigger>

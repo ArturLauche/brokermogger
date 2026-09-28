@@ -77,7 +77,9 @@ export async function scheduleOverdueRequest(
       });
       const eligible = hasConsent && !unresolved && !!request.sentAt;
       let queued = false;
-      if (eligible && request.followUpCount < input.maxFollowUps) {
+      const finalReminder =
+        request.templateVersion?.template.requestType === "FINAL_REMINDER";
+      if (eligible && !finalReminder && request.followUpCount < input.maxFollowUps) {
         const latestManual =
           request.followUpCount > 0
             ? await tx.manualSubmission.aggregate({
@@ -111,7 +113,12 @@ export async function scheduleOverdueRequest(
             relatedRequestId: request.id,
           },
         });
-      } else if (eligible) await recommendEscalationInTx(tx, overdue);
+      } else if (eligible)
+        await recommendEscalationInTx(
+          tx,
+          overdue,
+          finalReminder ? "final_reminder" : "limit"
+        );
       await createNotificationInTx(tx, {
         userId: request.userId,
         profileId: request.profileId,

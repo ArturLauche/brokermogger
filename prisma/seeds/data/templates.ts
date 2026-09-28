@@ -56,9 +56,10 @@ const CORE_REQUIRED: readonly string[] = [
 ];
 
 /** Blocks that render empty when they do not apply. */
-const CORE_OPTIONAL: readonly string[] = ["consent.statement", "request.deadlineDate"];
+const CORE_OPTIONAL: readonly string[] = ["consent.statement"];
 
-const CHANGE_NOTES = "Initial template shipped with the seed data set.";
+const CHANGE_NOTES =
+  "2026-09-28: identify the named person consistently, remove empty response-date labels, and support reminders after partial replies.";
 
 const CLAUSES_BASE = [
   "request-identification",
@@ -97,7 +98,6 @@ const VERIFICATION_BLOCK = `Please verify this request with the identifiers abov
 
 function footer(): string {
   return `Reference: {{request.reference}}
-Requested response date: {{request.deadlineDate}}
 Date of this request: {{today}}
 
 {{profile.fullName}}`;
@@ -124,7 +124,7 @@ export const REQUEST_TEMPLATES: RequestTemplateSeed[] = [
       "Privacy request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request about my own personal data under {{request.legalBasis}}.
+I am making a {{request.type}} request about the named person’s personal data under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -153,7 +153,7 @@ ${footer()}`
       "Privacy request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request about my own personal data under {{request.legalBasis}}.
+I am making a {{request.type}} request about the named person’s personal data under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -182,7 +182,7 @@ ${footer()}`
       "Privacy request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request about my own personal data under {{request.legalBasis}}.
+I am making a {{request.type}} request about the named person’s personal data under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -211,7 +211,7 @@ ${footer()}`
       "Privacy request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request about my own personal data under {{request.legalBasis}}.
+I am making a {{request.type}} request about the named person’s personal data under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -240,7 +240,7 @@ ${footer()}`
       "Privacy request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request about my own personal data under {{request.legalBasis}}.
+I am making a {{request.type}} request about the named person’s personal data under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -269,7 +269,7 @@ ${footer()}`
       "Privacy request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request about my own personal data under {{request.legalBasis}}.
+I am making a {{request.type}} request about the named person’s personal data under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -297,7 +297,7 @@ ${footer()}`
       "Privacy request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request about my own personal data under {{request.legalBasis}}.
+I am making a {{request.type}} request about the named person’s personal data under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -330,7 +330,7 @@ I am following up on a privacy request I sent you earlier. The request was a {{r
 
 ${IDENTIFIER_BLOCK}
 
-The response date I noted for the original request was {{request.deadlineDate}}. I have not recorded a reply from you so far.
+The request remains unresolved. Please address any outstanding parts and explain what, if anything, prevents you from completing them.
 
 ${VERIFICATION_BLOCK}
 
@@ -352,7 +352,7 @@ ${footer()}`
       "Final reminder: privacy request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-This is a final reminder about the privacy request with the reference {{request.reference}}. It is a {{request.type}} request made under {{request.legalBasis}}, and the response date I noted was {{request.deadlineDate}}.
+This is a final reminder about the privacy request with the reference {{request.reference}}. It is a {{request.type}} request made under {{request.legalBasis}} and remains unresolved.
 
 ${IDENTIFIER_BLOCK}
 
@@ -360,7 +360,7 @@ I would still prefer to settle this directly with you.
 
 ${VERIFICATION_BLOCK}
 
-Please reply in writing to {{reply.address}} and confirm what you have done with the request. If I do not hear from you, I will decide myself whether to take the matter to the authority that supervises data protection where I live.
+Please reply in writing to {{reply.address}} and confirm what you have done with the request. If I do not hear from you, I will decide myself whether to take the matter to the relevant privacy authority for the person named above.
 
 ${footer()}`
     ),
@@ -378,7 +378,7 @@ ${footer()}`
       "Escalation: privacy request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am writing about the privacy request with the reference {{request.reference}}, a {{request.type}} request made under {{request.legalBasis}}. The response date I noted was {{request.deadlineDate}}, and the matter is still unresolved.
+I am writing about the privacy request with the reference {{request.reference}}, a {{request.type}} request made under {{request.legalBasis}}. The matter is still unresolved.
 
 Organisation: {{broker.name}}
 Registered entity: {{broker.legalName}}
@@ -418,7 +418,7 @@ ${footer()}`,
       "California privacy request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am a California resident and I am making a {{request.type}} request about my own personal information under {{request.legalBasis}}.
+The person named below is a California resident. I am making a {{request.type}} request about their personal information under {{request.legalBasis}}.
 
 State or region of residence: {{profile.region}}
 
@@ -454,7 +454,7 @@ ${footer()}`,
       "California privacy request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am a California resident and I am making a {{request.type}} request about my own personal information under {{request.legalBasis}}.
+The person named below is a California resident. I am making a {{request.type}} request about their personal information under {{request.legalBasis}}.
 
 State or region of residence: {{profile.region}}
 
@@ -488,7 +488,7 @@ ${footer()}`,
       "California privacy request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am a California resident and I am making a {{request.type}} request about my own personal information under {{request.legalBasis}}.
+The person named below is a California resident. I am making a {{request.type}} request about their personal information under {{request.legalBasis}}.
 
 State or region of residence: {{profile.region}}
 
@@ -520,7 +520,7 @@ ${footer()}`,
       "California privacy request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am a California resident and I am making a {{request.type}} request about my own personal information under {{request.legalBasis}}.
+The person named below is a California resident. I am making a {{request.type}} request about their personal information under {{request.legalBasis}}.
 
 State or region of residence: {{profile.region}}
 
@@ -560,7 +560,7 @@ ${footer()}`,
       "Data protection request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request as a data subject under {{request.legalBasis}}.
+I am making a {{request.type}} request concerning the person named below under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -590,7 +590,7 @@ ${footer()}`
       "Data protection request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request as a data subject under {{request.legalBasis}}.
+I am making a {{request.type}} request concerning the person named below under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -622,7 +622,7 @@ ${footer()}`
       "Data protection request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request as a data subject under {{request.legalBasis}}.
+I am making a {{request.type}} request concerning the person named below under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -651,7 +651,7 @@ ${footer()}`
       "Data protection request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request as a data subject under {{request.legalBasis}}.
+I am making a {{request.type}} request concerning the person named below under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -681,7 +681,7 @@ ${footer()}`
       "Data protection request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request as a data subject under {{request.legalBasis}}.
+I am making a {{request.type}} request concerning the person named below under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -720,7 +720,7 @@ ${footer()}`
       "Data protection request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request as a data subject under {{request.legalBasis}}.
+I am making a {{request.type}} request concerning the person named below under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -750,7 +750,7 @@ ${footer()}`
       "Subject access request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request as a data subject under {{request.legalBasis}}. This is a subject access request.
+I am making a {{request.type}} request concerning the person named below under {{request.legalBasis}}. This is a subject access request.
 
 ${IDENTIFIER_BLOCK}
 
@@ -783,7 +783,7 @@ ${footer()}`
       "Data protection request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request as a data subject under {{request.legalBasis}}.
+I am making a {{request.type}} request concerning the person named below under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -823,7 +823,7 @@ ${footer()}`
       "Data protection request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request as a data subject under {{request.legalBasis}}.
+I am making a {{request.type}} request concerning the person named below under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -854,7 +854,7 @@ ${footer()}`
       "Data protection request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request as a data subject under {{request.legalBasis}}.
+I am making a {{request.type}} request concerning the person named below under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -885,7 +885,7 @@ ${footer()}`
       "Data protection request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request as a data subject under {{request.legalBasis}}.
+I am making a {{request.type}} request concerning the person named below under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -914,7 +914,7 @@ ${footer()}`
       "Data protection request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request as a data subject under {{request.legalBasis}}.
+I am making a {{request.type}} request concerning the person named below under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 

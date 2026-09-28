@@ -128,6 +128,56 @@ test("edits and approves a manual request, records submission, then confirms a r
     .check();
   await page.getByRole("button", { name: "Record submission", exact: true }).click();
   await expect(page).toHaveURL(/saved=submission/);
+  await page.getByRole("button", { name: "Prepare final reminder", exact: true }).click();
+  await processFollowUp(requestId, false, 2);
+  await page.getByRole("button", { name: "Refresh status" }).click();
+  await page.getByRole("link", { name: "Review", exact: true }).click();
+  await expect(
+    page.getByText(/^Subject: Final reminder: privacy request/).first()
+  ).toBeVisible();
+  await page.getByRole("checkbox").check();
+  await page.getByRole("button", { name: "Approve for manual submission" }).click();
+  await page.getByRole("link", { name: "Submit manually" }).click();
+  await page
+    .getByLabel(
+      "I submitted this exact approved message myself, and these dates are accurate."
+    )
+    .check();
+  await page.getByRole("button", { name: "Record submission", exact: true }).click();
+  await expect(page).toHaveURL(/saved=submission/);
+  await expect(
+    page.getByRole("button", { name: "Prepare follow-up", exact: true })
+  ).toHaveCount(0);
+  await page.getByRole("tab", { name: "Broker responses" }).click();
+  await page.getByRole("link", { name: "Record a reply", exact: true }).click();
+  await page.getByLabel("Reply subject or label").fill("Some records remain");
+  await page
+    .getByLabel("Reply text", { exact: true })
+    .fill("We completed part of this request. Some records remain under review.");
+  await page.getByRole("button", { name: "Save reply and review" }).click();
+  await page.getByLabel("What does this reply say?").selectOption("PARTIALLY_COMPLETED");
+  await page.getByLabel(/Change the request status to Partially completed/).check();
+  await page
+    .getByLabel(
+      "I reviewed the reply and confirm this classification and the selected status action."
+    )
+    .check();
+  await page.getByRole("button", { name: "Confirm response", exact: true }).click();
+  await expect(page).toHaveURL(/saved=confirmed/);
+  await page.goto(requestUrl);
+  await page
+    .getByRole("button", { name: "Prepare escalation summary", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Prepare your next step", exact: true })
+  ).toBeVisible();
+  const summary = await page.request.get(`/api/requests/${requestId}/escalation`);
+  expect(summary.status()).toBe(200);
+  expect(summary.headers()["cache-control"]).toContain("no-store");
+  const summaryText = await summary.text();
+  expect(summaryText).toContain("Manual submissions: 3");
+  expect(summaryText).not.toContain("Alex Correspondence");
+  await page.getByRole("link", { name: "Return to request", exact: true }).click();
   await page.getByRole("tab", { name: "Broker responses" }).click();
   await page.getByRole("link", { name: "Record a reply", exact: true }).click();
   await page.getByLabel("Reply subject or label").fill("Deletion confirmation");
@@ -208,7 +258,11 @@ test("edits and approves a manual request, records submission, then confirms a r
   const personal = await sensitive.json();
   expect(personal.mode).toBe("SENSITIVE");
   expect(personal.profiles[0].legalName).toBe("Alex Correspondence");
-  expect(personal.responses[0].content.body).toContain("We have deleted your data.");
+  expect(
+    personal.responses.some((reply: { content: { body: string } }) =>
+      reply.content.body.includes("We have deleted your data.")
+    )
+  ).toBe(true);
   const masked = await page.request.get("/api/account/export");
   expect(masked.status()).toBe(200);
   const maskedText = await masked.text();
@@ -261,11 +315,15 @@ async function processExport(exportId: string) {
   }
 }
 
-async function processFollowUp(requestId: string, injectFailure = false) {
+async function processFollowUp(
+  requestId: string,
+  injectFailure = false,
+  followUpNumber = 1
+) {
   const db = new PrismaClient();
   try {
     const row = await db.backgroundJob.findUniqueOrThrow({
-      where: { idempotencyKey: `follow-up:${requestId}:1` },
+      where: { idempotencyKey: `follow-up:${requestId}:${followUpNumber}` },
     });
     if (injectFailure) {
       expect(row.status).toBe("PENDING");

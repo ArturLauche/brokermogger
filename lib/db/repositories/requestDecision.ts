@@ -36,6 +36,7 @@ export async function loadRequestForDecision(
     where: { id, deletedAt: null, profile: { deletedAt: null, ownerUserId: ref.userId } },
     include: {
       user: { select: { timezone: true } },
+      templateVersion: { select: { template: { select: { requestType: true } } } },
       profile: {
         select: {
           id: true,

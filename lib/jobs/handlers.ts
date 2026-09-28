@@ -60,7 +60,8 @@ export function createJobHandlers(): JobHandlerRegistry {
         actor,
         job.payload.removalRequestId,
         job.payload.followUpNumber,
-        job
+        job,
+        job.payload.kind ?? "FOLLOW_UP"
       );
       return { message: result.message };
     },

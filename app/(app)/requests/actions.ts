@@ -13,6 +13,8 @@ import {
 } from "@/lib/requests/lifecycle";
 import { formCheckbox, formString, parseWithSchema } from "@/lib/validation/form";
 import { entityIdSchema } from "@/lib/validation/ids";
+import { followUpKindSchema } from "@/lib/requests/followUpKind";
+import { prepareEscalation } from "@/lib/requests/escalation";
 import { z } from "zod";
 
 function bounce(requestId: string, error: unknown, fallback: string): never {
@@ -80,9 +82,23 @@ export async function prepareFollowUpAction(formData: FormData): Promise<void> {
   const rawId = formString(formData, "requestId");
   try {
     const { requestId } = parseWithSchema(requestIdSchema, { requestId: rawId });
-    await prepareFollowUp(actor, requestId);
+    const rawKind = formString(formData, "kind");
+    const kind = rawKind ? parseWithSchema(followUpKindSchema, rawKind) : undefined;
+    await prepareFollowUp(actor, requestId, kind);
   } catch (error) {
     bounce(rawId, error, `/requests/${rawId}`);
   }
   redirect(`/requests/${rawId}`);
+}
+
+export async function prepareEscalationAction(formData: FormData): Promise<void> {
+  const actor = await requireActor();
+  const rawId = formString(formData, "requestId");
+  try {
+    const { requestId } = parseWithSchema(requestIdSchema, { requestId: rawId });
+    await prepareEscalation(actor, requestId);
+  } catch (error) {
+    bounce(rawId, error, `/requests/${rawId}`);
+  }
+  redirect(`/requests/${encodeURIComponent(rawId)}/escalation`);
 }

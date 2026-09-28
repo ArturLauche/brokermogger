@@ -10,7 +10,11 @@ import type { JobType } from "@prisma/client";
 /** Payload shape per job type. Payloads never contain personal data. */
 export interface JobPayloadMap {
   SEND_REQUEST: { removalRequestId: string; snapshotId: string; attempt: number };
-  PREPARE_FOLLOW_UP: { removalRequestId: string; followUpNumber: number };
+  PREPARE_FOLLOW_UP: {
+    removalRequestId: string;
+    followUpNumber: number;
+    kind?: "FOLLOW_UP" | "FINAL_REMINDER" | undefined;
+  };
   DISPATCH_NOTIFICATION: { notificationId: string };
   PROCESS_EMAIL_WEBHOOK: { webhookEventId: string };
   GENERATE_REPORT: { reportId: string };

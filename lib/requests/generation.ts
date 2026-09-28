@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 
-import type { ContactMethodType, RequestChannel, RequestType } from "@prisma/client";
+import type { RequestType } from "@prisma/client";
 
 import { recordAudit } from "@/lib/audit/service";
-import { evaluateBrokerSendable, preferredContact } from "@/lib/brokers/sendable";
+import { evaluateBrokerSendable, selectRequestDelivery } from "@/lib/brokers/sendable";
 import { getEffectiveFairUse, getSetting } from "@/lib/config/runtimeSettings";
 import { assertCurrentProfileConsent } from "@/lib/consent/current";
 import { profileIdentityDigest } from "./envelope";
@@ -45,14 +45,6 @@ import { parseWithSchema } from "@/lib/validation/form";
 import { workflowSchema } from "./initial";
 
 import { formatIdentifierList, requestReference } from "./rendering";
-const CHANNEL_BY_CONTACT: Record<ContactMethodType, RequestChannel> = {
-  EMAIL: "EMAIL",
-  WEB_FORM: "WEB_FORM",
-  PRIVACY_PORTAL_URL: "WEB_FORM",
-  POSTAL: "POSTAL",
-  API: "API",
-  DROP_PLATFORM: "DROP",
-};
 
 export interface GenerateInput {
   profileId: string;
@@ -223,22 +215,7 @@ export async function prepareRequestDrafts(
       hasJurisdictionCoverage: Boolean(coverage),
     });
 
-    const contact = preferredContact({
-      id: broker.id,
-      slug: broker.slug,
-      isActive: broker.isActive,
-      isDemoData: broker.isDemoData,
-      productionSendingEnabled: broker.productionSendingEnabled,
-      productionUnsafeFlag: broker.productionUnsafeFlag,
-      deletedAt: broker.deletedAt,
-      lastVerifiedAt: broker.lastVerifiedAt,
-      sourceUrl: broker.sourceUrl,
-      verificationStatus: broker.verificationStatus,
-      contactMethods: broker.contactMethods,
-      hasJurisdictionCoverage: Boolean(coverage),
-    });
-
-    const channel: RequestChannel = contact ? CHANNEL_BY_CONTACT[contact.type] : "EMAIL";
+    const delivery = selectRequestDelivery(broker);
     const verification = rule.verificationRequirements as {
       governmentIdExpected?: boolean;
     };
@@ -306,15 +283,13 @@ export async function prepareRequestDrafts(
       brokerId: broker.id,
       jurisdictionId: resolved.jurisdiction.id,
       requestType: input.requestType,
-      channel,
+      ...delivery,
       legalRuleVersionId: rule.legalRuleVersionId,
       templateVersionId: template.version.id,
       legalBasisText: rule.legalBasisText,
       deadlineDays: rule.deadlineDays,
       manualReviewRequired: review.required,
       manualReviewReasons: review.reasons,
-      destinationType: contact?.type ?? null,
-      destinationValue: contact?.value ?? null,
       includedIdentifierIds: decryptedIdentifiers.map((item) => item.id),
       includedIdentifiers: decryptedIdentifiers.map((item) => ({
         type: item.type,

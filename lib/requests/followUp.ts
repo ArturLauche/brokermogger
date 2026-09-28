@@ -1,4 +1,5 @@
 import { profileIdentityDigest } from "./envelope";
+import { followUpKindSchema, type FollowUpKind } from "./followUpKind";
 import {
   scheduleRequestFollowUp,
   commitFollowUpDraft,
@@ -20,11 +21,16 @@ import { decryptField, sha256Hex } from "@/lib/security/crypto";
 import { renderTemplate } from "@/lib/templates/renderer";
 
 import { formatIdentifierList, requestReference } from "./rendering";
-export async function prepareFollowUp(actor: ActorContext, requestId: string) {
+export async function prepareFollowUp(
+  actor: ActorContext,
+  requestId: string,
+  kind?: FollowUpKind
+) {
   const result = await scheduleRequestFollowUp(
     actor,
     requestId,
-    await getSetting("followUpMaxAttempts")
+    await getSetting("followUpMaxAttempts"),
+    kind
   );
   await recordAudit({
     actor,
@@ -39,17 +45,24 @@ export async function prepareFollowUpDraft(
   actor: ActorContext,
   requestId: string,
   followUpNumber: number,
-  job: JobLease
+  job: JobLease,
+  kind: FollowUpKind = "FOLLOW_UP"
 ): Promise<{ message: string }> {
-  parseJobPayload("PREPARE_FOLLOW_UP", { removalRequestId: requestId, followUpNumber });
+  parseJobPayload("PREPARE_FOLLOW_UP", {
+    removalRequestId: requestId,
+    followUpNumber,
+    kind,
+  });
   const maxFollowUps = await getSetting("followUpMaxAttempts");
-  if (!(await canPrepareFollowUp(actor, requestId, followUpNumber, job, maxFollowUps)))
+  if (
+    !(await canPrepareFollowUp(actor, requestId, followUpNumber, job, maxFollowUps, kind))
+  )
     return {
       message:
         "The follow-up is no longer eligible or this worker no longer holds its lease.",
     };
   const request = await getOwnedRequest(actor, requestId);
-  const snapshot = await renderFollowUpSnapshot(actor, request, followUpNumber);
+  const snapshot = await renderFollowUpSnapshot(actor, request, followUpNumber, kind);
   const result = await commitFollowUpDraft(actor, {
     requestId: request.id,
     followUpNumber,
@@ -57,6 +70,7 @@ export async function prepareFollowUpDraft(
     maxFollowUps,
     previousSnapshotId: request.currentSnapshotId,
     snapshot,
+    kind,
   });
   if (!result.created)
     return { message: "The follow-up changed before publication. No draft was added." };
@@ -79,8 +93,10 @@ export async function prepareFollowUpDraft(
 export async function renderFollowUpSnapshot(
   actor: ActorContext,
   request: Awaited<ReturnType<typeof getOwnedRequest>>,
-  followUpNumber: number
+  followUpNumber: number,
+  kind: FollowUpKind = "FOLLOW_UP"
 ) {
+  followUpKindSchema.parse(kind);
   const profile = await getOwnedProfile(actor, request.profileId);
   const contactEmail = profile.contactEmailEnc
     ? decryptField(profile.contactEmailEnc, {
@@ -118,7 +134,7 @@ export async function renderFollowUpSnapshot(
   }));
 
   const template = await findPublishedTemplate({
-    requestType: "FOLLOW_UP",
+    requestType: kind,
     jurisdictionId: request.jurisdictionId,
   });
   if (!template) {
@@ -166,6 +182,7 @@ export async function renderFollowUpSnapshot(
       "request.reference": reference,
       "broker.name": request.broker.tradingNames[0] ?? request.broker.legalName,
       followUpNumber: String(followUpNumber),
+      followUpKind: kind,
     },
     profileDigest: profileIdentityDigest(profile),
     identifierDigest: sha256Hex(
