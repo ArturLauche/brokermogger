@@ -221,6 +221,7 @@ export async function beginApprovedDispatch(
       const contact = request.broker.contactMethods.find(
         (row) =>
           row.isActive &&
+          !row.deletedAt &&
           row.type === envelope.destinationType &&
           row.value === envelope.destination
       );
@@ -234,7 +235,11 @@ export async function beginApprovedDispatch(
           ...request.broker,
           contactMethods: contact.isVerified ? [contact] : [],
           hasJurisdictionCoverage: request.broker.jurisdictionCoverage.some(
-            (row) => row.jurisdictionId === request.jurisdictionId && row.isActive
+            (row) =>
+              row.jurisdictionId === request.jurisdictionId &&
+              row.isActive &&
+              row.coverageType !== "UNKNOWN" &&
+              row.supportedRequestTypes.includes(request.requestType)
           ),
         });
         if (!decision.sendable)

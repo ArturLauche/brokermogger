@@ -94,7 +94,7 @@ export const TEMPLATE_VARIABLES: readonly TemplateVariableDefinition[] = [
     kind: "inline",
     required: true,
     description: "Broker trading name as addressed in the message.",
-    maxLength: 160,
+    maxLength: 200,
     example: "Example People Search",
   },
   {
@@ -102,7 +102,7 @@ export const TEMPLATE_VARIABLES: readonly TemplateVariableDefinition[] = [
     kind: "inline",
     required: false,
     description: "Registered legal entity name, when known.",
-    maxLength: 160,
+    maxLength: 200,
     example: "Example People Search LLC",
   },
   {

@@ -1,28 +1,22 @@
 /**
  * Admin console helpers.
  */
-import { addHours } from "date-fns";
 
 import { recordAudit, verifyAuditChain } from "@/lib/audit/service";
-import { ValidationError } from "@/lib/core/errors";
-import { invalidateCatalogCache } from "@/lib/db/repositories/catalog";
 import {
   countAdminOverview,
-  createAdminAction,
+  createBreakGlassGrant,
   listActiveBreakGlassGrants,
   listAdminAudit,
-  listAdminBrokers,
   listAdminJobs,
   listAdminLegalRules,
   listAdminTemplates,
   retryJobRow,
   cancelJobRow,
   revokeAdminAction,
-  updateBrokerAdmin,
 } from "@/lib/db/repositories/admin";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
-import type { BrokerVerificationStatus } from "@prisma/client";
 
 export async function openAdminConsole(actor: ActorContext) {
   requirePermission(actor, "admin:console:access");
@@ -31,66 +25,27 @@ export async function openAdminConsole(actor: ActorContext) {
     action: "admin.console_accessed",
     resourceType: "instance",
   });
-  return countAdminOverview();
-}
-
-export async function getAdminBrokers(actor: ActorContext) {
-  requirePermission(actor, "admin:broker:read");
-  return listAdminBrokers();
-}
-
-export async function changeBrokerVerification(
-  actor: ActorContext,
-  brokerId: string,
-  verificationStatus: BrokerVerificationStatus
-) {
-  requirePermission(actor, "admin:broker:manage");
-  const broker = await updateBrokerAdmin(brokerId, { verificationStatus });
-  invalidateCatalogCache();
-  await recordAudit({
-    actor,
-    action: "admin.broker_verification_changed",
-    resourceType: "broker",
-    resourceId: brokerId,
-  });
-  return broker;
-}
-
-export async function changeBrokerProductionSending(
-  actor: ActorContext,
-  brokerId: string,
-  enabled: boolean
-) {
-  requirePermission(actor, "admin:broker:manage");
-  const broker = await updateBrokerAdmin(brokerId, { productionSendingEnabled: enabled });
-  invalidateCatalogCache();
-  await recordAudit({
-    actor,
-    action: "admin.broker_production_sending_changed",
-    resourceType: "broker",
-    resourceId: brokerId,
-  });
-  return broker;
+  return countAdminOverview(actor);
 }
 
 export async function getAdminLegalRules(actor: ActorContext) {
   requirePermission(actor, "admin:legalRule:read");
-  return listAdminLegalRules();
+  return listAdminLegalRules(actor);
 }
 
 export async function getAdminTemplates(actor: ActorContext) {
   requirePermission(actor, "admin:template:read");
-  return listAdminTemplates();
+  return listAdminTemplates(actor);
 }
 
 export async function getAdminJobs(actor: ActorContext) {
   requirePermission(actor, "admin:job:read");
-  return listAdminJobs();
+  return listAdminJobs(actor);
 }
 
 export async function retryAdminJob(actor: ActorContext, jobId: string) {
   requirePermission(actor, "admin:job:manage");
-  await retryJobRow(jobId);
+  await retryJobRow(actor, jobId);
   await recordAudit({
     actor,
     action: "admin.job_retried",
@@ -101,7 +56,7 @@ export async function retryAdminJob(actor: ActorContext, jobId: string) {
 
 export async function cancelAdminJob(actor: ActorContext, jobId: string) {
   requirePermission(actor, "admin:job:manage");
-  await cancelJobRow(jobId);
+  await cancelJobRow(actor, jobId);
   await recordAudit({
     actor,
     action: "admin.job_cancelled",
@@ -112,7 +67,7 @@ export async function cancelAdminJob(actor: ActorContext, jobId: string) {
 
 export async function getAdminAudit(actor: ActorContext) {
   requirePermission(actor, "admin:audit:read");
-  return listAdminAudit(150);
+  return listAdminAudit(actor, 150);
 }
 
 export async function verifyAdminAuditChain(actor: ActorContext) {
@@ -125,16 +80,7 @@ export async function grantBreakGlass(
   input: { targetUserId: string; justification: string; durationHours: number }
 ) {
   requirePermission(actor, "admin:user:list");
-  if (input.justification.trim().length < 20) {
-    throw new ValidationError("A justification of at least 20 characters is required.");
-  }
-  const grant = await createAdminAction({
-    adminUserId: actor.userId,
-    type: "BREAK_GLASS_GRANT",
-    justification: input.justification.trim(),
-    targetUserId: input.targetUserId.trim(),
-    grantExpiresAt: addHours(new Date(), Math.min(Math.max(input.durationHours, 1), 24)),
-  });
+  const grant = await createBreakGlassGrant(actor, input);
   await recordAudit({
     actor,
     action: "admin.break_glass_granted",
@@ -146,7 +92,7 @@ export async function grantBreakGlass(
 
 export async function revokeBreakGlass(actor: ActorContext, grantId: string) {
   requirePermission(actor, "admin:user:list");
-  await revokeAdminAction(grantId);
+  await revokeAdminAction(actor, grantId);
   await recordAudit({
     actor,
     action: "admin.break_glass_revoked",
@@ -157,5 +103,5 @@ export async function revokeBreakGlass(actor: ActorContext, grantId: string) {
 
 export async function listBreakGlass(actor: ActorContext) {
   requirePermission(actor, "admin:audit:read");
-  return listActiveBreakGlassGrants();
+  return listActiveBreakGlassGrants(actor);
 }

@@ -1,6 +1,7 @@
 import type { ContactMethodType, RequestChannel, RequestType } from "@prisma/client";
 
 import { assertCurrentProfileConsent } from "@/lib/consent/current";
+import { assertBrokerRequestCompatible } from "@/lib/brokers/coverage";
 import { env } from "@/lib/config/env";
 import { AppError } from "@/lib/core/errors";
 import { prisma } from "@/lib/db/client";
@@ -101,6 +102,28 @@ export async function createPreparedDrafts(
             message:
               "The profile or its consent changed. Review it before creating requests.",
           });
+
+        // Broker editors lock these same parents before changing contacts or coverage.
+        for (const id of [...new Set(drafts.map((draft) => draft.brokerId))].sort())
+          await tx.$executeRaw`SELECT 1 FROM "Broker" WHERE id = ${id} FOR SHARE`;
+        const brokers = await tx.broker.findMany({
+          where: { id: { in: drafts.map((draft) => draft.brokerId) } },
+          select: {
+            id: true,
+            isActive: true,
+            deletedAt: true,
+            jurisdictionCoverage: true,
+          },
+        });
+        for (const draft of drafts) {
+          const broker = brokers.find((row) => row.id === draft.brokerId);
+          if (!broker)
+            throw new AppError({
+              code: "NOT_FOUND",
+              message: "A selected broker is no longer available.",
+            });
+          assertBrokerRequestCompatible(broker, draft.jurisdictionId, draft.requestType);
+        }
 
         if (env.RATE_LIMIT_ENABLED) {
           const reservation = await reserveWeightedRequestCreate(

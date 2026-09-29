@@ -4,10 +4,10 @@
  * Rules this writer follows:
  *  * Brokers are keyed by `slug`. Re-running refreshes the record instead of
  *    creating a second one.
- *  * A record that a maintainer has promoted to real data (`isDemoData` set to
- *    false) is never touched again. The seed only owns demo rows.
+ *  * Operator-managed, real and archived records are never overwritten.
+ *    Parent locks serialize seeding with edits; each broker and its children commit together.
  *  * Child rows that are no longer part of the demo data are removed so that a
- *    repeated run converges on exactly the shipped data set.
+ *    repeated run converges on the shipped data set. Retired contacts are archived.
  *  * `productionSendingEnabled` stays false. The data module makes it
  *    impossible to set, and the database rejects it without full verification.
  */
@@ -24,60 +24,34 @@ import {
 import { loadJurisdictionIds, requireJurisdictionId } from "./jurisdictions";
 import { emptyResult, type SeedStepResult } from "./types";
 
-type ExistingBroker = Prisma.BrokerGetPayload<{
-  include: {
-    aliases: true;
-    contactMethods: true;
-    jurisdictionCoverage: true;
-    seedSources: true;
-  };
-}>;
-
 export async function seedBrokers(prisma: PrismaClient): Promise<SeedStepResult> {
   const result = emptyResult("Brokers");
   const jurisdictionIds = await loadJurisdictionIds(prisma);
 
-  const existingRows = await prisma.broker.findMany({
-    where: { slug: { in: DEMO_BROKERS.map((broker) => broker.slug) } },
-    include: {
-      aliases: true,
-      contactMethods: true,
-      jurisdictionCoverage: true,
-      seedSources: true,
-    },
-  });
-  const existingBySlug = new Map<string, ExistingBroker>(
-    existingRows.map((row) => [row.slug, row])
-  );
-
   for (const broker of DEMO_BROKERS) {
-    const existing = existingBySlug.get(broker.slug);
-
-    if (existing && !existing.isDemoData) {
-      result.skipped += 1;
-      result.notes.push(
-        `${broker.slug}: left untouched because it is no longer marked as demo data`
-      );
-      continue;
-    }
-
-    const brokerId = await upsertBroker(prisma, broker);
-
-    if (existing) {
-      result.updated += 1;
-    } else {
-      result.created += 1;
-    }
-
-    result.removed += await syncAliases(prisma, brokerId, broker.aliases);
-    result.removed += await syncContactMethods(prisma, brokerId, broker.contactMethods);
-    result.removed += await syncCoverage(
-      prisma,
-      brokerId,
-      broker.coverage,
-      jurisdictionIds
-    );
-    result.removed += await syncSeedSources(prisma, brokerId, broker.seedSources);
+    const outcome = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`broker-seed:${broker.slug}`}, 0))`;
+      await tx.$executeRaw`SELECT 1 FROM "Broker" WHERE slug = ${broker.slug} FOR UPDATE`;
+      const existing = await tx.broker.findUnique({ where: { slug: broker.slug } });
+      if (
+        existing &&
+        (!existing.isDemoData ||
+          existing.createdById ||
+          existing.updatedById ||
+          existing.deletedAt)
+      )
+        return { kind: "skipped" as const, removed: 0 };
+      const brokerId = await upsertBroker(tx, broker);
+      let removed = await syncAliases(tx, brokerId, broker.aliases);
+      removed += await syncContactMethods(tx, brokerId, broker.contactMethods);
+      removed += await syncCoverage(tx, brokerId, broker.coverage, jurisdictionIds);
+      removed += await syncSeedSources(tx, brokerId, broker.seedSources);
+      return { kind: existing ? ("updated" as const) : ("created" as const), removed };
+    });
+    result[outcome.kind] += 1;
+    result.removed += outcome.removed;
+    if (outcome.kind === "skipped")
+      result.notes.push(`${broker.slug}: preserved operator-managed or archived entry`);
   }
 
   const contactMethods = DEMO_BROKERS.reduce(
@@ -95,7 +69,10 @@ export async function seedBrokers(prisma: PrismaClient): Promise<SeedStepResult>
   return result;
 }
 
-async function upsertBroker(prisma: PrismaClient, broker: BrokerSeed): Promise<string> {
+async function upsertBroker(
+  prisma: Prisma.TransactionClient,
+  broker: BrokerSeed
+): Promise<string> {
   const data = {
     legalName: broker.legalName,
     tradingNames: broker.tradingNames,
@@ -139,7 +116,7 @@ async function upsertBroker(prisma: PrismaClient, broker: BrokerSeed): Promise<s
 }
 
 async function syncAliases(
-  prisma: PrismaClient,
+  prisma: Prisma.TransactionClient,
   brokerId: string,
   aliases: BrokerAliasSeed[]
 ): Promise<number> {
@@ -158,7 +135,7 @@ async function syncAliases(
 }
 
 async function syncContactMethods(
-  prisma: PrismaClient,
+  prisma: Prisma.TransactionClient,
   brokerId: string,
   methods: BrokerContactMethodSeed[]
 ): Promise<number> {
@@ -189,14 +166,15 @@ async function syncContactMethods(
     keep.add(stored.id);
   }
 
-  const removed = await prisma.brokerContactMethod.deleteMany({
-    where: { brokerId, id: { notIn: [...keep] } },
+  const removed = await prisma.brokerContactMethod.updateMany({
+    where: { brokerId, id: { notIn: [...keep] }, deletedAt: null },
+    data: { deletedAt: new Date(), isActive: false, isVerified: false },
   });
   return removed.count;
 }
 
 async function syncCoverage(
-  prisma: PrismaClient,
+  prisma: Prisma.TransactionClient,
   brokerId: string,
   coverage: BrokerCoverageSeed[],
   jurisdictionIds: Map<string, string>
@@ -233,7 +211,7 @@ async function syncCoverage(
  * used as the identity within one broker.
  */
 async function syncSeedSources(
-  prisma: PrismaClient,
+  prisma: Prisma.TransactionClient,
   brokerId: string,
   sources: BrokerSeedSourceSeed[]
 ): Promise<number> {

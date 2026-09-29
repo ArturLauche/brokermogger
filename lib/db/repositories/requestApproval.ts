@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { env } from "@/lib/config/env";
+import { assertBrokerRequestCompatible } from "@/lib/brokers/coverage";
 import { AppError } from "@/lib/core/errors";
 import { prisma } from "@/lib/db/client";
 import { parseJobPayload } from "@/lib/jobs/payloads";
@@ -59,6 +60,11 @@ export async function commitRequestApproval(actor: ActorContext, input: Approval
         await sendingIdentityInTx(tx, request.userId)
       );
       const consent = assertCurrentProfileConsent(request.profile);
+      assertBrokerRequestCompatible(
+        request.broker,
+        request.jurisdictionId,
+        request.requestType
+      );
       if (
         request.approvedSnapshotId === snapshot.id &&
         request.approvedEnvelopeHash === snapshot.envelopeHash &&

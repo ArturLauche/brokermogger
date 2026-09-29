@@ -39,6 +39,10 @@ import {
   normalizeBrokerIds,
 } from "@/lib/requests/fairUse";
 import { evaluateManualReview } from "@/lib/requests/manualReview";
+import {
+  assertBrokerRequestCompatible,
+  confirmedRequestCoverage,
+} from "@/lib/brokers/coverage";
 import { decryptField, sha256Hex } from "@/lib/security/crypto";
 import { renderTemplate } from "@/lib/templates/renderer";
 import { parseWithSchema } from "@/lib/validation/form";
@@ -196,8 +200,10 @@ export async function prepareRequestDrafts(
       });
     }
 
-    const coverage = broker.jurisdictionCoverage.find(
-      (row) => row.jurisdictionId === resolved.jurisdiction.id && row.isActive
+    const coverage = assertBrokerRequestCompatible(
+      broker,
+      resolved.jurisdiction.id,
+      input.requestType
     );
 
     const sendable = evaluateBrokerSendable({
@@ -212,7 +218,7 @@ export async function prepareRequestDrafts(
       sourceUrl: broker.sourceUrl,
       verificationStatus: broker.verificationStatus,
       contactMethods: broker.contactMethods,
-      hasJurisdictionCoverage: Boolean(coverage),
+      hasJurisdictionCoverage: confirmedRequestCoverage(coverage, input.requestType),
     });
 
     const delivery = selectRequestDelivery(broker);
@@ -230,6 +236,8 @@ export async function prepareRequestDrafts(
       (volumeByBroker.get(broker.id) ?? 0) >= fairUse.requestsPerBrokerPer30Days;
 
     const review = evaluateManualReview({
+      brokerManualReviewRequired: broker.manualReviewRequired,
+      coverageUnconfirmed: !confirmedRequestCoverage(coverage, input.requestType),
       confidence: rule.confidence,
       requiresLegalReview: rule.requiresLegalReview,
       brokerRequiresId,

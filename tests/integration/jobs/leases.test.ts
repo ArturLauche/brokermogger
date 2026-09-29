@@ -1,3 +1,4 @@
+import { systemActor } from "@/lib/permissions/actor";
 import { describe, expect, it } from "vitest";
 
 import { cancelJobRow, retryJobRow } from "@/lib/db/repositories/admin";
@@ -38,7 +39,7 @@ describe("fenced job leases", () => {
     expect(
       await testPrisma.backgroundJob.findUniqueOrThrow({ where: { id: job!.id } })
     ).toMatchObject({ status: "FAILED", attemptCount: 1, leaseToken: null });
-    await retryJobRow(job!.id);
+    await retryJobRow(systemActor("lease-test"), job!.id);
     expect((await claimDueJobs("recovered", 1))[0]?.id).toBe(job!.id);
   });
   it("gives concurrent workers distinct jobs", async () => {
@@ -83,7 +84,7 @@ describe("fenced job leases", () => {
     const [job] = await claimDueJobs("worker", 1);
     await runClaimedJob(job!, {
       RETENTION_SWEEP: async () => {
-        await cancelJobRow(job!.id);
+        await cancelJobRow(systemActor("lease-test"), job!.id);
         return { message: "finished too late" };
       },
     });
@@ -92,7 +93,9 @@ describe("fenced job leases", () => {
         .status
     ).toBe("CANCELLED");
     expect(await testPrisma.backgroundJobLog.count()).toBe(0);
-    await expect(retryJobRow(job!.id)).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(retryJobRow(systemActor("lease-test"), job!.id)).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
   });
 
   it("does not expire a renewed lease or revive an expired one", async () => {
@@ -110,7 +113,7 @@ describe("fenced job leases", () => {
       where: { id: job!.id },
     });
     expect(failed).toMatchObject({ status: "FAILED", leaseToken: null });
-    await retryJobRow(job!.id);
+    await retryJobRow(systemActor("lease-test"), job!.id);
     expect((await claimDueJobs("new", 1))[0]!.attemptCount).toBe(1);
   });
 

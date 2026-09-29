@@ -7,6 +7,7 @@
  * nothing here is a paid feature switch.
  */
 import { z } from "zod";
+import { optionalPublicUrlSchema } from "@/lib/validation/publicUrl";
 
 export interface SettingDefinition<T> {
   key: string;
@@ -163,7 +164,7 @@ export const SETTINGS = {
   instanceDisplayName: define({
     key: "instance.display_name",
     category: "instance",
-    description: "Name shown in the interface and in outgoing notifications.",
+    description: "Instance name shown in the public footer.",
     schema: z.string().min(1).max(80),
     defaultValue: "Brokermogger",
   }),
@@ -179,14 +180,14 @@ export const SETTINGS = {
     category: "instance",
     description:
       "Public source code URL shown in the footer. Operators of a fork should point this at their repository.",
-    schema: z.url().or(z.literal("")),
+    schema: optionalPublicUrlSchema,
     defaultValue: "https://github.com/ArturLauche/brokermogger",
   }),
   instanceDocumentationUrl: define({
     key: "instance.documentation_url",
     category: "instance",
     description: "Documentation URL shown in the footer of public pages.",
-    schema: z.url().or(z.literal("")),
+    schema: optionalPublicUrlSchema,
     defaultValue: "https://github.com/ArturLauche/brokermogger#readme",
   }),
 } as const;

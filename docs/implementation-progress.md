@@ -392,3 +392,23 @@ verification, and production key/build checks against the compiled app.
   journey passed final approval, manual submission, partial reply, escalation,
   completion, reporting and export with external sending disabled. Operator tools,
   sourced coverage, interface, production and performance work remain in progress.
+
+### Broker curation and operational settings
+
+- Added broker creation/editing, verified contact evidence, explicit jurisdiction
+  and request-type coverage, and a separate sending toggle. Every catalogue edit
+  disables that broker's sending until its final configuration is reviewed. Live
+  generation, approval and dispatch enforce compatibility and manual-review flags.
+  Public broker detail pages expose sources and manual verification instructions.
+- Operator writes validate purpose-specific commands, lock the active account and
+  target, reject stale revisions, and bind child records to their broker. Seed
+  upgrades preserve operator edits. Settings now have typed editors, validation,
+  defaults, conflict detection and cache invalidation; sensitive rows stay private.
+  Admin repositories enforce roles and job lists no longer retrieve payloads.
+- All 357 unit/component tests and 47 targeted integration cases passed. The final
+  eight-case operator integration rerun also passed after checking legacy sensitive
+  settings and maximum-length broker names. Typecheck, lint, formatting and the
+  fresh production build passed. All six production Chromium journeys passed,
+  including the new broker and settings workflow, with external sending disabled.
+  Template/legal authoring, coverage, interface and production/performance work
+  remain in progress.

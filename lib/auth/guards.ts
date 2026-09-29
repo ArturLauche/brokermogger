@@ -89,7 +89,7 @@ export const getActorContext = cache(async (): Promise<ActorContext | null> => {
   });
 
   if (user.role === "INSTANCE_ADMIN") {
-    const grant = await findActiveGrantForAdmin(user.id);
+    const grant = await findActiveGrantForAdmin(actor);
     if (grant?.targetUserId && grant.grantExpiresAt) {
       actor.adminGrant = {
         adminActionId: grant.id,

@@ -57,13 +57,14 @@ export default async function BrokersPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Brokers"
-        description="Directory of this instance. Seeded records are fictional demo data until a maintainer verifies them."
+        description="This instance’s broker directory. Review the recorded sources and methods before preparing a request."
       />
       <Alert>
-        <AlertTitle>Demo data</AlertTitle>
+        <AlertTitle>Review each entry</AlertTitle>
         <AlertDescription>
-          Production sending is disabled for every seeded broker. Nothing is scraped and
-          no real company is named here.
+          Fictional examples are labelled Demo and cannot send to real brokers.
+          Operator-maintained entries need verified methods and explicit approval before
+          sending.
         </AlertDescription>
       </Alert>
       {brokers.length === 0 ? (
@@ -88,6 +89,13 @@ export default async function BrokersPage() {
                 <TableCell>
                   <Link className="underline" href={`/requests/new?brokers=${broker.id}`}>
                     {broker.legalName}
+                  </Link>
+                  <Link
+                    className="block py-2 text-sm underline underline-offset-4"
+                    href={`/brokers/${broker.id}`}
+                  >
+                    Sources and instructions
+                    <span className="sr-only"> for {broker.legalName}</span>
                   </Link>
                 </TableCell>
                 <TableCell>

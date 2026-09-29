@@ -21,7 +21,12 @@ export function WorkflowForm({
   initial: WorkflowFields;
   types: RequestType[];
   identifiers: { id: string; label: string }[];
-  brokers: { id: string; label: string }[];
+  brokers: {
+    id: string;
+    label: string;
+    active: boolean;
+    supportedTypes: RequestType[];
+  }[];
 }) {
   const [state, action, pending] = useActionState<WorkflowState, FormData>(
     createWorkflow,
@@ -153,23 +158,46 @@ export function WorkflowForm({
           aria-label="Available brokers"
           tabIndex={0}
         >
-          {visibleBrokers.map((broker) => (
-            <label
-              key={broker.id}
-              className="flex min-h-11 items-center gap-3 py-2 text-sm"
-            >
-              <input
-                type="checkbox"
-                name="brokerId"
-                value={broker.id}
-                checked={selectedBrokers.includes(broker.id)}
-                onChange={() => setBrokers(toggle(selectedBrokers, broker.id))}
-                disabled={pending}
-                className="size-4 shrink-0"
-              />
-              <span className="min-w-0 break-words">{broker.label}</span>
-            </label>
-          ))}
+          {visibleBrokers.map((broker) => {
+            const compatible =
+              broker.active &&
+              (!broker.supportedTypes.length ||
+                broker.supportedTypes.some((type) => type === requestType));
+            return (
+              <label
+                key={broker.id}
+                className="flex min-h-11 items-center gap-3 py-2 text-sm"
+              >
+                <input
+                  type="checkbox"
+                  name="brokerId"
+                  value={broker.id}
+                  checked={selectedBrokers.includes(broker.id)}
+                  onChange={() => setBrokers(toggle(selectedBrokers, broker.id))}
+                  disabled={
+                    pending || (!compatible && !selectedBrokers.includes(broker.id))
+                  }
+                  aria-describedby={
+                    !compatible ? `broker-${broker.id}-compatibility` : undefined
+                  }
+                  className="size-4 shrink-0"
+                />
+                <span className="min-w-0 break-words">
+                  {broker.label}
+                  {!compatible ? (
+                    <span
+                      id={`broker-${broker.id}-compatibility`}
+                      className="block text-muted-foreground"
+                    >
+                      {broker.active
+                        ? "This request type is not listed for your jurisdiction."
+                        : "This broker is inactive."}
+                    </span>
+                  ) : null}
+                </span>
+              </label>
+            );
+          })}
           {!visibleBrokers.length ? (
             <p className="py-3 text-sm text-muted-foreground">
               No brokers match this search.

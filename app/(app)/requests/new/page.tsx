@@ -176,6 +176,11 @@ export default async function NewRequestPage({
         brokers={brokers.map((broker) => ({
           id: broker.id,
           label: `${broker.legalName}${broker.isDemoData ? " (demo)" : ""}`,
+          active: broker.isActive,
+          supportedTypes:
+            broker.jurisdictionCoverage.find(
+              (row) => row.isActive && row.jurisdictionId === resolved.jurisdiction.id
+            )?.supportedRequestTypes ?? [],
         }))}
       />
     </div>

@@ -13,7 +13,7 @@ export async function loadRequestForDecision(
 ) {
   const ref = await tx.removalRequest.findFirst({
     where: { id, deletedAt: null },
-    select: { userId: true, profileId: true },
+    select: { userId: true, profileId: true, brokerId: true },
   });
   if (!ref) throw new NotFoundError();
   requirePermission(actor, action, { ownerUserId: ref.userId });
@@ -32,6 +32,7 @@ export async function loadRequestForDecision(
     throw new AppError({ code: "FORBIDDEN", message: "This account is not active." });
   await tx.$executeRaw`SELECT 1 FROM "UserProfile" WHERE id = ${ref.profileId} FOR UPDATE`;
   await tx.$executeRaw`SELECT 1 FROM "RemovalRequest" WHERE id = ${id} FOR UPDATE`;
+  await tx.$executeRaw`SELECT 1 FROM "Broker" WHERE id = ${ref.brokerId} FOR SHARE`;
   const request = await tx.removalRequest.findFirst({
     where: { id, deletedAt: null, profile: { deletedAt: null, ownerUserId: ref.userId } },
     include: {

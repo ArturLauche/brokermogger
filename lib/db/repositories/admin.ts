@@ -1,21 +1,17 @@
-/**
- * Admin catalogue and operations persistence.
- *
- * Callers must already have passed `requirePermission` for the matching
- * admin action. These functions do not re-check ownership because brokers,
- * legal rules and jobs are instance resources.
- */
-import type {
-  AdminActionType,
-  BrokerVerificationStatus,
-  JobStatus,
-  Prisma,
-} from "@prisma/client";
+import { lockActiveAccount } from "./access";
+/** Authorized catalogue and operations reads. Private job payloads are never listed. */
+import { z } from "zod";
+import type { ActorContext } from "@/lib/permissions/actor";
+import { requirePermission } from "@/lib/permissions/policy";
+import { entityIdSchema } from "@/lib/validation/ids";
+import { parseWithSchema } from "@/lib/validation/form";
+import type { JobStatus, Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db/client";
 import { AppError } from "@/lib/core/errors";
 
-export async function countAdminOverview() {
+export async function countAdminOverview(actor: ActorContext) {
+  requirePermission(actor, "admin:console:access");
   const [unverifiedBrokers, unpublishedRuleDrafts, failedJobs, pendingManualReviews] =
     await Promise.all([
       prisma.broker.count({
@@ -34,38 +30,8 @@ export async function countAdminOverview() {
   return { unverifiedBrokers, unpublishedRuleDrafts, failedJobs, pendingManualReviews };
 }
 
-export async function listAdminBrokers() {
-  return prisma.broker.findMany({
-    where: { deletedAt: null },
-    include: { contactMethods: true },
-    orderBy: { legalName: "asc" },
-    take: 200,
-  });
-}
-
-export async function updateBrokerAdmin(
-  brokerId: string,
-  data: {
-    verificationStatus?: BrokerVerificationStatus;
-    productionSendingEnabled?: boolean;
-    notes?: string;
-  }
-) {
-  return prisma.broker.update({
-    where: { id: brokerId },
-    data: {
-      ...(data.verificationStatus !== undefined
-        ? { verificationStatus: data.verificationStatus }
-        : {}),
-      ...(data.productionSendingEnabled !== undefined
-        ? { productionSendingEnabled: data.productionSendingEnabled }
-        : {}),
-      ...(data.notes !== undefined ? { notes: data.notes } : {}),
-    },
-  });
-}
-
-export async function listAdminLegalRules() {
+export async function listAdminLegalRules(actor: ActorContext) {
+  requirePermission(actor, "admin:legalRule:read");
   return prisma.legalRule.findMany({
     include: {
       jurisdiction: true,
@@ -75,7 +41,8 @@ export async function listAdminLegalRules() {
   });
 }
 
-export async function listAdminTemplates() {
+export async function listAdminTemplates(actor: ActorContext) {
+  requirePermission(actor, "admin:template:read");
   return prisma.requestTemplate.findMany({
     where: { deletedAt: null },
     include: {
@@ -86,57 +53,73 @@ export async function listAdminTemplates() {
   });
 }
 
-export async function listAdminJobs(status?: JobStatus) {
+export async function listAdminJobs(actor: ActorContext, status?: JobStatus) {
+  requirePermission(actor, "admin:job:read");
   return prisma.backgroundJob.findMany({
     where: status ? { status } : {},
-    include: { logs: { orderBy: { createdAt: "desc" }, take: 5 } },
+    select: {
+      id: true,
+      type: true,
+      status: true,
+      runAt: true,
+      attemptCount: true,
+      maxAttempts: true,
+      lastError: true,
+      relatedRequestId: true,
+    },
     orderBy: { createdAt: "desc" },
     take: 100,
   });
 }
 
-export async function getAdminJob(jobId: string) {
-  return prisma.backgroundJob.findUnique({
-    where: { id: jobId },
-    include: { logs: { orderBy: { createdAt: "asc" } } },
-  });
-}
-
-export async function listAdminAudit(limit = 100) {
+export async function listAdminAudit(actor: ActorContext, limit = 100) {
+  requirePermission(actor, "admin:audit:read");
+  parseWithSchema(z.number().int().min(1).max(250), limit);
   return prisma.auditLog.findMany({
     orderBy: { sequence: "desc" },
     take: limit,
   });
 }
 
-export async function createAdminAction(data: {
-  adminUserId: string;
-  type: AdminActionType;
-  justification: string;
-  targetUserId?: string;
-  targetResourceType?: string;
-  targetResourceId?: string;
-  grantExpiresAt?: Date;
-  auditLogId?: string;
-}) {
-  return prisma.adminAction.create({
-    data: {
-      adminUserId: data.adminUserId,
-      type: data.type,
-      justification: data.justification,
-      targetUserId: data.targetUserId ?? null,
-      targetResourceType: data.targetResourceType ?? null,
-      targetResourceId: data.targetResourceId ?? null,
-      grantExpiresAt: data.grantExpiresAt ?? null,
-      auditLogId: data.auditLogId ?? null,
-    },
+export async function createBreakGlassGrant(actor: ActorContext, raw: unknown) {
+  requirePermission(actor, "admin:user:list");
+  const command = parseWithSchema(
+    z.object({
+      targetUserId: entityIdSchema,
+      justification: z.string().trim().min(20).max(2000),
+      durationHours: z.number().int().min(1).max(24),
+    }),
+    raw
+  );
+  return prisma.$transaction(async (tx) => {
+    await lockActiveAccount(tx, actor.userId);
+    if (
+      !(await tx.user.findFirst({
+        where: { id: command.targetUserId, deletedAt: null },
+        select: { id: true },
+      }))
+    )
+      throw new AppError({
+        code: "NOT_FOUND",
+        message: "This account is not available for emergency access.",
+      });
+    return tx.adminAction.create({
+      data: {
+        adminUserId: actor.userId,
+        type: "BREAK_GLASS_GRANT",
+        targetUserId: command.targetUserId,
+        justification: command.justification,
+        grantExpiresAt: new Date(Date.now() + command.durationHours * 3_600_000),
+      },
+    });
   });
 }
 
-export async function findActiveGrantForAdmin(adminUserId: string) {
+export async function findActiveGrantForAdmin(actor: ActorContext) {
+  requirePermission(actor, "admin:user:list");
   return prisma.adminAction.findFirst({
     where: {
-      adminUserId,
+      adminUserId: actor.userId,
       type: "BREAK_GLASS_GRANT",
       revokedAt: null,
       grantExpiresAt: { gt: new Date() },
@@ -145,7 +128,8 @@ export async function findActiveGrantForAdmin(adminUserId: string) {
   });
 }
 
-export async function listActiveBreakGlassGrants() {
+export async function listActiveBreakGlassGrants(actor: ActorContext) {
+  requirePermission(actor, "admin:audit:read");
   return prisma.adminAction.findMany({
     where: {
       type: "BREAK_GLASS_GRANT",
@@ -156,14 +140,18 @@ export async function listActiveBreakGlassGrants() {
   });
 }
 
-export async function revokeAdminAction(id: string) {
+export async function revokeAdminAction(actor: ActorContext, id: string) {
+  requirePermission(actor, "admin:user:list");
+  parseWithSchema(entityIdSchema, id);
   return prisma.adminAction.update({
     where: { id },
     data: { revokedAt: new Date() },
   });
 }
 
-export async function retryJobRow(jobId: string) {
+export async function retryJobRow(actor: ActorContext, jobId: string) {
+  requirePermission(actor, "admin:job:manage");
+  parseWithSchema(entityIdSchema, jobId);
   const result = await prisma.backgroundJob.updateMany({
     where: { id: jobId, status: { in: ["FAILED", "RETRYABLE"] } },
     data: {
@@ -187,7 +175,9 @@ export async function retryJobRow(jobId: string) {
   return result;
 }
 
-export async function cancelJobRow(jobId: string) {
+export async function cancelJobRow(actor: ActorContext, jobId: string) {
+  requirePermission(actor, "admin:job:manage");
+  parseWithSchema(entityIdSchema, jobId);
   const result = await prisma.backgroundJob.updateMany({
     where: { id: jobId, status: { in: ["PENDING", "RETRYABLE", "RUNNING"] } },
     data: {

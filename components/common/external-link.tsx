@@ -9,6 +9,7 @@ import type { ReactNode } from "react";
 import { ExternalLinkIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { isPublicHttpUrl } from "@/lib/security/urls";
 
 export interface ExternalLinkProps extends Omit<
   React.ComponentProps<"a">,
@@ -27,6 +28,12 @@ export function ExternalLink({
   className,
   ...props
 }: ExternalLinkProps) {
+  if (!isPublicHttpUrl(href))
+    return (
+      <span className={className}>
+        {children} <span className="text-muted-foreground">(link unavailable)</span>
+      </span>
+    );
   return (
     <a
       href={href}

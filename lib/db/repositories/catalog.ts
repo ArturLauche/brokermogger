@@ -221,9 +221,45 @@ export async function listBrokersForDirectory(filters: {
 export async function getBrokerWithContacts(brokerId: string) {
   return prisma.broker.findFirst({
     where: { id: brokerId, deletedAt: null },
-    include: {
-      contactMethods: { where: { deletedAt: null } },
-      jurisdictionCoverage: true,
+    select: {
+      id: true,
+      legalName: true,
+      tradingNames: true,
+      category: true,
+      websiteUrl: true,
+      isActive: true,
+      isDemoData: true,
+      productionSendingEnabled: true,
+      verificationStatus: true,
+      lastVerifiedAt: true,
+      sourceUrl: true,
+      notes: true,
+      verificationRequirements: true,
+      contactMethods: {
+        where: { deletedAt: null, isActive: true },
+        orderBy: [{ priority: "asc" }, { id: "asc" }],
+        select: {
+          id: true,
+          type: true,
+          value: true,
+          label: true,
+          isVerified: true,
+          verifiedAt: true,
+          sourceUrl: true,
+          verificationNote: true,
+        },
+      },
+      jurisdictionCoverage: {
+        where: { isActive: true },
+        select: {
+          id: true,
+          supportedRequestTypes: true,
+          coverageType: true,
+          confidence: true,
+          notes: true,
+          jurisdiction: { select: { name: true } },
+        },
+      },
     },
   });
 }

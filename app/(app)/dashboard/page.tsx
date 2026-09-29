@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { resolveActiveProfileForRequest } from "@/app/_lib/active-profile";
 import { requireActorOrRedirect } from "@/lib/auth";
-import { getEffectiveFairUse } from "@/lib/config/runtimeSettings";
+import { getEffectiveFairUse, getSetting } from "@/lib/config/runtimeSettings";
 import {
   countDistinctOwnedBrokers,
   listRecentOwnedRequests,
@@ -30,13 +30,15 @@ export default async function DashboardPage() {
   const actor = await requireActorOrRedirect();
   const { active } = await resolveActiveProfileForRequest(actor);
   const profileId = active?.id ?? null;
-  const [summary, requests, upcoming, fairUse, brokerCount] = await Promise.all([
-    summarizeOwnedRequests(actor, profileId),
-    listRecentOwnedRequests(actor, profileId, 8),
-    listUpcomingDeadlines(actor, profileId, 5),
-    getEffectiveFairUse(actor.userId),
-    countDistinctOwnedBrokers(actor, profileId),
-  ]);
+  const [summary, requests, upcoming, fairUse, brokerCount, operatorNote] =
+    await Promise.all([
+      summarizeOwnedRequests(actor, profileId),
+      listRecentOwnedRequests(actor, profileId, 8),
+      listUpcomingDeadlines(actor, profileId, 5),
+      getEffectiveFairUse(actor.userId),
+      countDistinctOwnedBrokers(actor, profileId),
+      getSetting("instanceOperatorNote"),
+    ]);
 
   const count = (statuses: readonly RequestStatus[]) =>
     statuses.reduce((sum, status) => sum + (summary.byStatus.get(status) ?? 0), 0);
@@ -56,6 +58,18 @@ export default async function DashboardPage() {
           </Button>
         }
       />
+
+      {operatorNote ? (
+        <section
+          aria-labelledby="operator-note-title"
+          className="space-y-2 border-l-2 border-border pl-4"
+        >
+          <h2 id="operator-note-title" className="text-sm font-semibold">
+            From the instance operator
+          </h2>
+          <p className="text-sm leading-6 whitespace-pre-wrap">{operatorNote}</p>
+        </section>
+      ) : null}
 
       {!active ? (
         <EmptyState

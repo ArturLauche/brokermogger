@@ -225,6 +225,9 @@ export default async function RequestDetailPage({
         ]}
       />
       <div className="flex flex-wrap gap-2">
+        <Button asChild variant="outline">
+          <Link href={`/brokers/${request.brokerId}`}>Broker instructions</Link>
+        </Button>
         {canManage &&
         snapshot &&
         !request.outboundEmails.length &&

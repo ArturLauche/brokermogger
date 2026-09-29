@@ -66,6 +66,12 @@ export default async function ManualSubmissionPage({
                 Add the receipt date only when known.
               </li>
             </ol>
+            <Link
+              className="inline-block py-2 text-sm underline"
+              href={`/brokers/${request.brokerId}`}
+            >
+              Review broker-specific sources and instructions
+            </Link>
             <div className="border-l-2 pl-4">
               <p className="text-sm font-medium">Approved destination</p>
               {portal ? (
