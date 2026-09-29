@@ -2,6 +2,8 @@ import type { ContactMethodType, RequestChannel, RequestType } from "@prisma/cli
 
 import { assertCurrentProfileConsent } from "@/lib/consent/current";
 import { assertBrokerRequestCompatible } from "@/lib/brokers/coverage";
+import { selectRequestDelivery } from "@/lib/brokers/sendable";
+import { assertRenderedDelivery } from "@/lib/requests/rendering";
 import { env } from "@/lib/config/env";
 import { AppError } from "@/lib/core/errors";
 import { prisma } from "@/lib/db/client";
@@ -113,6 +115,18 @@ export async function createPreparedDrafts(
             isActive: true,
             deletedAt: true,
             jurisdictionCoverage: true,
+            contactMethods: {
+              select: {
+                id: true,
+                type: true,
+                value: true,
+                isActive: true,
+                isVerified: true,
+                isPreferred: true,
+                priority: true,
+                deletedAt: true,
+              },
+            },
           },
         });
         for (const draft of drafts) {
@@ -123,6 +137,7 @@ export async function createPreparedDrafts(
               message: "A selected broker is no longer available.",
             });
           assertBrokerRequestCompatible(broker, draft.jurisdictionId, draft.requestType);
+          assertRenderedDelivery(draft.snapshot.variables, selectRequestDelivery(broker));
         }
 
         if (env.RATE_LIMIT_ENABLED) {

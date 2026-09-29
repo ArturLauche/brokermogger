@@ -1,5 +1,8 @@
+import { resetBrowserAuthenticationLimit } from "./helpers";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
+
+test.beforeAll(resetBrowserAuthenticationLimit);
 
 test.describe("public screens", () => {
   test("landing explains the product without a paywall", async ({ page }) => {

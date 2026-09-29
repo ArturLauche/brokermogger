@@ -17,11 +17,25 @@ export async function seedRequestTemplates(
       ? requireJurisdictionId(jurisdictionIds, template.jurisdictionCode)
       : null;
     const outcome = await prisma.$transaction(async (tx) => {
+      const scopeKey = `catalogue:template-scope:${template.requestType}:${template.channel}:${jurisdictionId ?? "generic"}`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${scopeKey}, 0))`;
       const lockKey = `catalogue:template:${template.key}`;
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
       const previous = await tx.requestTemplate.findUnique({
         where: { key: template.key },
       });
+      const scopeOccupied = !!(await tx.requestTemplate.findFirst({
+        where: {
+          key: { not: template.key },
+          requestType: template.requestType,
+          channel: template.channel,
+          jurisdictionId,
+          isActive: true,
+          deletedAt: null,
+          versions: { some: { status: "PUBLISHED" } },
+        },
+        select: { id: true },
+      }));
       const data = {
         name: template.name,
         description: template.description,
@@ -31,7 +45,11 @@ export async function seedRequestTemplates(
       };
       const reference = await tx.requestTemplate.upsert({
         where: { key: template.key },
-        create: { key: template.key, ...data, isActive: template.isActive },
+        create: {
+          key: template.key,
+          ...data,
+          isActive: template.isActive && !scopeOccupied,
+        },
         update: {},
       });
       await tx.$executeRaw`SELECT 1 FROM "RequestTemplate" WHERE id = ${reference.id} FOR UPDATE`;
@@ -62,7 +80,7 @@ export async function seedRequestTemplates(
         !!stored.createdById ||
         versions.some((version) => !!version.createdById);
       const nextVersion = (versions[0]?.version ?? 0) + 1;
-      const status = operatorManaged ? "DRAFT" : desired.status;
+      const status = operatorManaged || scopeOccupied ? "DRAFT" : desired.status;
       await tx.requestTemplateVersion.create({
         data: { templateId: stored.id, version: nextVersion, ...desired, status },
       });

@@ -6,7 +6,7 @@
  * loads them. Writes from the admin console must call `invalidateCatalogCache`.
  * Directory searches are not cached: the key would be unbounded free text.
  */
-import type { BrokerCategory, RequestType } from "@prisma/client";
+import type { BrokerCategory, RequestChannel, RequestType } from "@prisma/client";
 
 import { createKeyedTtlCache, createTtlCache } from "@/lib/cache/ttl";
 import { prisma } from "@/lib/db/client";
@@ -103,15 +103,25 @@ export async function listPublishedLegalRules(): Promise<LegalRuleSnapshot[]> {
 export async function findPublishedTemplate(input: {
   requestType: RequestType;
   jurisdictionId: string | null;
+  channel?: RequestChannel;
 }) {
-  const specific = input.jurisdictionId
-    ? await prisma.requestTemplate.findFirst({
+  const channel = input.channel ?? "EMAIL";
+  const jurisdictions = input.jurisdictionId ? [input.jurisdictionId, null] : [null];
+  // Jurisdiction language takes precedence. EMAIL is the shared plain-letter
+  // fallback for manual channels; a portal template never serves an email.
+  const channels: RequestChannel[] = channel === "EMAIL" ? [channel] : [channel, "EMAIL"];
+  for (const jurisdictionId of jurisdictions) {
+    for (const deliveryChannel of channels) {
+      const template = await prisma.requestTemplate.findFirst({
         where: {
           requestType: input.requestType,
-          jurisdictionId: input.jurisdictionId,
+          jurisdictionId,
+          channel: deliveryChannel,
           isActive: true,
           deletedAt: null,
+          versions: { some: { status: "PUBLISHED" } },
         },
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
         include: {
           versions: {
             where: { status: "PUBLISHED" },
@@ -119,29 +129,11 @@ export async function findPublishedTemplate(input: {
             take: 1,
           },
         },
-      })
-    : null;
-
-  const generic = await prisma.requestTemplate.findFirst({
-    where: {
-      requestType: input.requestType,
-      jurisdictionId: null,
-      isActive: true,
-      deletedAt: null,
-    },
-    include: {
-      versions: {
-        where: { status: "PUBLISHED" },
-        orderBy: { version: "desc" },
-        take: 1,
-      },
-    },
-  });
-
-  const template = specific?.versions[0] ? specific : generic;
-  const version = template?.versions[0];
-  if (!template || !version) return null;
-  return { template, version };
+      });
+      if (template?.versions[0]) return { template, version: template.versions[0] };
+    }
+  }
+  return null;
 }
 
 /** A single narrow query for the new-request chooser, including generic templates. */

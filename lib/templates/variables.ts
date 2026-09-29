@@ -87,7 +87,7 @@ export const TEMPLATE_VARIABLES: readonly TemplateVariableDefinition[] = [
     required: true,
     description: "Reference code so the broker and the user can correlate replies.",
     maxLength: 40,
-    example: "BM-4F2A9C",
+    example: "BM-1234567890ABCDEF1234567890ABCDEF",
   },
   {
     name: "broker.name",

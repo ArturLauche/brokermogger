@@ -57,6 +57,20 @@ describe("seeded generation", () => {
     expect(await testPrisma.rateLimitBucket.count()).toBe(0);
   });
 
+  it("rejects a contact change after rendering before reserving quota", async () => {
+    const fixture = await workflowFixture();
+    const { drafts, fairUse } = await prepareRequestDrafts(fixture.actor, fixture.input);
+    await testPrisma.brokerContactMethod.updateMany({
+      where: { brokerId: fixture.brokers[0]!.id },
+      data: { type: "POSTAL", value: "Example broker, Sample Street 1, Berlin" },
+    });
+    await expect(
+      createPreparedDrafts(fixture.actor, drafts, fairUse)
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await testPrisma.removalRequest.count()).toBe(0);
+    expect(await testPrisma.rateLimitBucket.count()).toBe(0);
+  });
+
   it("prepares a German deletion letter from shipped legal data", async () => {
     const fixture = await workflowFixture();
     const result = await generateRequests(fixture.actor, fixture.input);

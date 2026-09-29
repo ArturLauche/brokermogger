@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AppError } from "@/lib/core/errors";
 import { selectRequestDelivery } from "@/lib/brokers/sendable";
+import { assertRenderedDelivery } from "@/lib/requests/rendering";
 import { followUpKindSchema, type FollowUpKind } from "@/lib/requests/followUpKind";
 import { prisma, type PrismaTransaction } from "@/lib/db/client";
 import { parseJobPayload } from "@/lib/jobs/payloads";
@@ -340,9 +341,11 @@ export async function commitFollowUpDraft(
         message:
           "The reminder template changed. Retry preparation using a current published template.",
       });
+    const delivery = selectRequestDelivery(request.broker);
+    assertRenderedDelivery(input.snapshot.variables, delivery);
     await tx.removalRequest.update({
       where: { id: request.id },
-      data: selectRequestDelivery(request.broker),
+      data: delivery,
     });
     const snapshot = await insertSnapshot(
       {

@@ -4,7 +4,9 @@ import { PrismaClient } from "@prisma/client";
 import { seedJurisdictions } from "../prisma/seeds/jurisdictions";
 import { seedLegalRules } from "../prisma/seeds/legalRules";
 import { seedRequestTemplates } from "../prisma/seeds/templates";
-import { signIn, fillProfile } from "./helpers";
+import { resetBrowserAuthenticationLimit, signIn, fillProfile } from "./helpers";
+
+test.beforeAll(resetBrowserAuthenticationLimit);
 
 test("edits and approves a manual request, records submission, then confirms a reply", async ({
   page,

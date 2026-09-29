@@ -1,3 +1,4 @@
+import { PrismaClient } from "@prisma/client";
 import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { expect, type Page } from "@playwright/test";
@@ -48,4 +49,25 @@ export async function fillProfile(page: Page, email: string, name: string) {
   await page
     .getByLabel("This person lives in the selected country and state or region.")
     .check();
+}
+
+/** Keep repeated local QA runs independent without weakening application limits. */
+export async function resetBrowserAuthenticationLimit() {
+  const local = new URL(process.env.E2E_BASE_URL ?? "http://127.0.0.1:3000");
+  const database = new URL(process.env.DATABASE_URL ?? "");
+  if (
+    !["localhost", "127.0.0.1", "[::1]"].includes(local.hostname) ||
+    !database.pathname.endsWith("_test") ||
+    process.env.EMAIL_PROVIDER !== "mock" ||
+    process.env.ALLOW_EXTERNAL_SENDING !== "false"
+  )
+    throw new Error(
+      "Browser fixtures require a local server, a dedicated test database and disabled external sending."
+    );
+  const db = new PrismaClient();
+  try {
+    await db.rateLimitBucket.deleteMany({ where: { scope: "auth.magic_link.ip" } });
+  } finally {
+    await db.$disconnect();
+  }
 }

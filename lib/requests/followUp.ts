@@ -7,6 +7,7 @@ import {
 } from "@/lib/db/repositories/requestFollowUp";
 
 import { recordAudit } from "@/lib/audit/service";
+import { selectRequestDelivery } from "@/lib/brokers/sendable";
 import { getSetting } from "@/lib/config/runtimeSettings";
 import { AppError } from "@/lib/core/errors";
 import { findPublishedTemplate } from "@/lib/db/repositories/catalog";
@@ -20,7 +21,7 @@ import { REQUEST_TYPE_LABELS } from "@/lib/requests/labels";
 import { decryptField, sha256Hex } from "@/lib/security/crypto";
 import { renderTemplate } from "@/lib/templates/renderer";
 
-import { formatIdentifierList, requestReference } from "./rendering";
+import { deliveryVariables, formatIdentifierList, requestReference } from "./rendering";
 export async function prepareFollowUp(
   actor: ActorContext,
   requestId: string,
@@ -133,9 +134,11 @@ export async function renderFollowUpSnapshot(
     }),
   }));
 
+  const delivery = selectRequestDelivery(request.broker);
   const template = await findPublishedTemplate({
     requestType: kind,
     jurisdictionId: request.jurisdictionId,
+    channel: delivery.channel,
   });
   if (!template) {
     throw new AppError({
@@ -179,6 +182,7 @@ export async function renderFollowUpSnapshot(
     templateVersionId: template.version.id,
     legalRuleVersionId: request.legalRuleVersionId,
     variables: {
+      ...deliveryVariables(delivery),
       "request.reference": reference,
       "broker.name": request.broker.tradingNames[0] ?? request.broker.legalName,
       followUpNumber: String(followUpNumber),

@@ -3,12 +3,12 @@ import {
   listAdminJobs,
   listAdminAudit,
   listAdminLegalRules,
-  listAdminTemplates,
   createBreakGlassGrant,
   findActiveGrantForAdmin,
   retryJobRow,
   cancelJobRow,
 } from "@/lib/db/repositories/admin";
+import { listTemplateAdministration } from "@/lib/db/repositories/adminTemplates";
 import { testActor } from "../../helpers/actor";
 import { testPrisma } from "../../helpers/db";
 
@@ -44,7 +44,9 @@ describe("operator repository boundaries", () => {
     await expect(listAdminLegalRules({ ...actor, role: "USER" })).rejects.toMatchObject({
       code: "FORBIDDEN",
     });
-    await expect(listAdminTemplates({ ...actor, role: "USER" })).rejects.toMatchObject({
+    await expect(
+      listTemplateAdministration({ ...actor, role: "USER" })
+    ).rejects.toMatchObject({
       code: "FORBIDDEN",
     });
     await retryJobRow(actor, job.id);

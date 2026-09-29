@@ -3,7 +3,10 @@ import { expect, test } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { accountEmailIndex } from "../lib/security/accountEmail";
 import { seedJurisdictions } from "../prisma/seeds/jurisdictions";
-import { signIn } from "./helpers";
+import { DEFAULT_TEMPLATE_SOURCE } from "../lib/templates/authoring";
+import { resetBrowserAuthenticationLimit, signIn } from "./helpers";
+
+test.beforeAll(resetBrowserAuthenticationLimit);
 
 test("curates a broker with verified contacts and coverage, then edits operational settings", async ({
   page,
@@ -113,4 +116,109 @@ test("curates a broker with verified contacts and coverage, then edits operation
   );
   await note.getByRole("button", { name: "Use default", exact: true }).click();
   await expect(note.getByLabel("Operator note", { exact: true })).toHaveValue("");
+});
+
+test("drafts, repairs, previews, publishes and supersedes a template", async ({
+  page,
+  baseURL,
+}) => {
+  expect(["localhost", "127.0.0.1", "[::1]"]).toContain(new URL(baseURL!).hostname);
+  expect(new URL(process.env.DATABASE_URL!).pathname).toMatch(/_test$/);
+  expect(process.env.EMAIL_PROVIDER).toBe("mock");
+  expect(process.env.ALLOW_EXTERNAL_SENDING).toBe("false");
+  const email = `template-operator-${randomUUID()}@example.org`;
+  await signIn(page, email);
+  const db = new PrismaClient();
+  try {
+    await db.user.update({
+      where: { emailBi: accountEmailIndex(email) },
+      data: { role: "MAINTAINER" },
+    });
+  } finally {
+    await db.$disconnect();
+  }
+  const key = `browser.template-${randomUUID()}`;
+  const name = `Template ${key}`;
+  await page.goto("/admin/templates/new");
+  await page.getByLabel("Name", { exact: true }).fill(name);
+  await page.getByLabel("Stable key", { exact: true }).fill(key);
+  await page.getByLabel("Request type", { exact: true }).selectOption("CORRECTION");
+  await page.getByLabel("Delivery channel", { exact: true }).selectOption("POSTAL");
+  await page
+    .getByLabel("Letter template", { exact: true })
+    .fill("Hello {{profile.fullName}}");
+  await page.getByRole("button", { name: "Create draft", exact: true }).click();
+  await expect(page).toHaveURL(
+    /\/admin\/templates\/[^/]+\/versions\/[^/?]+\?saved=created/
+  );
+  const templateId = new URL(page.url()).pathname.split("/")[3]!;
+  await expect(
+    page.getByText("Before publishing, fix these items and save the draft:")
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Publish this version" })).toHaveCount(0);
+  const unsafe = DEFAULT_TEMPLATE_SOURCE.bodyTemplate + "\n{{unknown.variable}}";
+  await page.getByLabel("Letter template", { exact: true }).fill(unsafe);
+  await page.getByRole("button", { name: "Save draft and preview", exact: true }).click();
+  await expect(
+    page.getByText("Use only placeholders from the variable reference below.", {
+      exact: true,
+    })
+  ).toBeVisible();
+  await expect(page.getByLabel("Letter template", { exact: true })).toHaveValue(unsafe);
+  await expect(page.getByLabel("Letter template", { exact: true })).toHaveAttribute(
+    "aria-invalid",
+    "true"
+  );
+  await page
+    .getByLabel("Letter template", { exact: true })
+    .fill(DEFAULT_TEMPLATE_SOURCE.bodyTemplate);
+  await page
+    .getByLabel("Review notes", { exact: true })
+    .fill("Synthetic browser review. No external contact or real personal records.");
+  await page.getByRole("button", { name: "Save draft and preview", exact: true }).click();
+  await expect(page).toHaveURL(/saved=draft/);
+  await expect(page.locator("#preview")).toContainText("Alex Sample");
+  await page
+    .getByLabel("I reviewed this saved version and its previews", { exact: true })
+    .check();
+  await page.getByRole("button", { name: "Publish this version", exact: true }).click();
+  await expect(page).toHaveURL(/saved=published/);
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("version 1");
+  await page.getByRole("button", { name: "Start a new draft", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("version 2");
+  await expect(page.getByLabel("Review notes", { exact: true })).toHaveValue("");
+  await page
+    .getByLabel("Review notes", { exact: true })
+    .fill("Second synthetic browser review, preserving published history.");
+  await page
+    .getByLabel("Letter template", { exact: true })
+    .fill(DEFAULT_TEMPLATE_SOURCE.bodyTemplate + "\nSynthetic revision.");
+  await page.getByRole("button", { name: "Save draft and preview", exact: true }).click();
+  await page
+    .getByLabel("I reviewed this saved version and its previews", { exact: true })
+    .check();
+  await page.getByRole("button", { name: "Publish this version", exact: true }).click();
+  await page.getByRole("link", { name: "Back to template history", exact: true }).click();
+  await expect(
+    page.getByRole("region", { name: "Template version history" })
+  ).toContainText("superseded");
+  await page.getByRole("button", { name: "Deactivate template", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Template deactivated");
+  const verify = new PrismaClient();
+  try {
+    const stored = await verify.requestTemplate.findUniqueOrThrow({
+      where: { id: templateId },
+      include: { versions: { orderBy: { version: "asc" } } },
+    });
+    expect(stored.isActive).toBe(false);
+    expect(stored.versions.map((row) => row.status)).toEqual(["SUPERSEDED", "PUBLISHED"]);
+    expect(stored.versions[0]!.bodyTemplate).toBe(DEFAULT_TEMPLATE_SOURCE.bodyTemplate);
+    expect(stored.versions[1]!.bodyTemplate).toContain("Synthetic revision.");
+  } finally {
+    await verify.$disconnect();
+  }
+  await page.goto("/admin/templates");
+  await page.getByLabel("Search templates", { exact: true }).fill(key);
+  await page.getByRole("button", { name: "Apply filters", exact: true }).click();
+  await expect(page.getByRole("link", { name, exact: true })).toBeVisible();
 });

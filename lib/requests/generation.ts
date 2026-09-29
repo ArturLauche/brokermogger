@@ -48,7 +48,7 @@ import { renderTemplate } from "@/lib/templates/renderer";
 import { parseWithSchema } from "@/lib/validation/form";
 import { workflowSchema } from "./initial";
 
-import { formatIdentifierList, requestReference } from "./rendering";
+import { deliveryVariables, formatIdentifierList, requestReference } from "./rendering";
 
 export interface GenerateInput {
   profileId: string;
@@ -110,17 +110,6 @@ export async function prepareRequestDrafts(
     throw new AppError({
       code: "VALIDATION_FAILED",
       message: "No published legal rule covers this request type.",
-    });
-  }
-
-  const template = await findPublishedTemplate({
-    requestType: input.requestType,
-    jurisdictionId: resolved.jurisdiction.id,
-  });
-  if (!template) {
-    throw new AppError({
-      code: "TEMPLATE_RENDER_FAILED",
-      message: "No published template exists for this request type.",
     });
   }
 
@@ -190,6 +179,7 @@ export async function prepareRequestDrafts(
     brokerIds,
     input.requestType
   );
+  const templates = new Map<string, ReturnType<typeof findPublishedTemplate>>();
 
   for (const brokerId of brokerIds) {
     const broker = brokersById.get(brokerId);
@@ -222,6 +212,22 @@ export async function prepareRequestDrafts(
     });
 
     const delivery = selectRequestDelivery(broker);
+    let selection = templates.get(delivery.channel);
+    if (!selection) {
+      selection = findPublishedTemplate({
+        requestType: input.requestType,
+        jurisdictionId: resolved.jurisdiction.id,
+        channel: delivery.channel,
+      });
+      templates.set(delivery.channel, selection);
+    }
+    const template = await selection;
+    if (!template)
+      throw new AppError({
+        code: "TEMPLATE_RENDER_FAILED",
+        message:
+          "No published template is available for this request type and delivery channel. Ask the instance operator to publish a suitable letter.",
+      });
     const verification = rule.verificationRequirements as {
       governmentIdExpected?: boolean;
     };
@@ -311,6 +317,7 @@ export async function prepareRequestDrafts(
         templateVersionId: template.version.id,
         legalRuleVersionId: rule.legalRuleVersionId,
         variables: {
+          ...deliveryVariables(delivery),
           "request.reference": reference,
           "broker.name": broker.tradingNames[0] ?? broker.legalName,
         },

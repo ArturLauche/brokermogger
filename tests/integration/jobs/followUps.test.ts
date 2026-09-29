@@ -215,6 +215,32 @@ describe("deadline and follow-up recovery", () => {
     );
   });
 
+  it("does not publish channel-specific instructions if the contact changes after rendering", async () => {
+    const f = await waiting();
+    await prepareFollowUp(f.actor, f.request.id);
+    const [job] = await claimDueJobs("contact-change-worker", 1);
+    const request = await getOwnedRequest(f.actor, f.request.id);
+    const snapshot = await renderFollowUpSnapshot(systemActor(job!.id), request, 1);
+    await testPrisma.brokerContactMethod.updateMany({
+      where: { brokerId: request.brokerId },
+      data: { type: "POSTAL", value: "Example postal destination" },
+    });
+    await expect(
+      commitFollowUpDraft(systemActor(job!.id), {
+        requestId: request.id,
+        followUpNumber: 1,
+        previousSnapshotId: request.currentSnapshotId,
+        job: job!,
+        maxFollowUps: 2,
+        snapshot,
+      })
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await testPrisma.requestSnapshot.count()).toBe(1);
+    expect((await getOwnedRequest(f.actor, request.id)).status).toBe(
+      "FOLLOW_UP_SCHEDULED"
+    );
+  });
+
   it("holds revoked consent without repeatedly scheduling it on later watch passes", async () => {
     const f = await waiting();
     await testPrisma.userProfile.update({

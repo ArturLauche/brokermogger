@@ -41,18 +41,6 @@ export async function listAdminLegalRules(actor: ActorContext) {
   });
 }
 
-export async function listAdminTemplates(actor: ActorContext) {
-  requirePermission(actor, "admin:template:read");
-  return prisma.requestTemplate.findMany({
-    where: { deletedAt: null },
-    include: {
-      jurisdiction: true,
-      versions: { orderBy: { version: "desc" }, take: 2 },
-    },
-    orderBy: { name: "asc" },
-  });
-}
-
 export async function listAdminJobs(actor: ActorContext, status?: JobStatus) {
   requirePermission(actor, "admin:job:read");
   return prisma.backgroundJob.findMany({

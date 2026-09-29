@@ -1,4 +1,4 @@
-# Broker and instance administration
+# Catalogue and instance administration
 
 Maintainers and instance administrators can create and edit brokers at
 `/admin/brokers`. Instance settings at `/admin/settings` require the instance
@@ -41,6 +41,44 @@ The broker list is searchable and filtered in the URL, with stable creation-orde
 cursors: 25 records by default, at most 100 per repository call. Lists omit contact
 payloads. Detail pages do not silently truncate contacts or coverage.
 
+## Request templates
+
+Maintainers and administrators can create, search and filter templates at
+`/admin/templates`. New templates start inactive with an editable draft. The stable
+key, request type, channel and jurisdiction stay fixed; create another template to
+change its scope. Version lists use the same 25-row cursors and 100-row maximum as
+broker lists and omit full letter content until a version is opened.
+
+Save a draft to preview its actual saved text with synthetic self and household
+examples. No personal records are read and no message is sent. Unknown or malformed
+placeholders, invisible characters, HTML and email-header lines are rejected with
+field errors. New draft sources normalize browser/Windows line endings before
+checksumming; published history is never rewritten. Publication requires the core identification, approved identifiers,
+legal basis, reply address, reference, date and optional household-consent blocks;
+review notes; and an explicit confirmation of the saved preview. Maximum declared
+values must fit the complete 200-character subject and 100,000-character body.
+
+Publishing is atomic: the new version becomes published, previous versions of that
+parent become superseded, and other active parents with the same request type,
+channel and jurisdiction become inactive. Published text is immutable. Existing
+snapshots, approvals and historical destinations keep their original content and
+references. Deactivating a template prevents its selection for new letters. Start a
+new draft to reactivate or correct it; malformed legacy text can also be copied into
+a repair draft without changing the original.
+
+Edits and publication check the parent revision. Competing changes cannot silently
+overwrite another operator's review. Publication also checks the saved source
+checksum. Selection is deterministic: the profile's jurisdiction takes precedence,
+then the requested channel, then the shared plain-letter EMAIL fallback for manual
+channels, then equivalent generic choices. A portal-only template cannot serve an
+email request. A bulk generation reuses each channel lookup. Generation, regeneration
+and follow-up publication reject a destination change that occurs after rendering,
+before writing a new snapshot or reserving draft quota.
+
+Seeding preserves operator choices, including a published custom template created
+before the default catalogue was installed. A seeded competitor arrives inactive
+with a draft for review. Publication and seeds serialize their scope changes.
+
 ## Settings
 
 The editor uses the validated catalogue in `lib/config/systemSettings.ts`; unknown
@@ -70,6 +108,6 @@ Published legal/template history remains protected separately by migration 13.
 Integration coverage includes role boundaries, stale edits, public URL validation,
 child-ID scoping, failure rollback, verification gates, seed preservation, request
 compatibility and pagination. A production browser journey exercises creation,
-validation with retained input, contact verification, coverage and settings. Legal
-and template authoring are the next operator workflow; this document does not imply
-that their editors are finished.
+validation with retained input, contact verification, coverage, settings and the
+full template draft/repair/preview/publication/supersession workflow. Legal-rule
+authoring remains the next operator workflow.

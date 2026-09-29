@@ -1,6 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
-import { readMailLink, signIn, fillProfile } from "./helpers";
+import {
+  resetBrowserAuthenticationLimit,
+  readMailLink,
+  signIn,
+  fillProfile,
+} from "./helpers";
+
+test.beforeAll(resetBrowserAuthenticationLimit);
 
 test.describe("profile and household workflows", () => {
   test.beforeEach(async ({ baseURL }) => {

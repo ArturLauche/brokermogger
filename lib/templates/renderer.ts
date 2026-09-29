@@ -11,6 +11,7 @@
  * screen later compares against.
  */
 import { AppError } from "@/lib/core/errors";
+import { templateSyntaxErrors } from "./syntax";
 import { sha256Hex } from "@/lib/security/crypto";
 import {
   detectSuspiciousContent,
@@ -87,6 +88,13 @@ export function renderTemplate(
   context: RenderContext,
   options: RenderOptions = {}
 ): RenderedTemplate {
+  const fieldErrors = templateSyntaxErrors(subjectTemplate, bodyTemplate);
+  if (Object.keys(fieldErrors).length)
+    throw new AppError({
+      code: "TEMPLATE_RENDER_FAILED",
+      message: "The template contains unsupported or unsafe syntax.",
+      details: { fieldErrors },
+    });
   const placeholders = [
     ...new Set([
       ...extractPlaceholders(subjectTemplate),
@@ -155,11 +163,11 @@ export function renderTemplate(
     });
   }
 
-  const subject = substitute(subjectTemplate, values).trim();
+  const subject = sanitiseHeaderValue(
+    substitute(subjectTemplate, values).trim(),
+    "subject"
+  );
   const body = collapseEmptyLines(substitute(bodyTemplate, values)).trim();
-
-  // Subjects must remain a single header-safe line after substitution.
-  sanitiseHeaderValue(subject, "subject");
 
   return {
     subject,

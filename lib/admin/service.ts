@@ -10,7 +10,6 @@ import {
   listAdminAudit,
   listAdminJobs,
   listAdminLegalRules,
-  listAdminTemplates,
   retryJobRow,
   cancelJobRow,
   revokeAdminAction,
@@ -31,11 +30,6 @@ export async function openAdminConsole(actor: ActorContext) {
 export async function getAdminLegalRules(actor: ActorContext) {
   requirePermission(actor, "admin:legalRule:read");
   return listAdminLegalRules(actor);
-}
-
-export async function getAdminTemplates(actor: ActorContext) {
-  requirePermission(actor, "admin:template:read");
-  return listAdminTemplates(actor);
 }
 
 export async function getAdminJobs(actor: ActorContext) {

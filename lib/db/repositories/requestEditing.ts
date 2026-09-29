@@ -1,5 +1,6 @@
 import { AppError } from "@/lib/core/errors";
 import { selectRequestDelivery } from "@/lib/brokers/sendable";
+import { assertRenderedDelivery } from "@/lib/requests/rendering";
 import { prisma, type PrismaTransaction } from "@/lib/db/client";
 import type { ActorContext } from "@/lib/permissions/actor";
 import {
@@ -121,6 +122,11 @@ export async function replaceRequestDraft(
       });
       const draft = input.regenerated;
       const freshSnapshot = draft?.snapshot ?? input.regeneratedSnapshot;
+      if (freshSnapshot)
+        assertRenderedDelivery(
+          freshSnapshot.variables,
+          selectRequestDelivery(request.broker)
+        );
       if (
         draft &&
         (draft.profileId !== request.profileId ||

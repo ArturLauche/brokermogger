@@ -412,3 +412,29 @@ verification, and production key/build checks against the compiled app.
   including the new broker and settings workflow, with external sending disabled.
   Template/legal authoring, coverage, interface and production/performance work
   remain in progress.
+
+### Template authoring and publication
+
+- Added searchable, paginated template administration, metadata editing, draft
+  creation and repair, a canonical variable reference, saved synthetic self and
+  household previews, review validation, publication and deactivation. Published
+  versions retain immutable content; corrections create new drafts and historical
+  request snapshots retain their approved text and version references.
+- Operator writes use active-account gates, revision checks, bound version IDs and
+  saved-source checksums. Publication serializes each request-type/channel/scope,
+  supersedes the parent's previous version and deactivates competing parents in
+  one transaction. Seeds preserve published custom choices even on first install.
+- Initial and follow-up rendering now select templates by the actual delivery
+  channel, prefer jurisdiction-specific language and share a plain-letter fallback
+  for manual channels. Bulk preparation reuses each channel lookup. A destination
+  change after rendering rejects generation, regeneration or follow-up publication
+  before a new snapshot can be committed. New editor text normalizes CRLF/CR to LF;
+  the production browser journey caught that browser form encoding difference.
+- All 374 unit/component tests, 52 targeted workflow/catalogue integration cases,
+  and the final nine-case operator rerun passed. Typecheck, lint, formatting and a
+  fresh production build passed. All seven production Chromium journeys passed,
+  including the new draft/validation/preview/publication/supersession workflow.
+  Browser fixtures reset only the login-IP bucket in the guarded local test
+  database so repeated QA does not consume the application's production limit.
+  Legal authoring, sourced coverage, interface, production, performance and final
+  PR delivery remain in progress.

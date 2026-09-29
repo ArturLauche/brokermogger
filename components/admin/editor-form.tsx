@@ -16,6 +16,7 @@ export interface EditorField {
   description?: string;
   required?: boolean;
   maxLength?: number;
+  rows?: number;
   options?: { value: string; label: string }[];
 }
 
@@ -141,7 +142,7 @@ export function EditorForm({
                 ))}
               </select>
             ) : field.kind === "textarea" ? (
-              <Textarea {...props} maxLength={field.maxLength} rows={4} />
+              <Textarea {...props} maxLength={field.maxLength} rows={field.rows ?? 4} />
             ) : (
               <Input
                 {...props}
