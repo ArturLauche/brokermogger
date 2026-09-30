@@ -22,6 +22,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { sessionCookieName } from "@/lib/auth/cookies";
 import { env } from "@/lib/config/env";
+import { buildContentSecurityPolicy } from "@/lib/security/contentSecurityPolicy";
 
 /** Route prefixes that only make sense for a signed in account. */
 const AUTHENTICATED_PREFIXES = [
@@ -31,43 +32,13 @@ const AUTHENTICATED_PREFIXES = [
   "/household",
   "/brokers",
   "/requests",
+  "/responses",
+  "/notifications",
   "/evidence",
   "/reports",
   "/settings",
   "/admin",
 ];
-
-function buildCsp(nonce: string, isDevelopment: boolean): string {
-  const scriptSrc = isDevelopment
-    ? `'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-eval' 'unsafe-inline'`
-    : `'self' 'nonce-${nonce}' 'strict-dynamic'`;
-
-  // Tailwind injects styles through a stylesheet, but React still emits inline
-  // style attributes for the dev overlay, so development needs unsafe-inline.
-  const styleSrc = isDevelopment ? `'self' 'unsafe-inline'` : `'self' 'nonce-${nonce}'`;
-
-  const directives = [
-    `default-src 'self'`,
-    `script-src ${scriptSrc}`,
-    `style-src ${styleSrc}`,
-    `img-src 'self' blob: data:`,
-    `font-src 'self'`,
-    `connect-src 'self'${isDevelopment ? " ws: wss:" : ""}`,
-    `object-src 'none'`,
-    `base-uri 'self'`,
-    `form-action 'self'`,
-    `frame-ancestors 'none'`,
-    `frame-src 'none'`,
-    `worker-src 'self' blob:`,
-    `manifest-src 'self'`,
-  ];
-
-  if (!isDevelopment) {
-    directives.push("upgrade-insecure-requests");
-  }
-
-  return directives.join("; ");
-}
 
 function needsSession(pathname: string): boolean {
   // Consent is given by the invited adult, who does not need an account.
@@ -79,8 +50,10 @@ function needsSession(pathname: string): boolean {
 
 export function proxy(request: NextRequest): NextResponse {
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
-  const isDevelopment = env.APP_ENV === "development";
-  const csp = buildCsp(nonce, isDevelopment);
+  const csp = buildContentSecurityPolicy(nonce, {
+    development: env.NODE_ENV === "development",
+    https: new URL(env.APP_BASE_URL).protocol === "https:",
+  });
 
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-nonce", nonce);

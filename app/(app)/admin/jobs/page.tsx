@@ -27,7 +27,7 @@ export default async function AdminJobsPage() {
         title="Jobs"
         description="Background work, retry status and recoverable failures."
       />
-      <Table>
+      <Table scrollLabel="Background jobs">
         <TableHeader>
           <TableRow>
             <TableHead>Type</TableHead>
@@ -54,26 +54,28 @@ export default async function AdminJobsPage() {
               <TableCell className="font-mono text-xs">
                 {job.relatedRequestId ?? "—"}
               </TableCell>
-              <TableCell className="flex gap-2">
-                {["FAILED", "RETRYABLE"].includes(job.status) ? (
-                  <ConfirmSubmitButton
-                    action={retryJobAction}
-                    hidden={{ jobId: job.id }}
-                    label="Retry"
-                    title="Retry this job"
-                    description="The job will retry after checking its previous outcome."
-                  />
-                ) : null}
-                {["PENDING", "RETRYABLE", "RUNNING"].includes(job.status) ? (
-                  <ConfirmSubmitButton
-                    action={cancelJobAction}
-                    hidden={{ jobId: job.id }}
-                    label="Cancel"
-                    title="Cancel this job"
-                    description="This stops future attempts. An operation already handed to an external provider may still complete; an accepted email cannot be recalled."
-                    destructive
-                  />
-                ) : null}
+              <TableCell>
+                <div className="flex gap-2">
+                  {["FAILED", "RETRYABLE"].includes(job.status) ? (
+                    <ConfirmSubmitButton
+                      action={retryJobAction}
+                      hidden={{ jobId: job.id }}
+                      label="Retry"
+                      title="Retry this job"
+                      description="The job will retry after checking its previous outcome."
+                    />
+                  ) : null}
+                  {["PENDING", "RETRYABLE", "RUNNING"].includes(job.status) ? (
+                    <ConfirmSubmitButton
+                      action={cancelJobAction}
+                      hidden={{ jobId: job.id }}
+                      label="Cancel"
+                      title="Cancel this job"
+                      description="This stops future attempts. An operation already handed to an external provider may still complete; an accepted email cannot be recalled."
+                      destructive
+                    />
+                  ) : null}
+                </div>
               </TableCell>
             </TableRow>
           ))}

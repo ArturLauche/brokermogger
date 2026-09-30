@@ -41,6 +41,8 @@ export interface ConfirmDialogProps {
   /** Disables the confirm button while the action runs. */
   pending?: boolean;
   onConfirm: () => void;
+  /** Explicit target when the controlled dialog has no Radix trigger. */
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
   className?: string;
 }
 
@@ -56,6 +58,7 @@ export function ConfirmDialog({
   destructive = false,
   pending = false,
   onConfirm,
+  returnFocusRef,
   className,
 }: ConfirmDialogProps) {
   const inputId = React.useId();
@@ -74,7 +77,15 @@ export function ConfirmDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={handleOpenChange}>
-      <AlertDialogContent className={cn("sm:max-w-md", className)}>
+      <AlertDialogContent
+        className={cn("sm:max-w-md", className)}
+        onCloseAutoFocus={(event) => {
+          if (returnFocusRef?.current) {
+            event.preventDefault();
+            returnFocusRef.current.focus();
+          }
+        }}
+      >
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>

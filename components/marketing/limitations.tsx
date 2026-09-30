@@ -45,8 +45,10 @@ export function Limitations() {
       <ul className="grid gap-5 sm:grid-cols-2">
         {LIMITATIONS.map((limitation) => (
           <li key={limitation.title} className="flex flex-col gap-1">
-            <h3 className="font-heading font-medium">{limitation.title}</h3>
-            <p className="text-sm text-pretty text-muted-foreground">{limitation.body}</p>
+            <h3 className="font-heading font-semibold">{limitation.title}</h3>
+            <p className="text-sm leading-6 text-pretty text-muted-foreground">
+              {limitation.body}
+            </p>
           </li>
         ))}
       </ul>

@@ -37,7 +37,7 @@ export function AccountForm({
       </div>
       <div className="space-y-2">
         <p className="text-sm font-medium">Sign-in email</p>
-        <p className="font-mono text-sm">{maskedEmail}</p>
+        <p className="font-mono text-sm [overflow-wrap:anywhere]">{maskedEmail}</p>
         <p className="text-sm text-muted-foreground">
           This is the address used for magic-link authentication.
         </p>

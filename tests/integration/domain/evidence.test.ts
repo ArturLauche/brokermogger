@@ -1,12 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { uploadEvidence, downloadEvidence, deleteEvidence } from "@/lib/evidence/service";
+import {
+  uploadEvidence,
+  downloadEvidence,
+  deleteEvidence,
+  listEvidence,
+} from "@/lib/evidence/service";
 import { attachmentDisposition } from "@/lib/evidence/files";
 import { getStorage, MemoryStorageAdapter, setStorageForTests } from "@/lib/storage";
 import { purgePrivateFile } from "@/lib/storage/privateFiles";
 import { listUnfinishedFilePurges } from "@/lib/db/repositories/evidence";
 import { testPrisma } from "../../helpers/db";
 import { testActor } from "../../helpers/actor";
+import { workflowFixture } from "../../helpers/workflow";
 
 const body = Buffer.from("%PDF-1.7\nPrivate synthetic evidence\n%%EOF");
 afterEach(() => {
@@ -28,6 +34,37 @@ async function upload() {
 }
 
 describe("evidence privacy", () => {
+  it("keeps unattached evidence visible with an active profile while enforcing account ownership", async () => {
+    const fixture = await workflowFixture();
+    const file = await uploadEvidence(fixture.actor, {
+      kind: "OTHER",
+      requestId: null,
+      filename: "sample.pdf",
+      contentType: "application/pdf",
+      body,
+    });
+    expect(
+      (await listEvidence(fixture.actor, fixture.profile.id)).map((row) => row.id)
+    ).toContain(file.id);
+    expect(await listEvidence(testActor("another-account"), fixture.profile.id)).toEqual(
+      []
+    );
+  });
+
+  it("rejects uploads that impersonate generated reports or account exports", async () => {
+    for (const kind of ["REPORT", "ACCOUNT_EXPORT"] as const) {
+      await expect(
+        uploadEvidence(testActor("synthetic"), {
+          kind: kind as never,
+          requestId: null,
+          filename: "sample.pdf",
+          contentType: "application/pdf",
+          body,
+        })
+      ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    }
+    expect(await testPrisma.evidenceFile.count()).toBe(0);
+  });
   it("stores encrypted bytes and downloads a verified file with a safe filename", async () => {
     const { actor, file } = await upload();
     const stored = await getStorage(file.storageBackend).get(file.storageKey);

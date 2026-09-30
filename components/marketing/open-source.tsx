@@ -33,8 +33,10 @@ export function OpenSource() {
       <ul className="grid gap-5 sm:grid-cols-2">
         {POINTS.map((point) => (
           <li key={point.title} className="flex flex-col gap-1">
-            <h3 className="font-heading font-medium">{point.title}</h3>
-            <p className="text-sm text-pretty text-muted-foreground">{point.body}</p>
+            <h3 className="font-heading font-semibold">{point.title}</h3>
+            <p className="text-sm leading-6 text-pretty text-muted-foreground">
+              {point.body}
+            </p>
           </li>
         ))}
       </ul>

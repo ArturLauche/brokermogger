@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { PrismaClient } from "@prisma/client";
 import { accountEmailIndex } from "../lib/security/accountEmail";
 import { seedJurisdictions } from "../prisma/seeds/jurisdictions";

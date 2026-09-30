@@ -69,7 +69,7 @@ export default async function AccountSettingsPage({
 
       <section className="flex flex-col gap-3">
         <h2 className="font-heading text-base font-medium">Sessions</h2>
-        <Table>
+        <Table scrollLabel="Active sessions">
           <TableHeader>
             <TableRow>
               <TableHead>Expires</TableHead>

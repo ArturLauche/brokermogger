@@ -7,7 +7,6 @@
  * and a review date, and uncertain rules are flagged before they are used.
  */
 import { Section } from "@/components/marketing/section";
-import { Card, CardContent } from "@/components/ui/card";
 
 interface Coverage {
   place: string;
@@ -79,23 +78,17 @@ export function CountryCoverage() {
       title="Where it works, and how far"
       description="The rule that applies is chosen per broker and per profile when a request is prepared. Every rule carries a source link, a confidence level and the date it was last reviewed."
     >
-      <ul className="grid gap-4 md:grid-cols-2">
+      <ul className="grid gap-x-10 gap-y-8 md:grid-cols-2">
         {COVERAGE.map((entry) => (
-          <li key={entry.place}>
-            <Card className="h-full">
-              <CardContent className="flex flex-col gap-2">
-                <h3 className="font-heading font-medium">{entry.place}</h3>
-                <p className="text-sm text-pretty text-muted-foreground">
-                  {entry.prepares}
-                </p>
-                <p className="text-sm text-pretty text-muted-foreground">
-                  <span className="font-medium text-foreground">
-                    What it does not do:{" "}
-                  </span>
-                  {entry.limit}
-                </p>
-              </CardContent>
-            </Card>
+          <li key={entry.place} className="flex flex-col gap-3 border-t pt-5">
+            <h3 className="font-heading font-semibold">{entry.place}</h3>
+            <p className="text-sm leading-6 text-pretty text-muted-foreground">
+              {entry.prepares}
+            </p>
+            <p className="text-sm leading-6 text-pretty text-muted-foreground">
+              <span className="font-medium text-foreground">What it does not do: </span>
+              {entry.limit}
+            </p>
           </li>
         ))}
       </ul>

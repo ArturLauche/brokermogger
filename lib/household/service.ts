@@ -23,7 +23,7 @@ import {
   householdInvitationSchema,
   invitationTokenSchema,
 } from "./validation";
-export { CONSENT_STATEMENT, HOUSEHOLD_ADULT_CONFIRMATION } from "./validation";
+export { CONSENT_STATEMENT, HOUSEHOLD_ADULT_CONFIRMATION } from "./copy";
 
 async function deliverInvitation(
   actor: ActorContext,

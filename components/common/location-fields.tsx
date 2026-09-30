@@ -26,7 +26,7 @@ export function LocationFields({
           name="countryCode"
           value={country}
           onChange={(event) => setCountry(event.target.value)}
-          className="h-11 w-full rounded-md border border-input bg-background px-3 text-base sm:h-10"
+          className="h-11 w-full rounded-md border border-input bg-background px-3 text-base md:h-10"
         >
           {Object.entries(COUNTRY_NAMES)
             .sort((a, b) => a[1].localeCompare(b[1]))
@@ -54,7 +54,7 @@ export function LocationFields({
             required
             aria-invalid={Boolean(error)}
             aria-describedby="region-error"
-            className="h-11 w-full rounded-md border border-input bg-background px-3 text-base sm:h-10"
+            className="h-11 w-full rounded-md border border-input bg-background px-3 text-base md:h-10"
           >
             <option value="">Select a state</option>
             {Object.entries(US_STATES).map(([code, name]) => (

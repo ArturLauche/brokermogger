@@ -4,7 +4,7 @@ import { FieldError, FormFeedback } from "@/components/common/form-feedback";
 import { ProfileFields } from "@/components/profiles/profile-fields";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { HOUSEHOLD_ADULT_CONFIRMATION } from "@/lib/household/validation";
+import { HOUSEHOLD_ADULT_CONFIRMATION } from "@/lib/household/copy";
 import { initialActionState } from "@/lib/validation/actionResult";
 import { inviteAdultAction, manageMemberAction, type InvitationFields } from "./actions";
 export function InvitationForm() {
@@ -37,7 +37,7 @@ export function InvitationForm() {
           id="relationship"
           name="relationship"
           defaultValue={state.values.relationship}
-          className="h-11 w-full rounded-md border border-input bg-background px-3 sm:h-10"
+          className="h-11 w-full rounded-md border border-input bg-background px-3 md:h-10"
           aria-describedby="relationship-hint relationship-error"
         >
           <option value="SPOUSE_OR_PARTNER">Spouse or partner</option>

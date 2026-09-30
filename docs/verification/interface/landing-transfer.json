@@ -1,0 +1,37 @@
+{
+  "method": "Three fresh Chromium contexts per build; Next standalone gzip responses; summed encodedBodySize of Next static JavaScript resources after networkidle. No existing browser cache.",
+  "before": [
+    {
+      "encodedBytes": 190430,
+      "transferBytes": 194330,
+      "files": 13
+    },
+    {
+      "encodedBytes": 190430,
+      "transferBytes": 194330,
+      "files": 13
+    },
+    {
+      "encodedBytes": 190430,
+      "transferBytes": 194330,
+      "files": 13
+    }
+  ],
+  "after": [
+    {
+      "encodedBytes": 156202,
+      "transferBytes": 158902,
+      "files": 9
+    },
+    {
+      "encodedBytes": 156202,
+      "transferBytes": 158902,
+      "files": 9
+    },
+    {
+      "encodedBytes": 156202,
+      "transferBytes": 158902,
+      "files": 9
+    }
+  ]
+}

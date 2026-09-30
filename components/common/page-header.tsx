@@ -36,12 +36,12 @@ export function PageHeader({
         <div className="flex min-w-0 flex-col gap-1">
           <h1
             id={headingId}
-            className="font-heading text-2xl leading-tight font-semibold text-balance"
+            className="font-heading text-2xl leading-tight font-semibold text-balance [overflow-wrap:anywhere] md:text-[1.75rem]"
           >
             {title}
           </h1>
           {description ? (
-            <p className="max-w-2xl text-sm text-pretty text-muted-foreground">
+            <p className="max-w-2xl text-sm leading-6 text-pretty text-muted-foreground">
               {description}
             </p>
           ) : null}

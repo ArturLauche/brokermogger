@@ -1,10 +1,13 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { AppShell } from "@/components/layout/app-shell";
 import { APP_NAV_ITEMS, type AppRole } from "@/components/layout/navigation";
-import type { ProfileSummary } from "@/components/layout/profile-switcher";
+import {
+  ProfileSwitcher,
+  type ProfileSummary,
+} from "@/components/layout/profile-switcher";
 import { signOutAction } from "@/app/auth-actions";
 
 vi.mock("@/app/auth-actions", () => ({ signOutAction: vi.fn() }));
@@ -135,5 +138,63 @@ describe("AppShell", () => {
     const signOut = screen.getByRole("menuitem", { name: /Sign out/ });
     await user.click(signOut);
     expect(signOutAction).toHaveBeenCalledOnce();
+  });
+});
+
+describe("profile switching feedback", () => {
+  it("keeps the old profile visible and prevents another switch while a change is pending", async () => {
+    const user = userEvent.setup();
+    let finish!: () => void;
+    const change = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        })
+    );
+    render(
+      <ProfileSwitcher
+        profiles={PROFILES}
+        activeProfileId="p1"
+        onProfileChange={change}
+      />
+    );
+    await user.click(
+      screen.getByRole("button", { name: /Active profile: Alex Fischer/ })
+    );
+    await user.click(screen.getByRole("menuitemradio", { name: /Mira Fischer/ }));
+    expect(change).toHaveBeenCalledWith("p2");
+    expect(
+      screen.getByRole("button", { name: /Active profile: Alex Fischer/ })
+    ).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent("Changing the active profile");
+    await act(async () => finish());
+    expect(
+      screen.getByRole("button", { name: /Active profile: Alex Fischer/ })
+    ).toBeEnabled();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("explains a failed switch and leaves the current profile selected", async () => {
+    const user = userEvent.setup();
+    const change = vi.fn().mockRejectedValue(new Error("Synthetic failure"));
+    render(
+      <ProfileSwitcher
+        profiles={PROFILES}
+        activeProfileId="p1"
+        onProfileChange={change}
+      />
+    );
+    await user.click(
+      screen.getByRole("button", { name: /Active profile: Alex Fischer/ })
+    );
+    await user.click(screen.getByRole("menuitemradio", { name: /Mira Fischer/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The profile could not be changed"
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Active profile: Alex Fischer/ })
+      ).toBeEnabled()
+    );
   });
 });

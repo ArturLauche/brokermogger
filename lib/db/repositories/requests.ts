@@ -154,51 +154,6 @@ export async function listOwnedRequests(
   });
 }
 
-export interface RequestStatusCounts {
-  total: number;
-  byStatus: Map<RequestStatus, number>;
-}
-
-export async function summarizeOwnedRequests(
-  actor: ActorContext,
-  profileId: string | null
-): Promise<RequestStatusCounts> {
-  requirePermission(actor, "request:read", { ownerUserId: actor.userId });
-  const groups = await prisma.removalRequest.groupBy({
-    by: ["status"],
-    where: {
-      userId: actor.userId,
-      deletedAt: null,
-      ...(profileId ? { profileId } : {}),
-    },
-    _count: { _all: true },
-  });
-
-  const byStatus = new Map<RequestStatus, number>();
-  let total = 0;
-  for (const group of groups) {
-    byStatus.set(group.status, group._count._all);
-    total += group._count._all;
-  }
-  return { total, byStatus };
-}
-
-export async function countDistinctOwnedBrokers(
-  actor: ActorContext,
-  profileId: string | null
-): Promise<number> {
-  requirePermission(actor, "request:read", { ownerUserId: actor.userId });
-  const groups = await prisma.removalRequest.groupBy({
-    by: ["brokerId"],
-    where: {
-      userId: actor.userId,
-      deletedAt: null,
-      ...(profileId ? { profileId } : {}),
-    },
-  });
-  return groups.length;
-}
-
 export interface RequestEventInput {
   removalRequestId: string;
   type: RequestEventType;
@@ -577,43 +532,6 @@ export async function hasRejectedSimilar(
     select: { id: true },
   });
   return found !== null;
-}
-
-export async function listUpcomingDeadlines(
-  actor: ActorContext,
-  profileId: string | null,
-  take = 5
-) {
-  requirePermission(actor, "request:read", { ownerUserId: actor.userId });
-  return prisma.removalRequest.findMany({
-    where: {
-      userId: actor.userId,
-      deletedAt: null,
-      deadlineAt: { gt: new Date() },
-      ...(profileId ? { profileId } : {}),
-    },
-    include: { broker: true },
-    orderBy: { deadlineAt: "asc" },
-    take,
-  });
-}
-
-export async function listRecentOwnedRequests(
-  actor: ActorContext,
-  profileId: string | null,
-  take = 8
-) {
-  requirePermission(actor, "request:read", { ownerUserId: actor.userId });
-  return prisma.removalRequest.findMany({
-    where: {
-      userId: actor.userId,
-      deletedAt: null,
-      ...(profileId ? { profileId } : {}),
-    },
-    include: { broker: true },
-    orderBy: { updatedAt: "desc" },
-    take,
-  });
 }
 
 const WAITING_FOR_DEADLINE: RequestStatus[] = [

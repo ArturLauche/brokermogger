@@ -74,7 +74,7 @@ export default async function BrokersPage() {
           description="Seed the database or ask a maintainer to add verified records."
         />
       ) : (
-        <Table>
+        <Table scrollLabel="Broker directory">
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
@@ -91,7 +91,7 @@ export default async function BrokersPage() {
                     {broker.legalName}
                   </Link>
                   <Link
-                    className="block py-2 text-sm underline underline-offset-4"
+                    className="block! py-2 text-sm underline underline-offset-4"
                     href={`/brokers/${broker.id}`}
                   >
                     Sources and instructions
@@ -107,13 +107,15 @@ export default async function BrokersPage() {
                     status={broker.verificationStatus}
                   />
                 </TableCell>
-                <TableCell className="flex flex-wrap gap-1">
-                  {broker.isDemoData ? <Badge variant="outline">Demo</Badge> : null}
-                  {broker.productionSendingEnabled ? (
-                    <Badge>Sending enabled</Badge>
-                  ) : (
-                    <Badge variant="outline">Sending off</Badge>
-                  )}
+                <TableCell>
+                  <div className="flex flex-wrap gap-2">
+                    {broker.isDemoData ? <Badge variant="outline">Demo</Badge> : null}
+                    {broker.productionSendingEnabled ? (
+                      <Badge>Sending enabled</Badge>
+                    ) : (
+                      <Badge variant="outline">Sending off</Badge>
+                    )}
+                  </div>
                 </TableCell>
               </TableRow>
             ))}

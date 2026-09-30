@@ -1,6 +1,15 @@
 import { ValidationError } from "@/lib/core/errors";
+import { z } from "zod";
 
 export const MAX_EVIDENCE_BYTES = 8 * 1024 * 1024;
+/** Generated reports and exports have separate approval, expiry, and job workflows. */
+export const evidenceUploadKindSchema = z.enum([
+  "SCREENSHOT",
+  "BROKER_RESPONSE",
+  "IDENTITY_DOCUMENT",
+  "OTHER",
+]);
+export type EvidenceUploadKind = z.infer<typeof evidenceUploadKindSchema>;
 
 export function validateUploadSize(size: number): void {
   if (!Number.isSafeInteger(size) || size < 1 || size > MAX_EVIDENCE_BYTES) {

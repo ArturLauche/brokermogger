@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LetterPreview } from "@/components/common/letter-preview";
 import { PageHeader } from "@/components/common/page-header";
 import { Button } from "@/components/ui/button";
 import { requireActorOrRedirect } from "@/lib/auth";
@@ -100,17 +101,11 @@ export default async function ManualSubmissionPage({
                 <Link href={`/evidence?requestId=${id}`}>Upload a receipt</Link>
               </Button>
             </div>
-            <details className="border-y py-3">
-              <summary className="cursor-pointer text-sm font-medium">
-                View approved message (contains personal data)
-              </summary>
-              <div className="mt-4 space-y-4">
-                <p className="font-semibold">{snapshot.subject}</p>
-                <pre className="font-sans text-base leading-7 break-words whitespace-pre-wrap">
-                  {snapshot.body}
-                </pre>
-              </div>
-            </details>
+            <LetterPreview
+              subject={snapshot.subject}
+              body={snapshot.body}
+              label="View approved message (contains personal data)"
+            />
           </section>
           <section
             aria-labelledby="record-submission"

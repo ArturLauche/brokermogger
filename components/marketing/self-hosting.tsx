@@ -11,7 +11,7 @@ const REQUIREMENTS = [
   },
   {
     title: "What stays off by default",
-    body: "Sending to real brokers is disabled until the operator enables it explicitly. Until then the instance behaves normally but writes outgoing mail to a local mailbox instead of the internet.",
+    body: "Sending to real brokers is disabled until the operator enables it explicitly. Local testing uses a simulated mailbox. A configured external provider still requires the sending switch, verified broker eligibility, and your approval.",
   },
   {
     title: "What you decide",
@@ -33,8 +33,8 @@ export function SelfHosting() {
       <ul className="grid gap-5 sm:grid-cols-2">
         {REQUIREMENTS.map((requirement) => (
           <li key={requirement.title} className="flex flex-col gap-1">
-            <h3 className="font-heading font-medium">{requirement.title}</h3>
-            <p className="text-sm text-pretty text-muted-foreground">
+            <h3 className="font-heading font-semibold">{requirement.title}</h3>
+            <p className="text-sm leading-6 text-pretty text-muted-foreground">
               {requirement.body}
             </p>
           </li>

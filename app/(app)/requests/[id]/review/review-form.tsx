@@ -23,25 +23,33 @@ export function ReviewApprovalForm({
   const label = APPROVAL_CHECKBOX_LABEL;
 
   return (
-    <form action={approveRequestAction} className="flex flex-col gap-4">
+    <form
+      action={approveRequestAction}
+      className="flex max-w-prose flex-col items-start gap-4"
+    >
       <input type="hidden" name="requestId" value={requestId} />
       <input type="hidden" name="envelopeHash" value={envelopeHash} />
-      <div className="flex items-start gap-2">
+      <div className="flex items-start gap-3">
         <input
           id="confirmationAccepted"
           name="confirmationAccepted"
           type="checkbox"
+          className="mt-1.5 size-4 shrink-0 accent-primary"
           value="on"
           checked={checked}
           onChange={(event) => setChecked(event.target.checked)}
           aria-describedby={hintId}
         />
-        <Label htmlFor="confirmationAccepted" className="text-sm leading-5">
+        <Label
+          htmlFor="confirmationAccepted"
+          className="min-h-11 cursor-pointer items-start text-sm leading-6"
+        >
           {label}
         </Label>
       </div>
       <p id={hintId} className="text-sm text-muted-foreground">
-        The approve button stays disabled until this confirmation is checked.
+        Approval covers this exact text, destination, channel, reply address, and selected
+        identifiers. Check the confirmation to enable approval.
       </p>
       <ApprovalButton checked={checked} manual={manual} hintId={hintId} />
     </form>

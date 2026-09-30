@@ -8,7 +8,7 @@ import { StatusBadge } from "@/components/common/status-badge";
 import { Timeline } from "@/components/common/timeline";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { LetterPreview } from "@/components/common/letter-preview";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { requireActorOrRedirect } from "@/lib/auth";
 import { isAppError } from "@/lib/core/errors";
@@ -323,43 +323,38 @@ export default async function RequestDetailPage({
         </p>
       ) : null}
       <Tabs defaultValue="timeline">
-        <TabsList>
+        <TabsList aria-label="Request details">
           <TabsTrigger value="timeline">Timeline</TabsTrigger>
           <TabsTrigger value="snapshot">Snapshot</TabsTrigger>
           <TabsTrigger value="evidence">Evidence</TabsTrigger>
           <TabsTrigger value="responses">Broker responses</TabsTrigger>
         </TabsList>
         <TabsContent value="timeline">
-          <Card>
-            <CardHeader>
-              <CardTitle>Timeline</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Timeline
-                label="Request history"
-                events={request.events.map((event) => ({
-                  id: event.id,
-                  title: event.type.replaceAll("_", " ").toLowerCase(),
-                  timestamp: formatStamp(event.createdAt),
-                  dateTime: event.createdAt.toISOString(),
-                  actor: event.actorType.toLowerCase(),
-                  detail: event.message,
-                }))}
-              />
-            </CardContent>
-          </Card>
+          <section aria-labelledby="timeline-heading" className="space-y-4 border-t pt-6">
+            <h2 id="timeline-heading" className="text-lg font-semibold">
+              Timeline
+            </h2>
+            <Timeline
+              label="Request history"
+              events={request.events.map((event) => ({
+                id: event.id,
+                title: event.type.replaceAll("_", " ").toLowerCase(),
+                timestamp: formatStamp(event.createdAt),
+                dateTime: event.createdAt.toISOString(),
+                actor: event.actorType.toLowerCase(),
+                detail: event.message,
+              }))}
+            />
+          </section>
         </TabsContent>
         <TabsContent value="snapshot">
-          <details className="border-y py-4">
-            <summary className="cursor-pointer text-sm font-medium">
-              Reveal request text (contains personal data)
-            </summary>
-            <pre className="mt-4 font-sans text-base leading-7 break-words whitespace-pre-wrap">
-              {snapshot
-                ? `Subject: ${snapshot.subject}\n\n${snapshot.body}`
-                : "No snapshot has been rendered yet."}
-            </pre>
-          </details>
+          {snapshot ? (
+            <LetterPreview subject={snapshot.subject} body={snapshot.body} />
+          ) : (
+            <p className="py-4 text-sm text-muted-foreground">
+              No snapshot has been rendered yet.
+            </p>
+          )}
         </TabsContent>
         <TabsContent value="evidence">
           {request.manualSubmissions.length ? (
@@ -406,9 +401,13 @@ export default async function RequestDetailPage({
               <h2 id="request-replies" className="text-lg font-semibold">
                 Broker replies
               </h2>
-              <Button asChild>
-                <Link href={`/requests/${request.id}/responses/new`}>Record a reply</Link>
-              </Button>
+              {canManage ? (
+                <Button asChild>
+                  <Link href={`/requests/${request.id}/responses/new`}>
+                    Record a reply
+                  </Link>
+                </Button>
+              ) : null}
             </div>
             {request.responses.length ? (
               <ul className="divide-y">

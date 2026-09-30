@@ -4,7 +4,7 @@ import { useActionState } from "react";
 import { FormFeedback } from "@/components/common/form-feedback";
 import { Button } from "@/components/ui/button";
 import { initialActionState } from "@/lib/validation/actionResult";
-import { NOTIFICATION_EMAIL_NOTICE } from "@/lib/notifications/preferences";
+import { NOTIFICATION_EMAIL_NOTICE } from "@/lib/notifications/copy";
 import { savePreferencesAction, updateNotificationAction } from "./actions";
 
 export function NotificationPreferencesForm({ emailEnabled }: { emailEnabled: boolean }) {

@@ -24,7 +24,7 @@ export default async function AdminLegalRulesPage() {
         title="Legal rules"
         description="Published versions are immutable. Create a new draft version instead of editing a published row."
       />
-      <Table>
+      <Table scrollLabel="Legal rules">
         <TableHeader>
           <TableRow>
             <TableHead>Law</TableHead>

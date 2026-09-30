@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { Button } from "@/components/ui/button";
@@ -25,10 +25,12 @@ export function ConfirmSubmitButton({
   destructive?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   return (
     <>
       <Button
+        ref={triggerRef}
         type="button"
         variant={destructive ? "destructive" : "outline"}
         onClick={() => setOpen(true)}
@@ -38,6 +40,7 @@ export function ConfirmSubmitButton({
       <ConfirmDialog
         open={open}
         onOpenChange={setOpen}
+        returnFocusRef={triggerRef}
         title={title}
         description={description}
         {...(consequences ? { consequences } : {})}

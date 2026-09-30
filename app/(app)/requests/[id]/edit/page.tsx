@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/common/page-header";
 import { requireActorOrRedirect } from "@/lib/auth";
 import { getOwnedRequest } from "@/lib/db/repositories/requests";
 import { requirePermission } from "@/lib/permissions/policy";
+import { canTransition } from "@/lib/requests/stateMachine";
 import { DraftForm } from "./draft-form";
 
 export const metadata = { title: "Edit request draft" };
@@ -23,13 +24,22 @@ export default async function EditDraftPage({
   });
   requirePermission(actor, "request:update", { ownerUserId: request.userId });
   const snapshot = request.snapshots[0];
+  const editable =
+    (request.status === "DRAFT" || canTransition(request.status, "DRAFT", "USER")) &&
+    !request.outboundEmails.length &&
+    !request.manualSubmissions.some((row) => row.snapshotId === snapshot?.id);
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
       <PageHeader
         title="Edit request draft"
         description={`${request.broker.legalName} · Saving changes requires fresh review and approval.`}
       />
-      {request.status === "APPROVED" ? (
+      {!editable ? (
+        <p className="text-sm leading-6 text-muted-foreground">
+          This message is in progress, has been submitted, or the request is closed.
+          Return to its history for the available next actions.
+        </p>
+      ) : request.status === "APPROVED" ? (
         <form action={returnToDraftAction} className="space-y-4">
           <input name="requestId" type="hidden" value={request.id} />
           <p>

@@ -29,7 +29,7 @@ export function EmptyState({
   description,
   action,
   secondaryAction,
-  headingLevel = 3,
+  headingLevel = 2,
   className,
 }: EmptyStateProps) {
   const Heading = `h${headingLevel}` as const;
@@ -37,25 +37,21 @@ export function EmptyState({
   return (
     <div
       data-slot="empty-state"
-      className={cn(
-        "flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed px-6 py-10 text-center",
-        className
-      )}
+      className={cn("flex flex-col items-start gap-4 border-t py-6", className)}
     >
-      <span
-        aria-hidden="true"
-        className="flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground"
-      >
-        <Icon className="size-5" />
-      </span>
-      <div className="flex flex-col gap-1">
-        <Heading className="font-heading text-base font-medium">{title}</Heading>
-        <p className="mx-auto max-w-md text-sm text-pretty text-muted-foreground">
+      <div className="flex max-w-prose flex-col gap-2">
+        <div className="flex items-start gap-2">
+          <span aria-hidden="true" className="mt-0.5 shrink-0 text-muted-foreground">
+            <Icon className="size-5" />
+          </span>
+          <Heading className="font-heading text-base font-semibold">{title}</Heading>
+        </div>
+        <p className="text-sm leading-6 text-pretty text-muted-foreground">
           {description}
         </p>
       </div>
       {action || secondaryAction ? (
-        <div className="flex flex-wrap items-center justify-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {action}
           {secondaryAction}
         </div>

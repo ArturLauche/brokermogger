@@ -195,7 +195,7 @@ export function DataTable<TData>({
   const visibleColumnCount = table.getVisibleLeafColumns().length;
 
   return (
-    <div className={cn("flex flex-col gap-3", className)} data-slot="data-table">
+    <div className={cn("flex min-w-0 flex-col gap-4", className)} data-slot="data-table">
       {enableSearch || enableColumnVisibility || toolbar ? (
         <div className="flex flex-wrap items-center gap-2">
           {enableSearch ? (
@@ -240,8 +240,8 @@ export function DataTable<TData>({
         </div>
       ) : null}
 
-      <div className="rounded-xl border">
-        <Table>
+      <div className="min-w-0 rounded-lg border">
+        <Table scrollLabel={caption}>
           <TableCaption className={cn(captionVisible ? "mt-3 mb-3" : "sr-only")}>
             {caption}
           </TableCaption>

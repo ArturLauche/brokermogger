@@ -1,8 +1,6 @@
 /**
  * Evidence upload, download and deletion.
  */
-import type { EvidenceKind } from "@prisma/client";
-
 import { recordAudit } from "@/lib/audit/service";
 import { getSetting } from "@/lib/config/runtimeSettings";
 import { AppError, ValidationError } from "@/lib/core/errors";
@@ -21,7 +19,12 @@ import { getStorage } from "@/lib/storage";
 import { decryptBytes, sha256Hex } from "@/lib/security/crypto";
 import { appendConsentRecord } from "@/lib/db/repositories/consent";
 import { storePrivateFile, purgePrivateFile } from "@/lib/storage/privateFiles";
-import { validateEvidenceFile } from "./files";
+import {
+  evidenceUploadKindSchema,
+  validateEvidenceFile,
+  type EvidenceUploadKind,
+} from "./files";
+import { parseWithSchema } from "@/lib/validation/form";
 import { sanitiseText } from "@/lib/security/sanitize";
 
 export async function listEvidence(actor: ActorContext, profileId: string | null) {
@@ -31,7 +34,7 @@ export async function listEvidence(actor: ActorContext, profileId: string | null
 export async function uploadEvidence(
   actor: ActorContext,
   input: {
-    kind: EvidenceKind;
+    kind: EvidenceUploadKind;
     requestId: string | null;
     filename: string;
     contentType: string;
@@ -40,7 +43,7 @@ export async function uploadEvidence(
   }
 ) {
   requirePermission(actor, "evidence:upload", { ownerUserId: actor.userId });
-
+  parseWithSchema(evidenceUploadKindSchema, input.kind);
   validateEvidenceFile(input.body, input.contentType);
   let identityConsentRecordId: string | null = null;
   let profileId: string | null = null;

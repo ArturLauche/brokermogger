@@ -3,7 +3,7 @@
  *
  * Keeps every section on the same grid and guarantees the heading order: the
  * page has one `h1` in the hero, each section owns exactly one `h2`, and the
- * cards inside a section use `h3`.
+ * items inside a section use `h3`.
  */
 import type { ReactNode } from "react";
 
@@ -39,7 +39,9 @@ export function Section({
             {title}
           </h2>
           {description ? (
-            <p className="max-w-3xl text-pretty text-muted-foreground">{description}</p>
+            <p className="max-w-3xl text-base leading-7 text-pretty text-muted-foreground">
+              {description}
+            </p>
           ) : null}
         </div>
         <div className={cn("mt-8", contentClassName)}>{children}</div>

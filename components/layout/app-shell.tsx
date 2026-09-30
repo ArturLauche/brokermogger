@@ -48,7 +48,7 @@ export interface AppShellProps {
   activeProfileId: string | null;
   navItems: readonly NavItem[];
   children: React.ReactNode;
-  onProfileChange?: (id: string) => void;
+  onProfileChange?: (id: string) => void | Promise<void>;
 }
 
 export function AppShell({
@@ -83,7 +83,7 @@ export function AppShell({
                     aria-current={active ? "page" : undefined}
                     onClick={() => setMobileNavOpen(false)}
                     className={cn(
-                      "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors",
+                      "flex min-h-11 items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors md:min-h-10",
                       "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                       active
                         ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
@@ -103,7 +103,7 @@ export function AppShell({
   );
 
   return (
-    <div className="flex min-h-full flex-col">
+    <div className="flex min-h-dvh w-full min-w-0 flex-col">
       <a
         href="#main-content"
         className="sr-only rounded-lg bg-background px-3 py-2 text-sm font-medium ring-2 ring-ring focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50"
@@ -111,7 +111,7 @@ export function AppShell({
         Skip to main content
       </a>
 
-      <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b bg-background px-3">
+      <header className="sticky top-0 z-30 grid shrink-0 grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-2 border-b bg-background px-4 py-2 md:flex md:h-16 md:px-6 md:py-0">
         <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
           <SheetTrigger asChild>
             <Button type="button" variant="ghost" size="icon" className="md:hidden">
@@ -130,23 +130,29 @@ export function AppShell({
           </SheetContent>
         </Sheet>
 
-        <Link href="/dashboard" className="font-heading font-semibold">
+        <Link href="/dashboard" className="min-w-0 truncate font-heading font-semibold">
           Brokermogger
         </Link>
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="col-span-3 col-start-1 row-start-2 min-w-0 border-t pt-2 md:ml-auto md:border-0 md:pt-0">
           <ProfileSwitcher
+            className="w-full max-w-none md:w-auto md:max-w-64"
             profiles={profiles}
             activeProfileId={activeProfileId}
             {...(onProfileChange ? { onProfileChange } : {})}
           />
+        </div>
+        <div className="col-start-3 row-start-1 justify-self-end">
           <UserMenu displayName={user.displayName} email={user.email} role={user.role} />
         </div>
       </header>
 
-      <div className="flex flex-1">
-        <aside className="hidden w-64 shrink-0 border-r bg-sidebar md:block">
-          <nav aria-label="Main" className="sticky top-14 p-3">
+      <div className="flex min-w-0 flex-1">
+        <aside className="hidden w-56 shrink-0 border-r bg-sidebar md:block">
+          <nav
+            aria-label="Main"
+            className="sticky top-16 max-h-[calc(100dvh-4rem)] overflow-y-auto p-3"
+          >
             {navigation}
           </nav>
         </aside>
@@ -154,9 +160,11 @@ export function AppShell({
         <main
           id="main-content"
           tabIndex={-1}
-          className="min-w-0 flex-1 px-4 py-6 focus:outline-none md:px-6"
+          className="min-w-0 flex-1 px-4 py-6 focus:outline-none md:px-6 md:py-8"
         >
-          {children}
+          <div className="mx-auto flex w-full max-w-[1200px] min-w-0 flex-col gap-6">
+            {children}
+          </div>
         </main>
       </div>
     </div>

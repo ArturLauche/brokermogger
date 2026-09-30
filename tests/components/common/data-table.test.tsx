@@ -33,6 +33,10 @@ describe("DataTable", () => {
     render(<DataTable columns={columns} data={rows} caption="Broker directory" />);
 
     expect(screen.getByRole("table", { name: "Broker directory" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Broker directory" })).toHaveAttribute(
+      "tabindex",
+      "0"
+    );
     expect(bodyRowNames()).toEqual([
       "Northwind Directory",
       "Acme Data Exchange",

@@ -35,7 +35,7 @@ export function IdentifierForm({
           id="identifier-type"
           name="type"
           defaultValue={state.values.type}
-          className="h-11 w-full rounded-md border border-input bg-background px-3 sm:h-10"
+          className="h-11 w-full rounded-md border border-input bg-background px-3 md:h-10"
           aria-describedby="identifier-type-error"
         >
           {Object.entries(IDENTIFIER_TYPE_LABELS)

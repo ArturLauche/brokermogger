@@ -1,6 +1,7 @@
 import { PageHeader } from "@/components/common/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -60,7 +61,7 @@ export default async function AdminAuditPage({
         </AlertDescription>
       </Alert>
 
-      <Table>
+      <Table scrollLabel="Audit entries">
         <TableHeader>
           <TableRow>
             <TableHead>Time</TableHead>
@@ -92,12 +93,7 @@ export default async function AdminAuditPage({
         <form action={grantBreakGlassAction} className="flex flex-col gap-3">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="targetUserId">Target user id</Label>
-            <input
-              id="targetUserId"
-              name="targetUserId"
-              required
-              className="h-9 rounded-lg border border-input px-2"
-            />
+            <Input id="targetUserId" name="targetUserId" required />
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="justification">Justification</Label>
@@ -111,14 +107,13 @@ export default async function AdminAuditPage({
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="durationHours">Duration (hours)</Label>
-            <input
+            <Input
               id="durationHours"
               name="durationHours"
               type="number"
               min={1}
               max={24}
               defaultValue={1}
-              className="h-9 rounded-lg border border-input px-2"
             />
           </div>
           <Button type="submit">Grant access</Button>
@@ -127,7 +122,7 @@ export default async function AdminAuditPage({
           <form
             key={grant.id}
             action={revokeBreakGlassAction}
-            className="flex items-center justify-between gap-2 text-sm"
+            className="flex flex-wrap items-center justify-between gap-3 text-sm [overflow-wrap:anywhere]"
           >
             <span>
               {grant.targetUserId} until{" "}

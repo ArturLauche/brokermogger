@@ -438,3 +438,34 @@ verification, and production key/build checks against the compiled app.
   database so repeated QA does not consume the application's production limit.
   Legal authoring, sourced coverage, interface, production, performance and final
   PR delivery remain in progress.
+
+### Interface refinement and production browser policy
+
+- Reworked the shared mobile shell, control sizing, spacing/radius tokens,
+  headings, table/tab scroll regions, inline states and focus restoration while
+  retaining the blue/slate identity and navigation. Dashboard attention comes
+  first, with four primary summaries, a complete detailed breakdown and real
+  ownership-scoped aggregate counts. Letters have a readable, explicit reveal.
+- Evidence uploads retain selected files and values on failure, reject generated
+  file kinds at the service boundary, show unassigned stored files under profile
+  filters, and use reliable private download anchors. Review/edit controls now
+  reflect request eligibility. Deletion copy describes immediate blocking and
+  resumable cleanup accurately.
+- Root HTML and 404 metadata use runtime rendering and document nonces. Production
+  builds always enforce strict script CSP; permitted control style attributes
+  and nonced Radix scroll-lock styles no longer trigger violations. Shared
+  household/notification copy is separate from server validation. CI checks CSP,
+  hydration and console errors on every browser journey. Removed fabricated
+  sitemap timestamps and included the new private routes in crawl/proxy rules.
+- Captured all 41 interface routes at five widths: 205 captures, zero page
+  overflow, one H1 per screen, zero unnamed controls and zero axe AA findings at
+  375px. Keyboard and 200% zoom approximations also pass. Before/after images and
+  methods are in `docs/interface-verification.md`. Public JavaScript encoded
+  transfer fell from 190,430 to 156,202 bytes (18.0%) over three cold runs, without
+  removing public content or FAQ behavior.
+- Typecheck, lint, formatting, all 379 unit/component tests, nine targeted
+  dashboard/evidence integration cases, the production build and all nine
+  production browser journeys passed. Auditing reports zero dependency
+  vulnerabilities after compatible updates to affected development packages.
+  Sourced legal coverage, legal authoring, remaining pagination, operational
+  hardening, scale benchmarks and final PR/CI delivery are still in progress.

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { PrismaClient } from "@prisma/client";
 import { seedJurisdictions } from "../prisma/seeds/jurisdictions";
 import { seedLegalRules } from "../prisma/seeds/legalRules";
@@ -84,6 +84,10 @@ test("edits and approves a manual request, records submission, then confirms a r
     .fill(`${letter}\n\nPlease confirm receipt in writing.`);
   await page.getByRole("button", { name: "Save and review" }).click();
   await expect(page).toHaveURL(/\/review/);
+  await expect(page.getByText(/Please confirm receipt in writing/)).toBeHidden();
+  await page
+    .getByText("Reveal the exact message (contains personal data)", { exact: true })
+    .click();
   await expect(page.getByText(/Please confirm receipt in writing/)).toBeVisible();
   await page.getByRole("checkbox").check();
   await page.getByRole("button", { name: "Approve for manual submission" }).click();
@@ -120,6 +124,9 @@ test("edits and approves a manual request, records submission, then confirms a r
     page.getByRole("link", { name: "Submit manually", exact: true })
   ).toHaveCount(0);
   await page.getByRole("link", { name: "Review", exact: true }).click();
+  await page
+    .getByText("Reveal the exact message (contains personal data)", { exact: true })
+    .click();
   await page.getByRole("checkbox").check();
   await page.getByRole("button", { name: "Approve for manual submission" }).click();
   await page.getByRole("link", { name: "Submit manually" }).click();
@@ -134,6 +141,9 @@ test("edits and approves a manual request, records submission, then confirms a r
   await processFollowUp(requestId, false, 2);
   await page.getByRole("button", { name: "Refresh status" }).click();
   await page.getByRole("link", { name: "Review", exact: true }).click();
+  await page
+    .getByText("Reveal the exact message (contains personal data)", { exact: true })
+    .click();
   await expect(
     page.getByText(/^Subject: Final reminder: privacy request/).first()
   ).toBeVisible();
@@ -211,6 +221,11 @@ test("edits and approves a manual request, records submission, then confirms a r
   await expect(page).toHaveURL(/saved=confirmed/);
   await page.goto(requestUrl);
   await expect(page.getByText("Completed", { exact: true }).first()).toBeVisible();
+  await page.goto(`${requestUrl}/review`);
+  await expect(page.getByRole("button", { name: /Approve/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Back to draft" })).toHaveCount(0);
+  await page.goto(`${requestUrl}/edit`);
+  await expect(page.getByRole("button", { name: "Save and review" })).toHaveCount(0);
 
   await page.goto("/reports");
   const originalStart = await page.getByLabel("From", { exact: true }).inputValue();

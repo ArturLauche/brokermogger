@@ -2,10 +2,6 @@ import { HouseholdRelationship } from "@prisma/client";
 import { z } from "zod";
 import { profileInputSchema } from "@/lib/profiles/validation";
 
-export const CONSENT_STATEMENT =
-  "I confirm that I am an adult, that the residence shown is correct, and that the account holder may prepare and send privacy requests about me using Brokermogger. I understand Brokermogger is not a law firm and does not guarantee removal. I can withdraw this permission using this invitation link.";
-export const HOUSEHOLD_ADULT_CONFIRMATION =
-  "I confirm this person is an adult and has asked me to invite them to manage their privacy requests.";
 export const invitationTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43,128}$/);
 export const householdInvitationSchema = z.object({
   profile: profileInputSchema,

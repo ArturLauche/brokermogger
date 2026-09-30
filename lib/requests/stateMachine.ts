@@ -407,11 +407,17 @@ export const OPEN_STATUSES: readonly RequestStatus[] = [
 
 /** Statuses where the user has something to do. Drives the dashboard counter. */
 export const NEEDS_USER_ACTION_STATUSES: readonly RequestStatus[] = [
+  "DRAFT",
+  "PREPARED",
   "AWAITING_USER_APPROVAL",
   "MANUAL_REVIEW_REQUIRED",
   "BROKER_REQUESTED_VERIFICATION",
   "NEEDS_USER_ACTION",
   "ESCALATION_RECOMMENDED",
+  "NO_RESPONSE",
+  "FAILED",
+  "REJECTED",
+  "PARTIALLY_COMPLETED",
 ];
 
 /** Statuses where the request is waiting on the broker. */

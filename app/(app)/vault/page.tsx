@@ -46,16 +46,22 @@ export default async function VaultPage({
 
   if (!active) {
     return (
-      <EmptyState
-        icon={LockIcon}
-        title="No identifiers stored"
-        description="Set up your profile first. Identifiers live on a profile."
-        action={
-          <Button asChild>
-            <Link href="/onboarding">Set up your profile</Link>
-          </Button>
-        }
-      />
+      <>
+        <PageHeader
+          title="Data vault"
+          description="Your stored profiles and matching details."
+        />
+        <EmptyState
+          icon={LockIcon}
+          title="No identifiers stored"
+          description="Set up your profile first. Identifiers live on a profile."
+          action={
+            <Button asChild>
+              <Link href="/onboarding">Set up your profile</Link>
+            </Button>
+          }
+        />
+      </>
     );
   }
 
@@ -85,7 +91,7 @@ export default async function VaultPage({
         </p>
       )}
       <Tabs defaultValue="identifiers">
-        <TabsList>
+        <TabsList aria-label="Data vault">
           <TabsTrigger value="identifiers">Identifiers</TabsTrigger>
           <TabsTrigger value="addresses">Addresses</TabsTrigger>
           <TabsTrigger value="household">Household</TabsTrigger>
@@ -161,7 +167,7 @@ export default async function VaultPage({
         </TabsContent>
         <TabsContent value="export" className="flex flex-col gap-4">
           <Button asChild>
-            <Link href="/api/account/export">Download a copy of my data</Link>
+            <a href="/api/account/export">Download a copy of my data</a>
           </Button>
           <ConfirmSubmitButton
             action={deleteProfileAction}
@@ -178,10 +184,11 @@ export default async function VaultPage({
             hidden={{}}
             label="Delete my account"
             title="Delete my account"
-            description="This queues deletion of identifiers and anonymises the account. It cannot be undone."
+            description="This immediately blocks account access and queues permanent cleanup of personal data. It cannot be undone."
             consequences={[
-              "Open jobs will be cancelled.",
-              "You will be signed out after the job runs.",
+              "Active sessions are revoked and queued work is cancelled immediately.",
+              "Messages already accepted by an email provider cannot be recalled.",
+              "Minimal audit and consent proof is retained for the disclosed periods. Instance backups follow the operator’s retention policy.",
             ]}
             confirmationPhrase="DELETE"
             destructive
@@ -203,7 +210,7 @@ function IdentifierTable({
   }[];
 }) {
   return (
-    <Table>
+    <Table scrollLabel="Profile identifiers">
       <TableHeader>
         <TableRow>
           <TableHead>Type</TableHead>

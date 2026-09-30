@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import {
   resetBrowserAuthenticationLimit,
   readMailLink,
@@ -56,6 +56,77 @@ test.describe("profile and household workflows", () => {
     await page.getByLabel("Timezone", { exact: true }).fill("America/New_York");
     await page.getByRole("button", { name: "Save account" }).click();
     await expect(page).toHaveURL(/saved=1/);
+    await page.goto("/evidence");
+    await page.getByLabel("Kind", { exact: true }).selectOption("BROKER_RESPONSE");
+    await page.getByLabel("File", { exact: true }).setInputFiles({
+      name: "résumé privé.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from("This is not a PDF."),
+    });
+    await page.getByRole("button", { name: "Store file", exact: true }).click();
+    await expect(page.locator("#file-error")).toContainText(
+      "contents match its file type"
+    );
+    await expect(page.getByLabel("Kind", { exact: true })).toHaveValue("BROKER_RESPONSE");
+    expect(
+      await page
+        .getByLabel("File", { exact: true })
+        .evaluate((input: HTMLInputElement) => input.files?.length)
+    ).toBe(1);
+    await page.getByLabel("File", { exact: true }).setInputFiles({
+      name: "résumé privé.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from("%PDF-1.7\nSynthetic browser evidence\n%%EOF"),
+    });
+    await page.getByRole("button", { name: "Store file", exact: true }).click();
+    await expect(page).toHaveURL(/\/evidence\?stored=1/);
+    const fileLink = page.getByRole("link", { name: "Download", exact: true });
+    await expect(fileLink).toBeVisible();
+    const download = await page.request.get((await fileLink.getAttribute("href"))!);
+    expect(download.status()).toBe(200);
+    expect(await download.text()).toContain("Synthetic browser evidence");
+    expect(download.headers()["content-disposition"]).toContain("filename*=UTF-8''");
+    await page.getByRole("button", { name: "Delete", exact: true }).click();
+    await expect(
+      page.getByRole("heading", { name: "No files stored", exact: true })
+    ).toBeVisible();
+    await page.setViewportSize({ width: 375, height: 1000 });
+    await page.goto("/vault");
+    const navigation = page.getByRole("button", { name: "Open navigation" });
+    await navigation.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("dialog", { name: "Navigation" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(navigation).toBeFocused();
+    const identifiersTab = page.getByRole("tab", { name: "Identifiers", exact: true });
+    await identifiersTab.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(
+      page.getByRole("tab", { name: "Addresses", exact: true })
+    ).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("End");
+    await expect(
+      page.getByRole("tab", { name: "Export and deletion", exact: true })
+    ).toHaveAttribute("aria-selected", "true");
+    const deleteProfile = page.getByRole("button", {
+      name: "Delete this profile",
+      exact: true,
+    });
+    await deleteProfile.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(deleteProfile).toBeFocused();
+    await identifiersTab.click();
+    const identifierTable = page.getByRole("region", {
+      name: "Profile identifiers",
+      exact: true,
+    });
+    await identifierTable.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect
+      .poll(() => identifierTable.evaluate((element) => element.scrollLeft))
+      .toBeGreaterThan(0);
     await page.getByRole("button", { name: /^Account menu/ }).click();
     await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
     await expect(page).toHaveURL(/\/login/);

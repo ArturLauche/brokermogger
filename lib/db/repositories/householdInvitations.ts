@@ -2,8 +2,8 @@ import { createNotificationInTx } from "./notifications";
 import { randomUUID } from "node:crypto";
 import { AppError, NotFoundError } from "@/lib/core/errors";
 import { prisma, type PrismaTransaction } from "@/lib/db/client";
+import { CONSENT_STATEMENT } from "@/lib/household/copy";
 import {
-  CONSENT_STATEMENT,
   type HouseholdDecisionInput,
   type HouseholdInvitationInput,
 } from "@/lib/household/validation";

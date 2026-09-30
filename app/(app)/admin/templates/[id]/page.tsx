@@ -119,7 +119,7 @@ export default async function TemplateHistoryPage({
             tabIndex={0}
             className="min-w-0 overflow-x-auto focus-visible:outline-2 focus-visible:outline-ring"
           >
-            <Table>
+            <Table scrollLabel="Template versions">
               <TableHeader>
                 <TableRow>
                   <TableHead>Version</TableHead>

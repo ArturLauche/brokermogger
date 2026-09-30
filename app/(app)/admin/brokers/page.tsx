@@ -83,7 +83,7 @@ export default async function AdminBrokersPage({
           tabIndex={0}
           className="min-w-0 overflow-x-auto rounded-md focus-visible:outline-2 focus-visible:outline-ring"
         >
-          <Table>
+          <Table scrollLabel="Broker catalogue">
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>

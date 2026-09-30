@@ -64,7 +64,7 @@ export default async function ResponsesPage({
         <Button variant="outline">Apply filter</Button>
       </form>
       {page.items.length ? (
-        <Table>
+        <Table scrollLabel="Broker correspondence">
           <TableHeader>
             <TableRow>
               <TableHead>Request</TableHead>

@@ -45,7 +45,11 @@ export function EditorForm({
   );
   const visible = new Set(fields.map((field) => field.name));
   return (
-    <form action={submit} className="space-y-5" aria-busy={pending}>
+    <form
+      action={submit}
+      className="min-w-0 space-y-5 [overflow-wrap:anywhere]"
+      aria-busy={pending}
+    >
       {Object.entries(values)
         .filter(([key]) => !visible.has(key))
         .map(([key, value]) => (

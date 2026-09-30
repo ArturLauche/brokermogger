@@ -61,7 +61,7 @@ describe("EmptyState", () => {
     );
 
     expect(
-      screen.getByRole("heading", { level: 3, name: "No requests yet" })
+      screen.getByRole("heading", { level: 2, name: "No requests yet" })
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Choose brokers" })).toBeInTheDocument();
     expect(

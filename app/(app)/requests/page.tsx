@@ -61,7 +61,7 @@ export default async function RequestsPage({
           }
         />
       ) : (
-        <Table>
+        <Table scrollLabel="Privacy requests">
           <TableHeader>
             <TableRow>
               <TableHead>Broker</TableHead>

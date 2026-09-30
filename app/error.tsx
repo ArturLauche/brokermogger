@@ -31,9 +31,10 @@ export default function GlobalRouteError({
         className="mx-auto flex w-full max-w-2xl flex-1 items-center px-4 py-16 focus:outline-none"
       >
         <ErrorState
+          headingLevel={1}
           className="w-full"
           title="Something went wrong"
-          description="This screen could not be loaded. Nothing was sent to a broker because of this error. You can try again, and if the problem stays, pass the error code to the operator of this instance."
+          description="This screen could not be loaded. Check your request history before repeating an action. If the problem continues, pass the error code to the instance operator."
           errorCode={error.digest ?? "UNKNOWN"}
           onRetry={reset}
           action={
