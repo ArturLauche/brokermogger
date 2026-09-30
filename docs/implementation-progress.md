@@ -58,6 +58,30 @@ Recreate the baseline from the base commit in an isolated checkout for the final
 visual comparison. This checklist is a work log, not a claim that unchecked
 features are implemented.
 
+### US state coverage and future commencement
+
+- Added 19 sourced state packs alongside California, with state-specific scope,
+  request wording, receipt-based periods and conditional extensions. Iowa does
+  not acquire a correction right; provided-data and controller-threshold limits
+  remain explicit. The review screen now exposes applicability, verification,
+  confidence, source and review date before approval.
+- Future Connecticut, Delaware and Utah amendments wait for their effective
+  instant. Catalogue reads reevaluate time even with a warm cache. India uses
+  voluntary requests until May 13, 2027; final commencement and Rule 14 were
+  checked against the Gazette. Grievance timing is not an initial request limit.
+- Upgrade regressions first reproduced obsolete generic-US/premature-India
+  eligibility, reenabled jurisdictions and delayed cache-boundary activation.
+  Seed upgrades now retire untouched unsafe defaults, preserve history and
+  operator-authored choices, and keep disabled jurisdictions disabled.
+- Typecheck, lint, formatting and all 431 unit/component tests pass. All 17
+  seed/history integration checks pass. The journey matrix completes 210 EU/EEA
+  journeys and 80 additional state/voluntary journeys through approval, manual
+  submission, confirmed response and report without outbound email. The first
+  extended fixture incorrectly expected a precise date flag for a no-period
+  policy; its corrected US/India rerun passes. California DROP separation,
+  sourced broker entries, operational/performance work and full final delivery
+  verification remain in scope.
+
 ### Live legal eligibility at approval and dispatch
 
 - Five failing regressions reproduced approval/sending against withdrawn rules,

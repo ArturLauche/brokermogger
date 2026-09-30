@@ -13,6 +13,7 @@
  * than inventing a right.
  */
 import { AppError } from "@/lib/core/errors";
+import { normalizeUsState } from "./locations";
 
 import {
   lowestConfidence,
@@ -33,7 +34,10 @@ function pickJurisdiction(
   jurisdictions: readonly JurisdictionRecord[]
 ): { record: JurisdictionRecord; notes: string[] } | null {
   const country = location.countryCode.trim().toUpperCase();
-  const region = normaliseRegion(location.region);
+  const region =
+    country === "US" && location.region
+      ? normalizeUsState(location.region)
+      : normaliseRegion(location.region);
   const active = jurisdictions.filter((item) => item.isActive);
   const notes: string[] = [];
 

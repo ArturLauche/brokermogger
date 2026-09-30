@@ -38,7 +38,38 @@ const GDPR_CODES = [
   "ES",
   "SE",
 ];
-const EXPECTED_CODES = ["US-CA", "US-OTHER", ...GDPR_CODES, "GB", "BR", "IN", "AU", "SG"];
+const STATE_CODES = [
+  "CA",
+  "CO",
+  "CT",
+  "DE",
+  "FL",
+  "IN",
+  "IA",
+  "KY",
+  "MD",
+  "MN",
+  "MT",
+  "NE",
+  "NH",
+  "NJ",
+  "OR",
+  "RI",
+  "TN",
+  "TX",
+  "UT",
+  "VA",
+];
+const EXPECTED_CODES = [
+  ...STATE_CODES.map((region) => `US-${region}`),
+  "US-OTHER",
+  ...GDPR_CODES,
+  "GB",
+  "BR",
+  "IN",
+  "AU",
+  "SG",
+];
 
 describe("jurisdiction seed data", () => {
   it("ships explicit packs for all 30 EU/EEA countries and the existing other locations", () => {
@@ -64,8 +95,8 @@ describe("jurisdiction seed data", () => {
 
   it("only sets a region for the sub national jurisdiction", () => {
     for (const jurisdiction of JURISDICTIONS) {
-      if (jurisdiction.code === "US-CA") {
-        expect(jurisdiction.region).toBe("CA");
+      if (jurisdiction.countryCode === "US" && jurisdiction.code !== "US-OTHER") {
+        expect(jurisdiction.region).toBe(jurisdiction.code.slice(3));
       } else {
         expect(jurisdiction.region).toBeUndefined();
       }

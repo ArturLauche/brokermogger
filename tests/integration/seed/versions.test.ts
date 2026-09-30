@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Prisma } from "@prisma/client";
 import { seedJurisdictions } from "@/prisma/seeds/jurisdictions";
 import { seedLegalRules } from "@/prisma/seeds/legalRules";
@@ -12,6 +12,177 @@ import {
 import { testPrisma } from "../../helpers/db";
 
 describe("immutable catalogue versions", () => {
+  it("retires premature India and generic US defaults without rewriting history or reactivating them", async () => {
+    await seedJurisdictions(testPrisma);
+    await seedLegalRules(testPrisma);
+    const indian = await testPrisma.legalRule.findFirstOrThrow({
+      where: { key: "dpdp-data-principal-rights" },
+      include: { versions: true },
+    });
+    const source = indian.versions[0]!;
+    const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...content } = source;
+    const legacy = await testPrisma.legalRuleVersion.create({
+      data: {
+        ...content,
+        deadlineRule: content.deadlineRule ?? Prisma.JsonNull,
+        verificationRequirements: content.verificationRequirements ?? Prisma.JsonNull,
+        templateClauses: content.templateClauses ?? Prisma.JsonNull,
+        additionalSources: content.additionalSources ?? Prisma.JsonNull,
+        version: 2,
+        effectiveFrom: new Date("2023-08-11T00:00:00Z"),
+        legalBasisText: "Synthetic prematurely published DPDP rights",
+      },
+    });
+    const jurisdiction = await testPrisma.jurisdiction.findUniqueOrThrow({
+      where: { code: "US-OTHER" },
+    });
+    const { legalRuleId: _legacyParent, ...nestedContent } = content;
+    const generic = await testPrisma.legalRule.create({
+      data: {
+        jurisdictionId: jurisdiction.id,
+        key: "us-state-privacy-rights",
+        lawName: "Legacy generic state rule",
+        shortName: "Legacy",
+        description: "Synthetic legacy unspecific statutory rule",
+        versions: {
+          create: {
+            ...nestedContent,
+            deadlineRule: content.deadlineRule ?? Prisma.JsonNull,
+            verificationRequirements: content.verificationRequirements ?? Prisma.JsonNull,
+            templateClauses: content.templateClauses ?? Prisma.JsonNull,
+            additionalSources: content.additionalSources ?? Prisma.JsonNull,
+            version: 1,
+            effectiveFrom: new Date("2023-01-01T00:00:00Z"),
+          },
+        },
+      },
+    });
+    await seedLegalRules(testPrisma);
+    const archived = await testPrisma.legalRuleVersion.findUniqueOrThrow({
+      where: { id: legacy.id },
+    });
+    expect(archived.status).toBe("ARCHIVED");
+    expect(archived.legalBasisText).toBe(legacy.legalBasisText);
+    expect(
+      (await testPrisma.legalRule.findUniqueOrThrow({ where: { id: generic.id } }))
+        .isActive
+    ).toBe(false);
+    expect(
+      (
+        await testPrisma.legalRuleVersion.findFirstOrThrow({
+          where: { legalRuleId: generic.id },
+        })
+      ).status
+    ).toBe("ARCHIVED");
+    invalidateCatalogCache();
+    const available = await listPublishedLegalRules();
+    expect(
+      available.some(
+        (row) => row.legalRuleId === indian.id || row.legalRuleId === generic.id
+      )
+    ).toBe(false);
+    const before = await testPrisma.legalRuleVersion.count();
+    await seedLegalRules(testPrisma);
+    expect(await testPrisma.legalRuleVersion.count()).toBe(before);
+    expect(
+      (await testPrisma.legalRuleVersion.findUniqueOrThrow({ where: { id: legacy.id } }))
+        .status
+    ).toBe("ARCHIVED");
+  });
+
+  it("preserves operator authority when retiring a default catalogue entry", async () => {
+    await seedJurisdictions(testPrisma);
+    await seedLegalRules(testPrisma);
+    const source = await testPrisma.legalRuleVersion.findFirstOrThrow();
+    const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...content } = source;
+    const jurisdiction = await testPrisma.jurisdiction.findUniqueOrThrow({
+      where: { code: "US-OTHER" },
+    });
+    const { legalRuleId: _legacyParent, ...nestedContent } = content;
+    const rule = await testPrisma.legalRule.create({
+      data: {
+        jurisdictionId: jurisdiction.id,
+        key: "us-state-privacy-rights",
+        lawName: "Operator-reviewed case",
+        shortName: "Operator",
+        description: "Operator-defined scope requiring separate review",
+        updatedById: "test-operator",
+        versions: {
+          create: {
+            ...nestedContent,
+            deadlineRule: content.deadlineRule ?? Prisma.JsonNull,
+            verificationRequirements: content.verificationRequirements ?? Prisma.JsonNull,
+            templateClauses: content.templateClauses ?? Prisma.JsonNull,
+            additionalSources: content.additionalSources ?? Prisma.JsonNull,
+            version: 1,
+          },
+        },
+      },
+    });
+    await seedLegalRules(testPrisma);
+    expect(
+      (await testPrisma.legalRule.findUniqueOrThrow({ where: { id: rule.id } })).isActive
+    ).toBe(true);
+    expect(
+      (
+        await testPrisma.legalRuleVersion.findFirstOrThrow({
+          where: { legalRuleId: rule.id },
+        })
+      ).status
+    ).toBe("PUBLISHED");
+  });
+
+  it("does not re-enable an operator-disabled jurisdiction during a seed update", async () => {
+    await seedJurisdictions(testPrisma);
+    await testPrisma.jurisdiction.update({
+      where: { code: "US-TX" },
+      data: { isActive: false },
+    });
+    await seedJurisdictions(testPrisma);
+    expect(
+      (await testPrisma.jurisdiction.findUniqueOrThrow({ where: { code: "US-TX" } }))
+        .isActive
+    ).toBe(false);
+  });
+
+  it("changes timed packs exactly at their effective instant even with a warm cache", async () => {
+    await seedJurisdictions(testPrisma);
+    await seedLegalRules(testPrisma);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-10-01T03:59:59.999Z"));
+      invalidateCatalogCache();
+      const before = await listPublishedLegalRules();
+      const current = before.find(
+        (row) => row.legalRuleKey === "ct-consumer-privacy-rights"
+      )!;
+      vi.setSystemTime(new Date("2026-10-01T04:00:00.000Z"));
+      const after = await listPublishedLegalRules();
+      expect(
+        after.find((row) => row.legalRuleKey === current.legalRuleKey)?.legalRuleVersionId
+      ).not.toBe(current.legalRuleVersionId);
+      vi.setSystemTime(new Date("2027-05-12T18:29:59.999Z"));
+      invalidateCatalogCache();
+      const indianBefore = await listPublishedLegalRules();
+      expect(
+        indianBefore.some((row) => row.legalRuleKey === "india-voluntary-privacy-request")
+      ).toBe(true);
+      expect(
+        indianBefore.some((row) => row.legalRuleKey === "dpdp-data-principal-rights")
+      ).toBe(false);
+      vi.setSystemTime(new Date("2027-05-12T18:30:00.000Z"));
+      const indianAfter = await listPublishedLegalRules();
+      expect(
+        indianAfter.some((row) => row.legalRuleKey === "dpdp-data-principal-rights")
+      ).toBe(true);
+      expect(
+        indianAfter.some((row) => row.legalRuleKey === "india-voluntary-privacy-request")
+      ).toBe(false);
+    } finally {
+      vi.useRealTimers();
+      invalidateCatalogCache();
+    }
+  });
   it("serializes concurrent first installs and updates without duplicate versions", async () => {
     await seedJurisdictions(testPrisma);
     expect(

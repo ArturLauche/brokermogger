@@ -1,7 +1,7 @@
 /** Seed updates append versions; published and operator-maintained history stays intact. */
 import type { PrismaClient } from "@prisma/client";
 
-import { LEGAL_RULES } from "./data/legal-rules";
+import { LEGAL_RULES, RETIRED_DEFAULT_LEGAL_RULES } from "./data/legal-rules";
 import { loadJurisdictionIds, requireJurisdictionId } from "./jurisdictions";
 import { emptyResult, type SeedStepResult } from "./types";
 import { hasSameSeedContent } from "./versioning";
@@ -10,6 +10,46 @@ export async function seedLegalRules(prisma: PrismaClient): Promise<SeedStepResu
   const result = emptyResult("Legal rules");
   const jurisdictionIds = await loadJurisdictionIds(prisma);
   let addedVersions = 0;
+  let retiredVersions = 0;
+
+  for (const retired of RETIRED_DEFAULT_LEGAL_RULES) {
+    const jurisdictionId = requireJurisdictionId(
+      jurisdictionIds,
+      retired.jurisdictionCode
+    );
+    const resultForRule = await prisma.$transaction(async (tx) => {
+      const lockKey = `catalogue:legal:${jurisdictionId}:${retired.key}`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
+      const reference = await tx.legalRule.findUnique({
+        where: { jurisdictionId_key: { jurisdictionId, key: retired.key } },
+        select: { id: true },
+      });
+      if (!reference) return { retired: 0, skipped: false };
+      await tx.$executeRaw`SELECT 1 FROM "LegalRule" WHERE id = ${reference.id} FOR UPDATE`;
+      const stored = await tx.legalRule.findUniqueOrThrow({
+        where: { id: reference.id },
+        include: { versions: { select: { createdById: true } } },
+      });
+      if (
+        stored.createdById ||
+        stored.updatedById ||
+        stored.versions.some((version) => version.createdById)
+      )
+        return { retired: 0, skipped: true };
+      await tx.legalRule.update({ where: { id: stored.id }, data: { isActive: false } });
+      const archived = await tx.legalRuleVersion.updateMany({
+        where: {
+          legalRuleId: stored.id,
+          createdById: null,
+          status: { in: ["PUBLISHED", "SUPERSEDED"] },
+        },
+        data: { status: "ARCHIVED" },
+      });
+      return { retired: archived.count, skipped: false };
+    });
+    retiredVersions += resultForRule.retired;
+    if (resultForRule.skipped) result.skipped += 1;
+  }
 
   for (const rule of LEGAL_RULES) {
     const jurisdictionId = requireJurisdictionId(jurisdictionIds, rule.jurisdictionCode);
@@ -37,6 +77,23 @@ export async function seedLegalRules(prisma: PrismaClient): Promise<SeedStepResu
       });
       if (!stored.createdById && !stored.updatedById)
         await tx.legalRule.update({ where: { id: stored.id }, data: ruleData });
+      if (rule.retirePublishedBefore) {
+        const operatorVersions = await tx.legalRuleVersion.count({
+          where: { legalRuleId: stored.id, createdById: { not: null } },
+        });
+        if (!stored.createdById && !stored.updatedById && !operatorVersions) {
+          const retired = await tx.legalRuleVersion.updateMany({
+            where: {
+              legalRuleId: stored.id,
+              createdById: null,
+              status: { in: ["PUBLISHED", "SUPERSEDED"] },
+              effectiveFrom: { lt: new Date(rule.retirePublishedBefore) },
+            },
+            data: { status: "ARCHIVED" },
+          });
+          retiredVersions += retired.count;
+        }
+      }
       for (const version of rule.versions) {
         if (version.confidence === "LOW" && !version.requiresLegalReview) {
           throw new Error(
@@ -64,7 +121,9 @@ export async function seedLegalRules(prisma: PrismaClient): Promise<SeedStepResu
           lastReviewedAt: new Date(version.lastReviewedAt),
           reviewedBy: version.reviewedBy,
           effectiveFrom: new Date(version.effectiveFrom),
-          effectiveUntil: null,
+          effectiveUntil: version.effectiveUntil
+            ? new Date(version.effectiveUntil)
+            : null,
           changeNotes: version.changeNotes,
         };
 
@@ -102,7 +161,7 @@ export async function seedLegalRules(prisma: PrismaClient): Promise<SeedStepResu
   }
 
   result.notes.push(
-    `${addedVersions} new versions; published history preserved. Operator-maintained rules receive draft updates.`
+    `${addedVersions} new versions; ${retiredVersions} obsolete default versions archived without changing content. Operator-maintained rules receive draft updates and retain their choices.`
   );
 
   return result;

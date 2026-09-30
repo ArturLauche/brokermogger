@@ -15,6 +15,11 @@
  *    and asks the recipient to confirm what was actually done.
  */
 import type { PublicationStatus, RequestChannel, RequestType } from "@prisma/client";
+import {
+  US_PRIVACY_PACKS,
+  usPackName,
+  type UsInitialRequestType,
+} from "@/lib/jurisdiction/us";
 
 export interface RequestTemplateVersionSeed {
   version: number;
@@ -104,6 +109,94 @@ Date of this request: {{today}}
 }
 
 export const REQUEST_TEMPLATES: RequestTemplateSeed[] = [
+  ...(
+    [
+      [
+        "ACCESS",
+        "Provide the summary of personal-data processing and recipient information covered by the applicable request basis. This does not assert full-copy access to every record.",
+      ],
+      [
+        "CORRECTION",
+        "Correct, complete or update the named person's inaccurate personal data within the applicable request basis. Please identify a secure channel for the disputed fields and proposed corrections.",
+      ],
+      [
+        "DELETION",
+        "Erase the named person's personal data to the extent covered by the applicable request basis and subject to lawful retention. Explain what you retain and why.",
+      ],
+    ] as const
+  ).map(([requestType, instructions]) => ({
+    key: `in.${requestType.toLowerCase()}`,
+    name: `India ${requestType.toLowerCase()} request`,
+    description:
+      "Scoped Indian request; voluntary before DPDP rights commence and statutory only under the applicable published rule.",
+    requestType,
+    channel: "EMAIL" as const,
+    jurisdictionCode: "IN",
+    isActive: true,
+    clauses: [...CLAUSES_BASE, "retention-exception-disclosure"],
+    version: {
+      ...version(
+        "Privacy request ({{request.type}}) - reference {{request.reference}}",
+        `Dear {{broker.name}} privacy team,
+
+I am making a {{request.type}} request under {{request.legalBasis}}.
+
+${IDENTIFIER_BLOCK}
+
+${instructions}
+
+Please use your published rights-request procedure where statutory rights apply. Where this is a voluntary policy request, I understand that you may decline. This letter asserts no fixed response deadline or automatic remedy.
+
+${VERIFICATION_BLOCK}
+
+Please reply to {{reply.address}}, confirm the actual result and explain any refusal and available grievance process. If representation needs further legal authority, please explain the procedure so the named person can submit directly.
+
+${footer()}`
+      ),
+      changeNotes:
+        "2026-09-30: respect summary access, staged DPDP commencement, explicit voluntary basis and separate grievance timing.",
+    },
+  })),
+  ...US_PRIVACY_PACKS.flatMap((pack) =>
+    (Object.entries(pack.requests) as [UsInitialRequestType, string][]).map(
+      ([requestType, instructions]) => ({
+        key: `us-${pack.region.toLowerCase()}.${requestType.toLowerCase().replaceAll("_", "-")}`,
+        name: `${usPackName(pack)} ${requestType.toLowerCase().replaceAll("_", " ")} request`,
+        description: `${pack.lawName}: a scoped request, subject to consumer and controller eligibility.`,
+        requestType,
+        channel: "EMAIL" as const,
+        jurisdictionCode: `US-${pack.region}`,
+        isActive: true,
+        clauses: [...CLAUSES_BASE, "retention-exception-disclosure"],
+        version: {
+          ...version(
+            "Privacy request ({{request.type}}) - reference {{request.reference}}",
+            `Dear {{broker.name}} privacy team,
+
+I am making a {{request.type}} request under {{request.legalBasis}} about {{profile.fullName}}, who has confirmed residence in ${usPackName(pack)}, {{profile.country}}.
+
+Please use only these approved identifiers to locate the records and authenticate this request:
+
+{{identifiers.list}}
+
+${instructions}
+
+These rights depend on the applicable consumer and recipient coverage. If an exception applies, please explain which part of the request it affects and the basis for your decision. This request does not assert a right over all exempt or publicly available records.
+
+${VERIFICATION_BLOCK}
+
+{{consent.statement}}
+
+If representation needs additional legal authority, please explain the required procedure. The named individual can use your secure submission channel directly. Please reply to {{reply.address}}, confirm the result and explain any refusal and available appeal process. An opt-out or suppression record is not proof of erasure.
+
+${footer()}`
+          ),
+          changeNotes:
+            "2026-09-30: state-specific adult consumer instructions; narrower Iowa, Indiana and Utah scopes are preserved, with no universal sharing or deletion claim.",
+        },
+      })
+    )
+  ),
   // -------------------------------------------------------------------------
   // Generic templates, one per request type
   // -------------------------------------------------------------------------

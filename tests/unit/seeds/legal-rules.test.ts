@@ -86,9 +86,10 @@ describe("legal rule seed data", () => {
         `${ruleKey} has no source title`
       ).toBeGreaterThan(5);
       expect(Number.isNaN(Date.parse(version.lastReviewedAt))).toBe(false);
-      expect(Date.parse(version.lastReviewedAt)).toBeGreaterThan(
-        Date.parse(version.effectiveFrom)
+      expect(Date.parse(version.lastReviewedAt)).toBeLessThanOrEqual(
+        Date.parse("2026-09-30T00:00:00Z")
       );
+      expect(Number.isNaN(Date.parse(version.effectiveFrom))).toBe(false);
       expect(version.reviewedBy).toBe("Brokermogger maintainers, unreviewed by counsel");
       expect(version.riskNotes.length).toBeGreaterThan(40);
       expect(version.changeNotes.length).toBeGreaterThan(10);
@@ -154,12 +155,8 @@ describe("legal rule seed data", () => {
 
   it("does not assume a uniform federal deletion right in the United States", () => {
     const rules = LEGAL_RULES.filter((rule) => rule.jurisdictionCode === "US-OTHER");
-    expect(rules.length).toBeGreaterThanOrEqual(2);
-
-    const stateRule = rules.find((rule) => rule.key === "us-state-privacy-rights");
-    expect(stateRule?.versions[0]?.riskNotes).toMatch(
-      /no uniform federal deletion right/i
-    );
+    expect(rules).toHaveLength(1);
+    expect(rules.some((rule) => rule.key === "us-state-privacy-rights")).toBe(false);
 
     const voluntary = rules.find((rule) => rule.key === "us-broker-voluntary-opt-out");
     expect(voluntary?.versions[0]?.supportedRequestTypes).not.toContain("DELETION");
@@ -178,11 +175,23 @@ describe("legal rule seed data", () => {
     expect(version?.riskNotes).toMatch(/timing, eligibility, broker coverage/i);
   });
 
-  it("routes India through an unverified commencement warning", () => {
-    const version = versionsFor("IN")[0];
+  it("keeps India's statutory rights scheduled and offers an explicitly voluntary current pack", () => {
+    const statutory = LEGAL_RULES.find(
+      (rule) => rule.key === "dpdp-data-principal-rights"
+    )!;
+    const version = statutory.versions[0];
     expect(version?.confidence).toBe("LOW");
-    expect(version?.riskNotes).toMatch(/commencement and rule making status/i);
+    expect(version?.riskNotes).toMatch(/May 13, 2027/);
+    expect(version?.effectiveFrom).toBe("2027-05-12T18:30:00.000Z");
+    expect(statutory.retirePublishedBefore).toBe(version?.effectiveFrom);
     expect(version?.deadlineDays).toBeNull();
+    expect(version?.deadlineRule.policy?.unit).toBe("NONE");
+    expect(version?.deadlineRule.notes).toMatch(/grievance/i);
+    const voluntary = LEGAL_RULES.find(
+      (rule) => rule.key === "india-voluntary-privacy-request"
+    )!;
+    expect(voluntary.versions[0]?.legalBasisText).toMatch(/voluntary.*does not claim/i);
+    expect(voluntary.versions[0]?.effectiveUntil).toBe(version?.effectiveFrom);
   });
 
   it("gives GDPR jurisdictions a one month deadline with an extension", () => {

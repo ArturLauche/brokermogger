@@ -6,7 +6,7 @@
  * loads them. Writes from the admin console must call `invalidateCatalogCache`.
  * Directory searches are not cached: the key would be unbounded free text.
  */
-import type { BrokerCategory, RequestChannel, RequestType } from "@prisma/client";
+import type { BrokerCategory, RequestChannel, RequestType, Prisma } from "@prisma/client";
 
 import { createKeyedTtlCache, createTtlCache } from "@/lib/cache/ttl";
 import { prisma } from "@/lib/db/client";
@@ -15,7 +15,10 @@ import { brokerCategorySchema } from "@/lib/validation/enums";
 
 const CATALOG_TTL_MS = 60_000;
 const jurisdictionsCache = createTtlCache<JurisdictionRecord[]>(CATALOG_TTL_MS);
-const legalRulesCache = createTtlCache<LegalRuleSnapshot[]>(CATALOG_TTL_MS);
+type CatalogueLegalVersion = Prisma.LegalRuleVersionGetPayload<{
+  include: { legalRule: true };
+}>;
+const legalRulesCache = createTtlCache<CatalogueLegalVersion[]>(CATALOG_TTL_MS);
 const brokerDirectoryCache = createKeyedTtlCache<
   Awaited<ReturnType<typeof loadBrokersForDirectory>>
 >(CATALOG_TTL_MS, 32);
@@ -51,53 +54,55 @@ export async function listActiveJurisdictions(): Promise<JurisdictionRecord[]> {
 }
 
 export async function listPublishedLegalRules(): Promise<LegalRuleSnapshot[]> {
-  return legalRulesCache.getOrLoad(async () => {
-    const now = new Date();
-    const versions = await prisma.legalRuleVersion.findMany({
+  // Cache immutable public versions, not a time-dependent eligibility decision.
+  // Scheduled changes and expiry apply on this very read, even inside the TTL.
+  const versions = await legalRulesCache.getOrLoad(() =>
+    prisma.legalRuleVersion.findMany({
       where: {
         status: { in: ["PUBLISHED", "SUPERSEDED", "ARCHIVED"] },
-        effectiveFrom: { lte: now },
         legalRule: { isActive: true, deletedAt: null, jurisdiction: { isActive: true } },
       },
       include: { legalRule: true },
       orderBy: [{ legalRuleId: "asc" }, { effectiveFrom: "desc" }, { version: "desc" }],
-    });
-    const seen = new Set<string>();
-    const latest = versions.filter((version) => {
-      if (seen.has(version.legalRuleId)) return false;
-      seen.add(version.legalRuleId);
-      // An expired/withdrawn replacement must not silently revive its predecessor.
-      return (
-        version.status === "PUBLISHED" &&
-        (!version.effectiveUntil || version.effectiveUntil > now)
-      );
-    });
-
-    return latest.map((version) => ({
-      legalRuleId: version.legalRuleId,
-      legalRuleVersionId: version.id,
-      legalRuleKey: version.legalRule.key,
-      jurisdictionId: version.legalRule.jurisdictionId,
-      lawName: version.legalRule.lawName,
-      version: version.version,
-      supportedRequestTypes: version.supportedRequestTypes,
-      legalBasisText: version.legalBasisText,
-      deadlineDays: version.deadlineDays,
-      deadlineRule: version.deadlineRule,
-      verificationRequirements: version.verificationRequirements,
-      escalationPath: version.escalationPath,
-      escalationAuthority: version.escalationAuthority,
-      escalationUrl: version.escalationUrl,
-      templateClauses: version.templateClauses,
-      riskNotes: version.riskNotes,
-      requiresLegalReview: version.requiresLegalReview,
-      confidence: version.confidence,
-      sourceUrl: version.sourceUrl,
-      sourceTitle: version.sourceTitle,
-      lastReviewedAt: version.lastReviewedAt,
-      reviewedBy: version.reviewedBy,
-    }));
+    })
+  );
+  const now = new Date();
+  const seen = new Set<string>();
+  const latest = versions.filter((version) => {
+    if (version.effectiveFrom > now) return false;
+    if (seen.has(version.legalRuleId)) return false;
+    seen.add(version.legalRuleId);
+    // An expired/withdrawn replacement must not silently revive its predecessor.
+    return (
+      version.status === "PUBLISHED" &&
+      (!version.effectiveUntil || version.effectiveUntil > now)
+    );
   });
+
+  return latest.map((version) => ({
+    legalRuleId: version.legalRuleId,
+    legalRuleVersionId: version.id,
+    legalRuleKey: version.legalRule.key,
+    jurisdictionId: version.legalRule.jurisdictionId,
+    lawName: version.legalRule.lawName,
+    version: version.version,
+    supportedRequestTypes: version.supportedRequestTypes,
+    legalBasisText: version.legalBasisText,
+    deadlineDays: version.deadlineDays,
+    deadlineRule: version.deadlineRule,
+    verificationRequirements: version.verificationRequirements,
+    escalationPath: version.escalationPath,
+    escalationAuthority: version.escalationAuthority,
+    escalationUrl: version.escalationUrl,
+    templateClauses: version.templateClauses,
+    riskNotes: version.riskNotes,
+    requiresLegalReview: version.requiresLegalReview,
+    confidence: version.confidence,
+    sourceUrl: version.sourceUrl,
+    sourceTitle: version.sourceTitle,
+    lastReviewedAt: version.lastReviewedAt,
+    reviewedBy: version.reviewedBy,
+  }));
 }
 
 export async function findPublishedTemplate(input: {

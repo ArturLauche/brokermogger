@@ -56,21 +56,56 @@ before production use. Brokermogger does not operate, integrate with or speak
 for the state platform, and a broker that is not registered in California is
 very likely out of scope.
 
+### US state packs
+
+California and 19 other states have explicit packs: CO, CT, DE, FL, IN, IA, KY,
+MD, MN, MT, NE, NH, NJ, OR, RI, TN, TX, UT and VA. The state catalogue lives in
+[`us.ts`](../lib/jurisdiction/us.ts). Each entry links its enacted statute or
+official attorney-general guidance, states its adult-consumer applicability
+conditions, records the actual review date **2026-09-30**, and remains `LOW`
+confidence with legal review required. All state/DC choices remain available;
+unsupported locations resolve to an explicitly voluntary pack.
+
+The initial response policies use receipt-based calendar days, with conditional
+extensions requiring notice. They do not automatically apply a pause, extension,
+appeal deadline or holiday rule. Important differences remain explicit:
+
+- Iowa uses 90 days plus a possible 45-day extension, does not supply a correction
+  right, limits deletion to provided data, and limits this opt-out to sale.
+- Florida's qualifying-controller test requires more than $1 billion in revenue
+  and the specified additional business condition; its extension is 15 days.
+- Indiana's copy or representative summary concerns previously provided data;
+  correction also concerns provided data. A household invitation alone does not
+  establish every state's agent-authority requirement.
+- Utah's provided-data deletion remains narrower than full erasure. Its correction
+  right commenced July 1, 2026, under the enrolled HB 418. Opt-out language does
+  not invent a profiling right there.
+- Texas and Nebraska use small-business scope tests; Tennessee also has a revenue
+  threshold. Montana and Connecticut use their amended thresholds. Rhode Island's
+  consumer-rights scope differs from its wider website-notice requirement.
+
+Enacted replacements are scheduled using their jurisdiction's effective instant:
+Connecticut October 1, 2026; Delaware and Utah January 1, 2027. They remain
+unavailable before then, including when the catalogue cache is already warm.
+Connecticut's future public-profile deletion provisions are distinct from its
+later central platform and registry dates. Delaware's final HB 380 as amended
+is read alongside the future compiled code: unchanged correction/deletion
+clauses are not treated as repealed merely because that compiled presentation
+omits them. These details and primary sources remain in each version's notes.
+
 ### Other United States (`US-OTHER`)
 
-| Rule                          | Rights claimed                              | Deadline                                    | Confidence |
-| ----------------------------- | ------------------------------------------- | ------------------------------------------- | ---------- |
-| `us-state-privacy-rights`     | deletion, access, correction, opt out       | 45 days plus a 45 day extension, unverified | LOW        |
-| `us-broker-voluntary-opt-out` | opt out and suppression, no statutory right | none                                        | LOW        |
+| Rule                          | Rights claimed                              | Deadline | Confidence |
+| ----------------------------- | ------------------------------------------- | -------- | ---------- |
+| `us-broker-voluntary-opt-out` | opt out and suppression, no statutory right | none     | LOW        |
 
 Sources:
-[FTC privacy and security guidance](https://www.ftc.gov/business-guidance/privacy-security),
-[NCSL state privacy legislation](https://www.ncsl.org/technology-and-communication/state-laws-related-to-digital-privacy).
+[FTC privacy and security guidance](https://www.ftc.gov/business-guidance/privacy-security).
 
-**There is no uniform federal deletion right in the United States.** The state
-rule says so in its risk notes and states in its legal basis text that the
-applicable state law has to be confirmed. Several states have no general
-consumer privacy statute at all, thresholds differ and sector exemptions apply.
+**There is no uniform federal deletion right in the United States.** The former
+generic `us-state-privacy-rights` seed is retired on upgrade. Its historical rows
+remain intact; it cannot lend another state's rights to an unsupported location.
+Operator-authored entries are preserved for their operator's review.
 
 The voluntary rule exists for the case where no statutory basis can be
 established. It claims no legal right, asserts no deadline and tells the user
@@ -154,19 +189,27 @@ summary in this repository.
 
 ### India (`IN`)
 
-| Rule                         | Rights claimed                                                                      | Deadline     | Confidence |
-| ---------------------------- | ----------------------------------------------------------------------------------- | ------------ | ---------- |
-| `dpdp-data-principal-rights` | access to a summary, correction, completion, updating, erasure, grievance redressal | none claimed | LOW        |
+| Rule                              | Rights claimed                                                                  | Deadline     | Confidence |
+| --------------------------------- | ------------------------------------------------------------------------------- | ------------ | ---------- |
+| `india-voluntary-privacy-request` | voluntary summary access, correction and deletion before statutory commencement | none claimed | LOW        |
+| `dpdp-data-principal-rights`      | statutory summary access, correction and erasure from May 13, 2027              | none claimed | LOW        |
 
-Source:
-[MeitY data protection framework](https://www.meity.gov.in/data-protection-framework).
+Reviewed on **2026-09-30** against the
+[commencement Gazette, G.S.R. 843(E)](https://egazette.gov.in/WriteReadData/2025/267647.pdf),
+[final Rules, G.S.R. 846(E)](https://www.meity.gov.in/static/uploads/2025/11/53450e6e5dc0bfa85ebd78686cadad39.pdf)
+and the [official implementation timeline](https://www.pib.gov.in/PressReleasePage.aspx?PRID=2261823&lang=1&reg=3).
 
-**Commencement and rule making status must be verified** before this rule is
-used in production, which is why no deadline is asserted at all. Once the
-applicable rules are confirmed, a maintainer should publish version 2 with a
-verified period. Escalation runs through the data fiduciary's grievance
-mechanism and then to the Data Protection Board of India, subject to the same
-commencement caveat.
+Sections 11–17 commence eighteen months after November 13, 2025: **May 13, 2027**
+in India. Until then the pack makes a voluntary request under the recipient's
+policy, without statutory claims or an assumed regulator remedy. Untouched
+premature seed versions are archived without rewriting historical messages.
+The future pack becomes available at the recorded commencement instant.
+
+Rule 14 concerns the fiduciary's published method, including previous consent
+and applicable identifiers. Summary access is not a full copy of every record.
+Rule 14(3)'s maximum 90-day period concerns grievance redressal; it is not used
+as an initial access/correction/erasure deadline. Grievance escalation requires
+the applicable process and the individual's own action.
 
 ### Australia (`AU`)
 

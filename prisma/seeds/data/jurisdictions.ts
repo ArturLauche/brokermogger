@@ -6,6 +6,7 @@
  */
 
 import { GDPR_COUNTRIES } from "@/lib/jurisdiction/eea";
+import { US_PRIVACY_PACKS, usPackName } from "@/lib/jurisdiction/us";
 
 export interface JurisdictionSeed {
   /** Stable machine key referenced by legal rules, templates and brokers. */
@@ -33,13 +34,22 @@ export const JURISDICTIONS: readonly JurisdictionSeed[] = [
   },
   {
     code: "US-OTHER",
-    name: "Other United States",
+    name: "United States — voluntary requests",
     countryCode: "US",
     description:
-      "United States residents outside California. There is no uniform federal deletion right, so the applicable state law has to be confirmed for every request.",
+      "United States residents whose state has no supported statutory pack here. Only clearly labelled voluntary requests are offered; no uniform federal deletion right or another state's rights are assumed.",
     isActive: true,
     sortOrder: 20,
   },
+  ...US_PRIVACY_PACKS.map((pack, index) => ({
+    code: `US-${pack.region}`,
+    name: usPackName(pack),
+    countryCode: "US",
+    region: pack.region,
+    description: `${pack.lawName}. ${pack.scope}`,
+    isActive: true,
+    sortOrder: 200 + index,
+  })),
   ...GDPR_COUNTRIES.map((country, index) => ({
     code: country.code,
     name: country.name,
@@ -71,7 +81,7 @@ export const JURISDICTIONS: readonly JurisdictionSeed[] = [
     name: "India",
     countryCode: "IN",
     description:
-      "India residents under the Digital Personal Data Protection Act 2023. Commencement and rule making status must be verified before relying on the deadlines.",
+      "India residents: clearly labelled voluntary requests before May 13, 2027; the DPDP statutory rights pack is scheduled for that date. Grievance timing is distinct from initial request timing.",
     isActive: true,
     sortOrder: 60,
   },

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { DefinitionList } from "@/components/common/definition-list";
+import { ExternalLink } from "@/components/common/external-link";
 import { LetterPreview } from "@/components/common/letter-preview";
 import { MaskedValue } from "@/components/common/masked-value";
 import { PageHeader } from "@/components/common/page-header";
@@ -39,6 +40,15 @@ export default async function ReviewRequestPage({
     throw caught;
   });
   const snapshot = request.snapshots[0];
+  const legalVersion = request.legalRuleVersion;
+  const verification = legalVersion?.verificationRequirements;
+  const verificationNote =
+    verification &&
+    typeof verification === "object" &&
+    !Array.isArray(verification) &&
+    typeof verification.dataMinimisationNote === "string"
+      ? verification.dataMinimisationNote
+      : null;
   const envelope = snapshot?.envelopeHash ? readApprovalEnvelope(snapshot) : null;
   const canApprove =
     can(actor, "request:approve", { ownerUserId: request.userId }).allowed &&
@@ -74,7 +84,9 @@ export default async function ReviewRequestPage({
               ? "The message or request state changed. Reload before approving."
               : error === "CONSENT_REQUIRED" || error === "CONSENT_INVALID"
                 ? "Consent is no longer valid for this profile."
-                : "Check the request and try again."}{" "}
+                : error === "LEGAL_RULE_UNAVAILABLE"
+                  ? "The legal rule changed or is no longer available. Return to the draft and regenerate it before reviewing again."
+                  : "Check the request and try again."}{" "}
             Error code: <code>{error}</code>
           </AlertDescription>
         </Alert>
@@ -142,13 +154,41 @@ export default async function ReviewRequestPage({
             },
           ]}
         />
-        <details>
+        <details open={canApprove}>
           <summary className="w-fit cursor-pointer py-2 text-sm font-medium">
             Legal basis and review requirements
           </summary>
-          <p className="max-w-prose py-3 text-sm leading-6 [overflow-wrap:anywhere]">
-            {request.legalBasisText}
-          </p>
+          <div className="max-w-prose space-y-4 py-3 text-sm leading-6 [overflow-wrap:anywhere]">
+            <p>{request.legalBasisText}</p>
+            {legalVersion ? (
+              <>
+                <p>
+                  <strong>Applicability and limits.</strong> {legalVersion.riskNotes}
+                </p>
+                {verificationNote ? (
+                  <p>
+                    <strong>Identity verification.</strong> {verificationNote}
+                  </p>
+                ) : null}
+                <p>
+                  <ExternalLink href={legalVersion.sourceUrl}>
+                    {legalVersion.sourceTitle}
+                  </ExternalLink>
+                  {" · "}Version {legalVersion.version}, reviewed{" "}
+                  {formatIsoDate(legalVersion.lastReviewedAt)}. Confidence:{" "}
+                  {legalVersion.confidence.toLowerCase()}.
+                  {legalVersion.requiresLegalReview
+                    ? " Legal review is still required."
+                    : ""}
+                </p>
+              </>
+            ) : (
+              <p className="text-muted-foreground">
+                This historical message has no linked legal version. Regenerate a draft
+                using the current catalogue before approving a new message.
+              </p>
+            )}
+          </div>
         </details>
       </section>
       <section aria-labelledby="message-text" className="space-y-4">

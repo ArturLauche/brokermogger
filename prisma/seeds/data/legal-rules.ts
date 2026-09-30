@@ -15,6 +15,8 @@
 import type { LegalConfidence, PublicationStatus, RequestType } from "@prisma/client";
 import type { DeadlinePolicy } from "@/lib/jurisdiction/deadlines";
 import { createGdprPacks } from "./gdpr-packs";
+import { createUsPrivacyPacks } from "./us-packs";
+import { createIndiaPacks } from "./india-packs";
 import {
   GDPR_RESPONSE_POLICY,
   UK_GDPR_RESPONSE_POLICY,
@@ -89,6 +91,7 @@ export interface LegalRuleVersionSeed {
   reviewedBy: string;
   /** ISO timestamp. */
   effectiveFrom: string;
+  effectiveUntil?: string;
   changeNotes: string;
 }
 
@@ -100,6 +103,8 @@ export interface LegalRuleSeed {
   shortName: string;
   description: string;
   isActive: boolean;
+  /** Archive earlier untouched seeded versions that asserted premature rights. */
+  retirePublishedBefore?: string;
   versions: LegalRuleVersionSeed[];
 }
 
@@ -379,94 +384,6 @@ const BASE_LEGAL_RULES: readonly LegalRuleSeed[] = [
   // -------------------------------------------------------------------------
   {
     jurisdictionCode: "US-OTHER",
-    key: "us-state-privacy-rights",
-    lawName: "State consumer privacy law of the individual's state of residence",
-    shortName: "US state privacy rights",
-    description:
-      "Deletion, access, correction and opt out rights that several US states provide. The applicable state law has to be confirmed per request.",
-    isActive: true,
-    versions: [
-      {
-        version: 1,
-        status: "PUBLISHED",
-        supportedRequestTypes: [
-          "DELETION",
-          "ACCESS",
-          "CORRECTION",
-          "OPT_OUT",
-          "FOLLOW_UP",
-          "FINAL_REMINDER",
-          "ESCALATION",
-        ],
-        legalBasisText:
-          "the consumer privacy law of my state of residence, as several US states give residents rights to access, correct and delete personal data and to opt out of targeted advertising and the sale of personal data",
-        deadlineDays: 45,
-        deadlineRule: {
-          baseDays: 45,
-          dayType: "CALENDAR",
-          startsFrom: "receipt of the request",
-          extension: {
-            possible: true,
-            additionalDays: 45,
-            maxTotalDays: 90,
-            noticeRequired: true,
-            conditions: [
-              "Most state laws that use a 45 day period allow one extension where the request is complex, with notice to the consumer.",
-            ],
-          },
-          conditions: [
-            "The applicable state law must be confirmed. Deadlines, thresholds and available rights differ between states.",
-            "Several states have no general consumer privacy statute at all.",
-          ],
-          verified: false,
-          notes:
-            "45 days is the most common period among the state statutes the maintainers looked at. It is a working assumption, not a confirmed rule for any specific state.",
-        },
-        verificationRequirements: {
-          identityVerificationExpected: true,
-          governmentIdExpected: false,
-          accountRequired: false,
-          authorisedAgentSupported: null,
-          notarisationExpected: false,
-          dataMinimisationNote: NO_IDENTITY_DOCUMENT_NOTE,
-        },
-        escalationPath:
-          "Where the state provides an enforcement route, a complaint usually goes to the state attorney general. The individual has to identify the correct office and decide whether to escalate.",
-        escalationAuthority:
-          "State attorney general of the individual's state of residence",
-        templateClauses: [
-          "request-identification",
-          "legal-basis",
-          "identifier-list",
-          "scope-limitation",
-          "verification-minimisation",
-          "retention-exception-disclosure",
-          "third-party-disclosure-list",
-          "confirmation-request",
-          "household-consent-statement",
-        ],
-        riskNotes:
-          "There is no uniform federal deletion right in the United States. Whether any right exists at all depends on the state of residence, on whether the recipient meets that state's applicability thresholds and on sector exemptions. Confirm the applicable state law before sending. Not reviewed by counsel.",
-        requiresLegalReview: true,
-        confidence: "LOW",
-        sourceUrl: "https://www.ftc.gov/business-guidance/privacy-security",
-        sourceTitle: "US Federal Trade Commission, privacy and security guidance",
-        additionalSources: [
-          {
-            title: "National Conference of State Legislatures, state privacy legislation",
-            url: "https://www.ncsl.org/technology-and-communication/state-laws-related-to-digital-privacy",
-          },
-        ],
-        lastReviewedAt: LAST_REVIEWED_AT,
-        reviewedBy: REVIEWED_BY,
-        effectiveFrom: "2023-01-01T00:00:00.000Z",
-        changeNotes:
-          "Initial demo rule. Deliberately generic because the applicable state law is unknown at seed time.",
-      },
-    ],
-  },
-  {
-    jurisdictionCode: "US-OTHER",
     key: "us-broker-voluntary-opt-out",
     lawName: "Voluntary broker opt out and suppression policy",
     shortName: "Voluntary opt out / suppression",
@@ -482,6 +399,22 @@ const BASE_LEGAL_RULES: readonly LegalRuleSeed[] = [
           "your published opt out and suppression policy, as this request does not rely on a statutory right",
         deadlineDays: null,
         deadlineRule: {
+          policy: {
+            version: 1,
+            unit: "NONE",
+            period: null,
+            startsFrom: "RECEIPT",
+            sourceUrl: "https://www.ftc.gov/business-guidance/privacy-security",
+            verified: true,
+            rollForward: "NONE",
+            calendar: null,
+            extension: null,
+            conditions: [
+              "A voluntary request has no asserted statutory response period.",
+            ],
+            notes:
+              "Use the recipient's actual policy. Any courtesy follow-up is chosen by the individual, not a statutory deadline.",
+          },
           baseDays: null,
           dayType: "CALENDAR",
           startsFrom: "receipt of the request",
@@ -493,7 +426,7 @@ const BASE_LEGAL_RULES: readonly LegalRuleSeed[] = [
             conditions: [],
           },
           conditions: [
-            "There is no statutory deadline. Brokermogger schedules a courtesy follow up after 30 days instead.",
+            "There is no statutory deadline. The individual may choose to prepare a courtesy follow-up.",
           ],
           verified: true,
           notes:
@@ -1533,6 +1466,15 @@ const BASE_LEGAL_RULES: readonly LegalRuleSeed[] = [
 
 /** Country packs share the reviewed GDPR definitions; historical German keys stay stable. */
 export const LEGAL_RULES: readonly LegalRuleSeed[] = [
-  ...BASE_LEGAL_RULES.filter((rule) => rule.jurisdictionCode !== "DE"),
+  ...BASE_LEGAL_RULES.filter((rule) => !["DE", "IN"].includes(rule.jurisdictionCode)),
   ...createGdprPacks(BASE_LEGAL_RULES.filter((rule) => rule.jurisdictionCode === "DE")),
+  ...createUsPrivacyPacks(),
+  ...createIndiaPacks(
+    BASE_LEGAL_RULES.find((rule) => rule.key === "dpdp-data-principal-rights")!
+  ),
 ];
+
+/** Legacy content is retained as history, but is no longer a default sending basis. */
+export const RETIRED_DEFAULT_LEGAL_RULES = [
+  { jurisdictionCode: "US-OTHER", key: "us-state-privacy-rights" },
+] as const;

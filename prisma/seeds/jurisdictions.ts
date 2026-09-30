@@ -24,13 +24,12 @@ export async function seedJurisdictions(prisma: PrismaClient): Promise<SeedStepR
       countryCode: jurisdiction.countryCode,
       region: jurisdiction.region ?? null,
       description: jurisdiction.description,
-      isActive: jurisdiction.isActive,
       sortOrder: jurisdiction.sortOrder,
     };
 
     await prisma.jurisdiction.upsert({
       where: { code: jurisdiction.code },
-      create: { code: jurisdiction.code, ...data },
+      create: { code: jurisdiction.code, ...data, isActive: jurisdiction.isActive },
       update: data,
     });
 

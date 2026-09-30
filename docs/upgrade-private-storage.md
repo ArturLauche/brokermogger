@@ -6,6 +6,21 @@ and content hashes remain stable. The migration clears legacy plaintext columns
 after verifying the replacement; their empty compatibility columns remain in
 the schema during the upgrade window.
 
+## Sourced coverage upgrade
+
+Run `npm run db:seed` after migration to install the explicit 30 EU/EEA and 20
+US state locations. Existing disabled jurisdictions stay disabled. Seed-managed
+generic US statutory content and premature India DPDP content lose eligibility;
+historical versions and approved/sent messages remain immutable. Operator-authored
+versions are preserved and require the operator's review of current applicability.
+Changed or withdrawn legal bases block approval and dispatch and require a new
+draft. No old approval is migrated into permission to send under different law.
+
+Future-effective versions wait for their recorded instant. India remains voluntary
+until May 13, 2027; state amendments have their own local commencement dates.
+The cache reevaluates effective times on every read. Keep sending disabled while
+reviewing the new sources, scope conditions, version changes and queued requests.
+
 1. Schedule a maintenance window. Stop the app and worker. Keep
    `ALLOW_EXTERNAL_SENDING=false` until the upgrade and review are complete.
 2. Take a consistent database and object-storage backup. Preserve every key ID
