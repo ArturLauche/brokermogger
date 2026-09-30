@@ -169,6 +169,15 @@ export async function eraseProfileContent(
         externalReference: null,
         closureReason: null,
         nextFollowUpAt: null,
+        deadlineAt: null,
+        deadlineOn: null,
+        deadlineAnchorOn: null,
+        deadlineBasis: null,
+        deadlineSnapshotId: null,
+        deadlineTimezone: null,
+        deadlineNote: null,
+        deadlinePolicyVersion: null,
+        deadlineWarningForAt: null,
       },
     });
     await tx.backgroundJob.create({

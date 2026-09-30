@@ -13,6 +13,13 @@
  *    this too (`legal_rule_version_low_confidence_requires_review`).
  */
 import type { LegalConfidence, PublicationStatus, RequestType } from "@prisma/client";
+import type { DeadlinePolicy } from "@/lib/jurisdiction/deadlines";
+import {
+  GDPR_RESPONSE_POLICY,
+  UK_GDPR_RESPONSE_POLICY,
+  CCPA_RESPONSE_POLICY,
+  CCPA_OPT_OUT_POLICY,
+} from "./deadline-policies";
 
 /**
  * Structured deadline logic. Stored as JSON on `LegalRuleVersion.deadlineRule`.
@@ -20,6 +27,8 @@ import type { LegalConfidence, PublicationStatus, RequestType } from "@prisma/cl
  * JSON input value.
  */
 export type DeadlineRuleSeed = {
+  /** Explicit executable policy; legacy baseDays is retained only for compatibility. */
+  policy?: DeadlinePolicy;
   /** Baseline number of days, null when the law sets no fixed period. */
   baseDays: number | null;
   dayType: "CALENDAR" | "BUSINESS";
@@ -129,6 +138,7 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
           "the California Consumer Privacy Act as amended by the California Privacy Rights Act (California Civil Code sections 1798.100 and following), which gives California residents the right to know about, delete and correct personal information a business holds about them",
         deadlineDays: 45,
         deadlineRule: {
+          policy: CCPA_RESPONSE_POLICY,
           baseDays: 45,
           dayType: "CALENDAR",
           startsFrom: "receipt of a verifiable consumer request",
@@ -185,10 +195,11 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
             url: "https://cppa.ca.gov/",
           },
         ],
-        lastReviewedAt: LAST_REVIEWED_AT,
+        lastReviewedAt: "2026-09-30T00:00:00.000Z",
         reviewedBy: REVIEWED_BY,
         effectiveFrom: "2023-01-01T00:00:00.000Z",
-        changeNotes: INITIAL_CHANGE_NOTES,
+        changeNotes:
+          "Source timing review on 2026-09-30. Versioned receipt-based response policy; dispatch and unverified holiday calendars remain estimates.",
       },
     ],
   },
@@ -210,6 +221,7 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
           "the right to opt out of the sale or sharing of personal information under the California Consumer Privacy Act as amended by the California Privacy Rights Act (California Civil Code section 1798.120)",
         deadlineDays: 15,
         deadlineRule: {
+          policy: CCPA_OPT_OUT_POLICY,
           baseDays: 15,
           dayType: "BUSINESS",
           startsFrom: "receipt of the opt out request",
@@ -265,10 +277,11 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
             url: "https://cppa.ca.gov/regulations/",
           },
         ],
-        lastReviewedAt: LAST_REVIEWED_AT,
+        lastReviewedAt: "2026-09-30T00:00:00.000Z",
         reviewedBy: REVIEWED_BY,
         effectiveFrom: "2023-01-01T00:00:00.000Z",
-        changeNotes: INITIAL_CHANGE_NOTES,
+        changeNotes:
+          "Source timing review on 2026-09-30. Versioned receipt-based response policy; dispatch and unverified holiday calendars remain estimates.",
       },
     ],
   },
@@ -546,15 +559,16 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
         ],
         legalBasisText:
           "Articles 15, 16 and 17 of Regulation (EU) 2016/679 (General Data Protection Regulation), which give a data subject the right to obtain access to their personal data, to have inaccurate data rectified and to obtain erasure where one of the grounds in Article 17(1) applies",
-        deadlineDays: 30,
+        deadlineDays: null,
         deadlineRule: {
-          baseDays: 30,
+          policy: GDPR_RESPONSE_POLICY,
+          baseDays: null,
           dayType: "CALENDAR",
           startsFrom: "receipt of the request",
           extension: {
             possible: true,
-            additionalDays: 60,
-            maxTotalDays: 90,
+            additionalDays: null,
+            maxTotalDays: null,
             noticeRequired: true,
             conditions: [
               "Article 12(3) allows two further months where the request is complex or where the controller received a number of requests.",
@@ -562,12 +576,12 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
             ],
           },
           conditions: [
-            "The legal period is one month, which the product models as 30 days for scheduling.",
+            "The baseline response period is one calendar month from receipt, not a fixed day count.",
             "Erasure can be refused where Article 17(3) applies, for example where processing is necessary for compliance with a legal obligation.",
           ],
           verified: true,
           notes:
-            "One month plus up to two further months under Article 12(3). The 30 day figure is a scheduling approximation of one calendar month.",
+            "One calendar month, with a possible two-month extension under Article 12(3). Extensions are not automatic.",
         },
         verificationRequirements: {
           identityVerificationExpected: true,
@@ -581,7 +595,7 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
         escalationPath:
           "If the controller does not respond within the period or refuses without an adequate reason, the data subject can lodge a complaint with the competent supervisory authority under Article 77, usually the authority of their habitual residence. In Germany this is the state data protection authority responsible for the controller. The individual decides whether to escalate.",
         escalationAuthority: "Competent data protection supervisory authority",
-        escalationUrl: "https://www.edpb.europa.eu/about-edpb/about-edpb/members_en",
+        escalationUrl: "https://www.edpb.europa.eu/about-edpb/our-members_en",
         templateClauses: [
           "request-identification",
           "legal-basis",
@@ -604,13 +618,14 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
         additionalSources: [
           {
             title: "European Data Protection Board, members and national authorities",
-            url: "https://www.edpb.europa.eu/about-edpb/about-edpb/members_en",
+            url: "https://www.edpb.europa.eu/about-edpb/our-members_en",
           },
         ],
-        lastReviewedAt: LAST_REVIEWED_AT,
+        lastReviewedAt: "2026-09-30T00:00:00.000Z",
         reviewedBy: REVIEWED_BY,
         effectiveFrom: "2018-05-25T00:00:00.000Z",
-        changeNotes: INITIAL_CHANGE_NOTES,
+        changeNotes:
+          "Source timing review on 2026-09-30. Versioned receipt-based response policy; dispatch and unverified holiday calendars remain estimates.",
       },
     ],
   },
@@ -637,15 +652,16 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
         ],
         legalBasisText:
           "Article 21 of Regulation (EU) 2016/679, under which a data subject may object to processing based on legitimate interests and may object to direct marketing at any time, and Article 7(3), under which consent may be withdrawn at any time",
-        deadlineDays: 30,
+        deadlineDays: null,
         deadlineRule: {
-          baseDays: 30,
+          policy: GDPR_RESPONSE_POLICY,
+          baseDays: null,
           dayType: "CALENDAR",
           startsFrom: "receipt of the objection or withdrawal",
           extension: {
             possible: true,
-            additionalDays: 60,
-            maxTotalDays: 90,
+            additionalDays: null,
+            maxTotalDays: null,
             noticeRequired: true,
             conditions: [
               "Article 12(3) allows two further months for complex requests, with notice within the first month.",
@@ -671,7 +687,7 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
         escalationPath:
           "A complaint can be lodged with the competent supervisory authority under Article 77. The individual decides whether to escalate.",
         escalationAuthority: "Competent data protection supervisory authority",
-        escalationUrl: "https://www.edpb.europa.eu/about-edpb/about-edpb/members_en",
+        escalationUrl: "https://www.edpb.europa.eu/about-edpb/our-members_en",
         templateClauses: [
           "request-identification",
           "legal-basis",
@@ -694,13 +710,14 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
         additionalSources: [
           {
             title: "European Data Protection Board, members and national authorities",
-            url: "https://www.edpb.europa.eu/about-edpb/about-edpb/members_en",
+            url: "https://www.edpb.europa.eu/about-edpb/our-members_en",
           },
         ],
-        lastReviewedAt: LAST_REVIEWED_AT,
+        lastReviewedAt: "2026-09-30T00:00:00.000Z",
         reviewedBy: REVIEWED_BY,
         effectiveFrom: "2018-05-25T00:00:00.000Z",
-        changeNotes: INITIAL_CHANGE_NOTES,
+        changeNotes:
+          "Source timing review on 2026-09-30. Versioned receipt-based response policy; dispatch and unverified holiday calendars remain estimates.",
       },
     ],
   },
@@ -730,22 +747,23 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
         ],
         legalBasisText:
           "Articles 15, 16 and 17 of the UK General Data Protection Regulation, read with the Data Protection Act 2018, which give an individual the right of access to their personal data, the right to have inaccurate data rectified and the right to erasure where one of the grounds in Article 17(1) applies",
-        deadlineDays: 30,
+        deadlineDays: null,
         deadlineRule: {
-          baseDays: 30,
+          policy: UK_GDPR_RESPONSE_POLICY,
+          baseDays: null,
           dayType: "CALENDAR",
           startsFrom: "receipt of the request",
           extension: {
             possible: true,
-            additionalDays: 60,
-            maxTotalDays: 90,
+            additionalDays: null,
+            maxTotalDays: null,
             noticeRequired: true,
             conditions: [
               "The period can be extended by two further months for complex or numerous requests, with notice within the first month.",
             ],
           },
           conditions: [
-            "The statutory period is one calendar month, modelled as 30 days for scheduling.",
+            "The baseline response period is one calendar month from receipt, with bank holidays and justified pauses requiring review.",
             "Erasure can be refused where an exemption applies.",
           ],
           verified: true,
@@ -790,10 +808,11 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
             url: "https://www.legislation.gov.uk/ukpga/2018/12/contents",
           },
         ],
-        lastReviewedAt: LAST_REVIEWED_AT,
+        lastReviewedAt: "2026-09-30T00:00:00.000Z",
         reviewedBy: REVIEWED_BY,
         effectiveFrom: "2021-01-01T00:00:00.000Z",
-        changeNotes: INITIAL_CHANGE_NOTES,
+        changeNotes:
+          "Source timing review on 2026-09-30. Versioned receipt-based response policy; dispatch and unverified holiday calendars remain estimates.",
       },
     ],
   },
@@ -820,15 +839,16 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
         ],
         legalBasisText:
           "Article 21 of the UK General Data Protection Regulation, which allows an individual to object to processing carried out for legitimate interests and to object to direct marketing at any time, together with the right to restriction of processing in Article 18",
-        deadlineDays: 30,
+        deadlineDays: null,
         deadlineRule: {
-          baseDays: 30,
+          policy: UK_GDPR_RESPONSE_POLICY,
+          baseDays: null,
           dayType: "CALENDAR",
           startsFrom: "receipt of the objection",
           extension: {
             possible: true,
-            additionalDays: 60,
-            maxTotalDays: 90,
+            additionalDays: null,
+            maxTotalDays: null,
             noticeRequired: true,
             conditions: [
               "Two further months are available for complex or numerous requests, with notice within the first month.",
@@ -879,10 +899,11 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
             url: "https://ico.org.uk/make-a-complaint/",
           },
         ],
-        lastReviewedAt: LAST_REVIEWED_AT,
+        lastReviewedAt: "2026-09-30T00:00:00.000Z",
         reviewedBy: REVIEWED_BY,
         effectiveFrom: "2021-01-01T00:00:00.000Z",
-        changeNotes: INITIAL_CHANGE_NOTES,
+        changeNotes:
+          "Source timing review on 2026-09-30. Versioned receipt-based response policy; dispatch and unverified holiday calendars remain estimates.",
       },
     ],
   },

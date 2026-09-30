@@ -239,9 +239,10 @@ export default async function DashboardPage() {
                     </Link>
                     <time
                       className="shrink-0 text-muted-foreground"
-                      dateTime={request.deadlineAt?.toISOString()}
+                      dateTime={request.deadlineOn?.toISOString().slice(0, 10)}
                     >
-                      {dates.formatDate(request.deadlineAt)}
+                      {request.deadlineOn?.toISOString().slice(0, 10) ?? "—"}
+                      {request.deadlineIsEstimate ? " (estimate)" : ""}
                     </time>
                   </li>
                 ))}

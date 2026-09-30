@@ -541,7 +541,22 @@ const WAITING_FOR_DEADLINE: RequestStatus[] = [
   "FOLLOW_UP_SENT",
 ];
 
-export async function listOverdueWaitingRequests(now: Date, take = 50) {
+export type DeadlineCursor = { deadlineAt: Date; id: string };
+function afterResponseTarget(after?: DeadlineCursor): Prisma.RemovalRequestWhereInput {
+  return after
+    ? {
+        OR: [
+          { deadlineAt: { gt: after.deadlineAt } },
+          { deadlineAt: after.deadlineAt, id: { gt: after.id } },
+        ],
+      }
+    : {};
+}
+export async function listOverdueWaitingRequests(
+  now: Date,
+  take = 50,
+  after?: DeadlineCursor
+) {
   return prisma.removalRequest.findMany({
     where: {
       deletedAt: null,
@@ -555,6 +570,7 @@ export async function listOverdueWaitingRequests(now: Date, take = 50) {
         },
       ],
       deadlineAt: { lte: now },
+      AND: [afterResponseTarget(after)],
     },
     select: {
       id: true,
@@ -564,8 +580,8 @@ export async function listOverdueWaitingRequests(now: Date, take = 50) {
       deadlineAt: true,
       followUpCount: true,
     },
-    orderBy: { deadlineAt: "asc" },
-    take,
+    orderBy: [{ deadlineAt: "asc" }, { id: "asc" }],
+    take: clampTake(take),
   });
 }
 
@@ -573,6 +589,7 @@ export async function listDeadlineWarningRequests(input: {
   now: Date;
   warningBefore: Date;
   take?: number;
+  after?: DeadlineCursor;
 }) {
   return prisma.removalRequest.findMany({
     where: {
@@ -580,9 +597,15 @@ export async function listDeadlineWarningRequests(input: {
       user: { status: "ACTIVE", deletionRequestedAt: null },
       status: { in: WAITING_FOR_DEADLINE },
       deadlineAt: { gt: input.now, lte: input.warningBefore },
-      notifications: {
-        none: { type: "DEADLINE_APPROACHING" },
-      },
+      OR: [
+        { deadlineWarningForAt: null },
+        {
+          NOT: {
+            deadlineWarningForAt: { equals: prisma.removalRequest.fields.deadlineAt },
+          },
+        },
+      ],
+      AND: [afterResponseTarget(input.after)],
     },
     select: {
       id: true,
@@ -590,8 +613,8 @@ export async function listDeadlineWarningRequests(input: {
       profileId: true,
       deadlineAt: true,
     },
-    orderBy: { deadlineAt: "asc" },
-    take: input.take ?? 50,
+    orderBy: [{ deadlineAt: "asc" }, { id: "asc" }],
+    take: clampTake(input.take ?? 50),
   });
 }
 

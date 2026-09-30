@@ -8,6 +8,10 @@ export interface ReportRequestRow {
   status: string;
   legalBasis: string | null;
   deadlineAt: string | null;
+  deadlineOn?: string | null;
+  deadlineIsEstimate?: boolean;
+  deadlineBasis?: string | null;
+  deadlineNote?: string | null;
   sentAt: string | null;
   /** Confirmed manual submission or a real provider acceptance; simulated sends are excluded. */
   contactedAt?: string | null;

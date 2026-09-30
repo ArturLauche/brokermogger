@@ -65,6 +65,37 @@ async function watch() {
 }
 
 describe("deadline and follow-up recovery", () => {
+  it("warns once per target and permits a new reminder after the response date changes", async () => {
+    const f = await waiting();
+    const firstTarget = new Date(Date.now() + 2 * 86400_000);
+    await testPrisma.removalRequest.update({
+      where: { id: f.request.id },
+      data: { deadlineAt: firstTarget },
+    });
+    const first = await watch();
+    await createJobHandlers().DEADLINE_WATCH!(first);
+    await markJobCompleted(first, { message: "Synthetic warning pass." }, 1);
+    expect(
+      await testPrisma.notification.count({ where: { type: "DEADLINE_APPROACHING" } })
+    ).toBe(1);
+    expect((await getOwnedRequest(f.actor, f.request.id)).deadlineWarningForAt).toEqual(
+      firstTarget
+    );
+    const repeat = await watch();
+    await createJobHandlers().DEADLINE_WATCH!(repeat);
+    await markJobCompleted(repeat, { message: "Synthetic repeated pass." }, 1);
+    expect(
+      await testPrisma.notification.count({ where: { type: "DEADLINE_APPROACHING" } })
+    ).toBe(1);
+    await testPrisma.removalRequest.update({
+      where: { id: f.request.id },
+      data: { deadlineAt: new Date(Date.now() + 3 * 86400_000) },
+    });
+    await createJobHandlers().DEADLINE_WATCH!(await watch());
+    expect(
+      await testPrisma.notification.count({ where: { type: "DEADLINE_APPROACHING" } })
+    ).toBe(2);
+  });
   it("spaces later reminders from the latest recorded manual submission", async () => {
     const f = await waiting();
     const submittedOn = new Date(new Date().toISOString().slice(0, 10));

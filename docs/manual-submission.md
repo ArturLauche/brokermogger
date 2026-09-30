@@ -7,6 +7,12 @@ keep its receipt. Record the date you submitted it and, if known, the confirmed
 receipt date. Dates use the account timezone. A receipt is optional, encrypted
 evidence; uploading one does not transmit it to the broker.
 
+The first submission starts a response target based on its immutable legal
+version. An unknown receipt produces an estimate. **Record original receipt
+date** can replace that assumption later without editing the approved message.
+Follow-ups do not restart the original response period. See
+[response targets](response-targets.md) for calendar and holiday limitations.
+
 Recording submission pins that exact approved snapshot and moves the request to
 waiting. Concurrent submissions create one record. To change submitted text,
 prepare a follow-up and approve its new snapshot. Editing an unsent follow-up

@@ -22,6 +22,7 @@ import {
   listDeadlineWarningRequests,
   listOverdueWaitingRequests,
 } from "@/lib/db/repositories/requests";
+import type { DeadlineCursor } from "@/lib/db/repositories/requests";
 import { createLogger } from "@/lib/observability/logger";
 import { systemActor } from "@/lib/permissions/actor";
 
@@ -46,11 +47,13 @@ export async function runDeadlineWatch(
   const warningBefore = daysFromNow(now, Math.min(windowDays, warningDays));
 
   let warned = 0;
+  let warningCursor: DeadlineCursor | undefined;
   for (let i = 0; i < MAX_BATCHES; i += 1) {
     const warnings = await listDeadlineWarningRequests({
       now,
       warningBefore,
       take: BATCH,
+      ...(warningCursor ? { after: warningCursor } : {}),
     });
     if (warnings.length === 0) break;
     for (const request of warnings) {
@@ -75,13 +78,16 @@ export async function runDeadlineWatch(
       }
     }
     if (warnings.length < BATCH) break;
+    const last = warnings.at(-1)!;
+    warningCursor = { deadlineAt: last.deadlineAt!, id: last.id };
   }
 
   const seenOverdue = new Set<string>();
+  let overdueCursor: DeadlineCursor | undefined;
   let marked = 0;
   let followUpsQueued = 0;
   for (let i = 0; i < MAX_BATCHES; i += 1) {
-    const overdue = await listOverdueWaitingRequests(now, BATCH);
+    const overdue = await listOverdueWaitingRequests(now, BATCH, overdueCursor);
     const fresh = overdue.filter((request) => !seenOverdue.has(request.id));
     if (fresh.length === 0) break;
     for (const request of fresh) {
@@ -106,6 +112,9 @@ export async function runDeadlineWatch(
         );
       }
     }
+    if (overdue.length < BATCH) break;
+    const last = overdue.at(-1)!;
+    overdueCursor = { deadlineAt: last.deadlineAt!, id: last.id };
   }
 
   log.info({ warned, marked, followUpsQueued }, "Deadline watch pass complete");

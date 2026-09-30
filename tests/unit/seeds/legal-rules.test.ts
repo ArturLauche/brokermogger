@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import { isKnownClause } from "@/prisma/seeds/data/clauses";
 import { JURISDICTIONS } from "@/prisma/seeds/data/jurisdictions";
 import { LEGAL_RULES, type LegalRuleVersionSeed } from "@/prisma/seeds/data/legal-rules";
+import { deadlinePolicySchema } from "@/lib/jurisdiction/deadlines";
 
 const ALL_VERSIONS: {
   ruleKey: string;
@@ -181,9 +182,15 @@ describe("legal rule seed data", () => {
   it("gives GDPR jurisdictions a one month deadline with an extension", () => {
     for (const jurisdiction of ["DE", "GB"]) {
       for (const version of versionsFor(jurisdiction)) {
-        expect(version.deadlineDays).toBe(30);
+        expect(version.deadlineDays).toBeNull();
         expect(version.deadlineRule.extension.possible).toBe(true);
-        expect(version.deadlineRule.extension.additionalDays).toBe(60);
+        expect(version.deadlineRule.extension.additionalDays).toBeNull();
+        expect(deadlinePolicySchema.parse(version.deadlineRule.policy)).toMatchObject({
+          unit: "CALENDAR_MONTHS",
+          period: 1,
+          startsFrom: "RECEIPT",
+          extension: { unit: "CALENDAR_MONTHS", period: 2, noticeRequired: true },
+        });
         expect(version.escalationAuthority).toBeDefined();
       }
     }

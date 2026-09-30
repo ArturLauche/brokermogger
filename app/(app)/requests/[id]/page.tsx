@@ -13,11 +13,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { requireActorOrRedirect } from "@/lib/auth";
 import { isAppError } from "@/lib/core/errors";
 import { getOwnedRequest } from "@/lib/db/repositories/requests";
-import { formatIsoDate } from "@/lib/format/datetime";
+import { dateInTimeZone, formatIsoDate } from "@/lib/format/datetime";
+import { responseTargetLabel } from "@/lib/jurisdiction/deadlines";
+import { getRequestReceiptContext } from "@/lib/db/repositories/requestReceipt";
 import { getDateFormatter } from "@/app/_lib/datetime";
 import { can } from "@/lib/permissions/policy";
 import { canTransition } from "@/lib/requests/stateMachine";
-import { ReconciliationForm, VerificationForm } from "./manual-forms";
+import { ReceiptForm, ReconciliationForm, VerificationForm } from "./manual-forms";
 import { getRequestWork } from "@/lib/db/repositories/requestWork";
 import { BackgroundRefresh } from "@/components/common/background-refresh";
 import { SubmitButton } from "@/components/common/submit-button";
@@ -47,7 +49,7 @@ export default async function RequestDetailPage({
   searchParams: Promise<{ error?: string; saved?: string }>;
 }) {
   const actor = await requireActorOrRedirect();
-  const { formatStamp } = await getDateFormatter();
+  const { formatStamp, timeZone } = await getDateFormatter();
   const { id } = await params;
   const { error, saved } = await searchParams;
 
@@ -62,6 +64,10 @@ export default async function RequestDetailPage({
   }
 
   const canManage = can(actor, "request:update", { ownerUserId: request.userId }).allowed;
+  const receipt =
+    canManage && request.sentAt
+      ? await getRequestReceiptContext(actor, request.id)
+      : null;
   const work = await getRequestWork(actor, request.id);
   const followUpLimit = await getSetting("followUpMaxAttempts");
   const followUpFailed =
@@ -112,7 +118,9 @@ export default async function RequestDetailPage({
           </AlertDescription>
         </Alert>
       ) : null}
-      {["submission", "reconciliation", "verification"].includes(saved ?? "") ? (
+      {["submission", "reconciliation", "verification", "receipt"].includes(
+        saved ?? ""
+      ) ? (
         <p role="status" className="text-sm">
           Your update is recorded in the request history.
         </p>
@@ -219,11 +227,49 @@ export default async function RequestDetailPage({
             description: request.channel.toLowerCase().replaceAll("_", " "),
           },
           { term: "Destination", description: request.destinationValue ?? "—" },
-          { term: "Deadline", description: formatIsoDate(request.deadlineAt) },
+          {
+            term: responseTargetLabel(request.deadlineIsEstimate),
+            description: request.deadlineOn
+              ? formatIsoDate(request.deadlineOn)
+              : request.sentAt
+                ? "No fixed date recorded"
+                : "Starts after submission or receipt",
+          },
           { term: "Legal basis", description: request.legalBasisText },
           { term: "Reference", description: request.externalReference ?? "—" },
         ]}
       />
+      {request.deadlineNote ? (
+        <p className="max-w-prose text-sm leading-6 text-muted-foreground">
+          {request.deadlineNote}
+        </p>
+      ) : null}
+      {receipt ? (
+        <details>
+          <summary className="w-fit cursor-pointer py-2 text-sm font-medium">
+            {request.deadlineBasis === "RECORDED_RECEIPT"
+              ? "Correct original receipt date"
+              : "Record original receipt date"}
+          </summary>
+          <ReceiptForm
+            initial={{
+              requestId: request.id,
+              receivedOn:
+                request.deadlineBasis === "RECORDED_RECEIPT" && request.deadlineAnchorOn
+                  ? formatIsoDate(request.deadlineAnchorOn)
+                  : "",
+              previousAnchorOn: request.deadlineAnchorOn
+                ? formatIsoDate(request.deadlineAnchorOn)
+                : "",
+              previousBasis: request.deadlineBasis ?? "",
+              confirmationAccepted: "",
+            }}
+            submittedOn={receipt.submittedOn}
+            today={dateInTimeZone(new Date(), timeZone)}
+            timeZone={timeZone}
+          />
+        </details>
+      ) : null}
       <div className="flex flex-wrap gap-2">
         <Button asChild variant="outline">
           <Link href={`/brokers/${request.brokerId}`}>Broker instructions</Link>

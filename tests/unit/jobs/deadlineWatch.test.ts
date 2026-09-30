@@ -82,6 +82,30 @@ describe("deadline watch orchestration", () => {
     expect(input.job).toBe(job);
     expect(input.warningBefore.getTime() - input.now.getTime()).toBe(3 * 86400_000);
   });
+  it("advances past a full failing page instead of starving later response targets", async () => {
+    const deadlineAt = new Date("2026-01-01");
+    const first = Array.from({ length: 50 }, (_, i) => ({
+      id: `request-${i}`,
+      deadlineAt,
+    }));
+    mocks.listOverdueWaitingRequests
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce([{ id: "later-request", deadlineAt }]);
+    mocks.scheduleOverdueRequest.mockImplementation(async (_actor, input) => {
+      if (input.requestId !== "later-request")
+        throw new Error("Injected repeated failure");
+      return { marked: true, queued: true };
+    });
+    expect((await runDeadlineWatch(7, job)).metadata).toMatchObject({
+      marked: 1,
+      followUpsQueued: 1,
+    });
+    expect(mocks.listOverdueWaitingRequests.mock.calls[1]![2]).toEqual({
+      deadlineAt,
+      id: "request-49",
+    });
+    expect(mocks.scheduleOverdueRequest).toHaveBeenCalledTimes(51);
+  });
   it("does not audit a skipped stale reminder as successfully delivered", async () => {
     mocks.recordRecheckReminder.mockResolvedValue(false);
     expect((await runRecheckReminder("req-4", job)).message).toMatch(

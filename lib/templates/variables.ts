@@ -77,7 +77,8 @@ export const TEMPLATE_VARIABLES: readonly TemplateVariableDefinition[] = [
     name: "request.deadlineDate",
     kind: "date",
     required: false,
-    description: "Date by which a response is expected, ISO formatted.",
+    description:
+      "Response target date, ISO formatted and marked as an estimate when receipt or timing is uncertain.",
     maxLength: 30,
     example: "2026-09-30",
   },

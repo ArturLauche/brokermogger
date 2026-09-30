@@ -76,8 +76,10 @@ export default async function EscalationPage({
               description: String(summary.simulatedEmails),
             },
             {
-              term: "Recorded response date",
-              description: formatIsoDate(summary.deadlineAt),
+              term: summary.deadlineIsEstimate
+                ? "Estimated response target"
+                : "Response target from recorded receipt",
+              description: formatIsoDate(summary.deadlineOn),
             },
             {
               term: "Available records",

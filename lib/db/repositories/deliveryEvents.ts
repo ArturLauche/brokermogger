@@ -8,6 +8,7 @@ import { canTransition } from "@/lib/requests/stateMachine";
 import { getWebhookPayload } from "./outboundEmail";
 import { lockJobLeaseInTx } from "./jobLease";
 import { appendRequestEventInTx, applyRequestStatusInTx } from "./requests";
+import { calculateResponseTargetInTx } from "./responseTargets";
 
 const precedence: Record<EmailStatus, number> = {
   QUEUED: 0,
@@ -136,6 +137,7 @@ export async function applyStoredDeliveryEvent(
               userId: current.userId,
               deletedAt: null,
             },
+            include: { user: { select: { timezone: true } } },
           })
         : null;
     if (request) {
@@ -179,10 +181,29 @@ export async function applyStoredDeliveryEvent(
           }
         }
       }
-      if (advances && currentMessage && outcome === "delivered" && !request.deliveredAt)
+      const initialDelivery =
+        outcome === "delivered" &&
+        current.snapshotId !== null &&
+        current.snapshotId === request.deadlineSnapshotId &&
+        request.deadlineBasis === "DISPATCH_ESTIMATE" &&
+        !request.deliveredAt;
+      const originalMessage = request.deadlineSnapshotId
+        ? current.snapshotId === request.deadlineSnapshotId
+        : currentMessage;
+      if (advances && outcome === "delivered" && originalMessage && !request.deliveredAt)
         await tx.removalRequest.update({
           where: { id: request.id },
-          data: { deliveredAt: at },
+          data: {
+            deliveredAt: at,
+            ...(initialDelivery
+              ? await calculateResponseTargetInTx(tx, {
+                  requestId: request.id,
+                  snapshotId: current.snapshotId!,
+                  providerDeliveredAt: at,
+                  timeZone: request.deadlineTimezone ?? request.user.timezone,
+                })
+              : {}),
+          },
         });
       if (advances)
         await appendRequestEventInTx(tx, {

@@ -87,6 +87,19 @@ export async function scheduleOverdueRequest(
                 _max: { submittedOn: true },
               })
             : null;
+        const latestEmail =
+          request.followUpCount > 0
+            ? await tx.outboundEmail.aggregate({
+                where: {
+                  removalRequestId: request.id,
+                  dispatchState: "ACCEPTED",
+                  ...(request.deadlineSnapshotId
+                    ? { snapshotId: { not: request.deadlineSnapshotId } }
+                    : {}),
+                },
+                _max: { sentAt: true },
+              })
+            : null;
         const anchor = new Date(
           Math.max(
             request.deadlineAt.getTime(),
@@ -94,6 +107,7 @@ export async function scheduleOverdueRequest(
               ? [
                   request.sentAt?.getTime() ?? 0,
                   latestManual?._max.submittedOn?.getTime() ?? 0,
+                  latestEmail?._max.sentAt?.getTime() ?? 0,
                 ]
               : [])
           )
@@ -157,16 +171,24 @@ export async function recordDeadlineWarning(
       request.deadlineAt > input.warningBefore
     )
       return false;
+    if (request.deadlineWarningForAt?.getTime() === request.deadlineAt.getTime())
+      return false;
     await createNotificationInTx(tx, {
       userId: request.userId,
       profileId: request.profileId,
       removalRequestId: request.id,
       type: "DEADLINE_APPROACHING",
       severity: "WARNING",
-      title: "Response date approaching",
-      body: "A broker request is approaching the response date recorded for it. This is a reminder, not a guarantee that the broker will answer.",
+      title: request.deadlineIsEstimate
+        ? "Estimated response target approaching"
+        : "Response target approaching",
+      body: "Review the response target and its receipt or calendar assumptions. This reminder does not promise a response or removal.",
       actionUrl: `/requests/${request.id}`,
-      dedupeKey: `deadline-warning:${request.id}`,
+      dedupeKey: `deadline-warning:${request.id}:${request.deadlineAt.toISOString()}`,
+    });
+    await tx.removalRequest.update({
+      where: { id: request.id },
+      data: { deadlineWarningForAt: request.deadlineAt },
     });
     return true;
   });

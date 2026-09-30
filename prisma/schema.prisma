@@ -225,6 +225,14 @@ enum RequestStatus {
   FAILED
 }
 
+enum DeadlineBasis {
+  RECORDED_RECEIPT
+  DISPATCH_ESTIMATE
+  PROVIDER_DELIVERY_ESTIMATE
+  SIMULATED_DISPATCH
+  LEGACY_ESTIMATE
+}
+
 enum RequestEventType {
   CREATED
   STATUS_CHANGE
@@ -1047,6 +1055,18 @@ model RemovalRequest {
   legalBasisText     String
   deadlineDays       Int?
   deadlineAt         DateTime?
+  /// Inclusive response target date. deadlineAt is the first instant AFTER this local day.
+  deadlineOn         DateTime? @db.Date
+  deadlineAnchorOn   DateTime? @db.Date
+  deadlineBasis      DeadlineBasis?
+  deadlineIsEstimate Boolean @default(true)
+  deadlineTimezone   String?
+  deadlineNote       String?
+  deadlinePolicyVersion Int?
+  /// Pins the initial submitted message so follow-ups cannot restart the response clock.
+  deadlineSnapshotId String?
+  /// The target last warned about; a corrected response date can receive a fresh reminder.
+  deadlineWarningForAt DateTime?
 
   manualReviewRequired   Boolean   @default(false)
   manualReviewReasons    String[]  @default([])

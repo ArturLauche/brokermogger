@@ -95,7 +95,11 @@ export async function renderReportForJob(
           requestType: row.requestType,
           status: row.status,
           legalBasis: row.legalBasisText,
-          deadlineAt: row.deadlineAt?.toISOString().slice(0, 10) ?? null,
+          deadlineAt: row.deadlineOn?.toISOString().slice(0, 10) ?? null,
+          deadlineOn: row.deadlineOn?.toISOString().slice(0, 10) ?? null,
+          deadlineIsEstimate: row.deadlineIsEstimate,
+          deadlineBasis: row.deadlineBasis,
+          deadlineNote: row.deadlineNote,
           sentAt: row.sentAt?.toISOString() ?? null,
           contactedAt:
             row.manualSubmissions[0]?.submittedOn.toISOString().slice(0, 10) ??
@@ -181,6 +185,14 @@ async function renderPdf(payload: ReportPayload): Promise<Buffer> {
       if (row.legalBasis) {
         doc.fontSize(9).text(row.legalBasis, { indent: 12 });
       }
+      if (row.deadlineOn)
+        doc
+          .fontSize(9)
+          .text(
+            `Response target: ${row.deadlineOn}${row.deadlineIsEstimate ? " (estimate)" : " (recorded receipt)"}`,
+            { indent: 12 }
+          );
+      if (row.deadlineNote) doc.fontSize(9).text(row.deadlineNote, { indent: 12 });
     }
     doc.moveDown();
     doc.fontSize(13).text("Limitations");

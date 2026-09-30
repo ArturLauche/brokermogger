@@ -469,3 +469,31 @@ verification, and production key/build checks against the compiled app.
   vulnerabilities after compatible updates to affected development packages.
   Sourced legal coverage, legal authoring, remaining pagination, operational
   hardening, scale benchmarks and final PR/CI delivery are still in progress.
+
+### Receipt-based response targets
+
+- Added versioned, sourced timing policies for calendar months, calendar days,
+  business days and no fixed period. GDPR uses one calendar month; missing
+  public-holiday coverage stays visibly estimated. Drafts do not start a clock.
+  The first submitted snapshot pins the original policy and submission date;
+  follow-ups and late delivery events preserve that original clock.
+- Owners can record or correct an actual original receipt date after real
+  submission. Ownership, date bounds and concurrent revisions are checked, and
+  clock changes and history commit together. Mock or sandbox delivery cannot
+  become a real receipt. Reports, exports, reminders and escalation summaries
+  include timing provenance. Extensions and verification pauses remain disclosed
+  policy conditions and are not applied automatically.
+- Deadline workers page past failed rows rather than repeating the first batch.
+  Warning deduplication follows the current target so a corrected receipt can
+  receive a new warning. Account and profile erasure clear the clock fields.
+- The additive migration preserves sent dates, snapshot IDs and approved text,
+  labels existing deadlines as legacy estimates, and clears unsent deadlines.
+  An isolated first-thirteen-migrations upgrade and repeat-deployment rehearsal
+  passed. Upgrade and rollback boundaries are in `docs/response-targets.md`.
+- All 387 unit/component tests passed. Related generation, approval, manual
+  submission, erasure, report, export, dashboard and seed checks passed; the final
+  23 response-target/delivery/follow-up integration cases and the migration
+  rehearsal passed. Typecheck, lint, formatting, a production build and all nine
+  production browser journeys passed, including original receipt recording.
+  Legal authoring, sourced coverage, remaining pagination, operational hardening,
+  scale benchmarks and final PR/CI delivery remain in progress.

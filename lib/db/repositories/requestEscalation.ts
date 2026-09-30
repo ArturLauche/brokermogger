@@ -150,6 +150,9 @@ export async function getEscalationSummary(actor: ActorContext, rawId: string) {
       previousStatus: originalStatus?.fromStatus ?? null,
       legalBasis: request.legalBasisText,
       deadlineAt: request.deadlineAt,
+      deadlineOn: request.deadlineOn,
+      deadlineIsEstimate: request.deadlineIsEstimate,
+      deadlineNote: request.deadlineNote,
       sentAt: request.sentAt,
       rule,
       replies: replies.map((row) => ({
@@ -159,7 +162,8 @@ export async function getEscalationSummary(actor: ActorContext, rawId: string) {
       manualSubmissionCount: submissions._count._all,
       firstManualSubmission: submissions._min.submittedOn,
       lastManualSubmission: submissions._max.submittedOn,
-      recordedReceipt: submissions._min.receivedOn,
+      recordedReceipt:
+        request.deadlineBasis === "RECORDED_RECEIPT" ? request.deadlineAnchorOn : null,
       snapshotCount: snapshots,
       evidenceCount: files,
       realAcceptedEmails: realEmails,

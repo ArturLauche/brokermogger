@@ -47,6 +47,7 @@ export const AUDIT_ACTIONS = [
   "request.approved",
   "request.approval_rejected",
   "request.sent",
+  "request.receipt_recorded",
   "request.send_blocked",
   "request.follow_up_prepared",
   "request.closed",

@@ -16,6 +16,8 @@ const REQUEST_SUMMARY = {
   requestType: true,
   updatedAt: true,
   deadlineAt: true,
+  deadlineOn: true,
+  deadlineIsEstimate: true,
   broker: { select: { legalName: true } },
 } satisfies Prisma.RemovalRequestSelect;
 

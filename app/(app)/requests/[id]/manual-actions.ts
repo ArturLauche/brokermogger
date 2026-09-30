@@ -9,6 +9,7 @@ import {
 } from "@/lib/requests/manual";
 import { failedAction, type ActionState } from "@/lib/validation/actionResult";
 import { formCheckbox, formString } from "@/lib/validation/form";
+import { recordRequestReceipt } from "@/lib/requests/receipt";
 
 export type SubmissionFields = {
   requestId: string;
@@ -24,6 +25,38 @@ export type ReconciliationFields = {
   providerMessageId: string;
 };
 export type VerificationFields = { requestId: string; outcome: string };
+export type ReceiptFields = {
+  requestId: string;
+  receivedOn: string;
+  previousAnchorOn: string;
+  previousBasis: string;
+  confirmationAccepted: string;
+};
+
+export async function receiptAction(
+  _previous: ActionState<ReceiptFields>,
+  form: FormData
+): Promise<ActionState<ReceiptFields>> {
+  const actor = await requireActor();
+  const values = {
+    requestId: formString(form, "requestId"),
+    receivedOn: formString(form, "receivedOn"),
+    previousAnchorOn: formString(form, "previousAnchorOn"),
+    previousBasis: formString(form, "previousBasis"),
+    confirmationAccepted: formString(form, "confirmationAccepted"),
+  };
+  try {
+    await recordRequestReceipt(actor, {
+      ...values,
+      previousAnchorOn: values.previousAnchorOn || null,
+      previousBasis: values.previousBasis || null,
+      confirmationAccepted: formCheckbox(form, "confirmationAccepted"),
+    });
+  } catch (error) {
+    return failedAction(error, values);
+  }
+  redirect(`/requests/${values.requestId}?saved=receipt`);
+}
 
 export async function submitManuallyAction(
   _previous: ActionState<SubmissionFields>,

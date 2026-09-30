@@ -12,6 +12,7 @@ import { requireActorOrRedirect } from "@/lib/auth";
 import { isAppError } from "@/lib/core/errors";
 import { getOwnedRequest } from "@/lib/db/repositories/requests";
 import { formatIsoDate } from "@/lib/format/datetime";
+import { responseTargetLabel } from "@/lib/jurisdiction/deadlines";
 import { can } from "@/lib/permissions/policy";
 import { readApprovalEnvelope } from "@/lib/requests/envelope";
 import { canTransition } from "@/lib/requests/stateMachine";
@@ -134,9 +135,9 @@ export default async function ReviewRequestPage({
               ),
             },
             {
-              term: "Response date",
-              description: request.deadlineAt
-                ? formatIsoDate(request.deadlineAt)
+              term: responseTargetLabel(request.deadlineIsEstimate),
+              description: request.deadlineOn
+                ? formatIsoDate(request.deadlineOn)
                 : "Set after submission or receipt is recorded",
             },
           ]}

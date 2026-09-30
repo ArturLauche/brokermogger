@@ -10,11 +10,77 @@ import {
   submitManuallyAction,
   reconcileDeliveryAction,
   verificationAction,
+  receiptAction,
   type SubmissionFields,
+  type ReceiptFields,
 } from "./manual-actions";
 
 const selectClass =
   "min-h-11 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:ring-2 focus-visible:ring-ring";
+
+export function ReceiptForm({
+  initial,
+  submittedOn,
+  today,
+  timeZone,
+}: {
+  initial: ReceiptFields;
+  submittedOn: string;
+  today: string;
+  timeZone: string;
+}) {
+  const [state, action, pending] = useActionState(
+    receiptAction,
+    initialActionState(initial)
+  );
+  return (
+    <form action={action} className="flex max-w-2xl flex-col gap-4 py-3">
+      <input type="hidden" name="requestId" value={initial.requestId} />
+      <input type="hidden" name="previousAnchorOn" value={initial.previousAnchorOn} />
+      <input type="hidden" name="previousBasis" value={initial.previousBasis} />
+      <FormFeedback state={state} />
+      <div className="space-y-2">
+        <Label htmlFor="original-receipt">Original request receipt date</Label>
+        <Input
+          id="original-receipt"
+          name="receivedOn"
+          type="date"
+          required
+          min={submittedOn}
+          max={today}
+          defaultValue={state.values.receivedOn}
+          aria-invalid={Boolean(state.fieldErrors.receivedOn)}
+          aria-describedby="original-receipt-hint original-receipt-error"
+        />
+        <p id="original-receipt-hint" className="text-sm text-muted-foreground">
+          Why we ask: a broker acknowledgement or postal receipt can replace a dispatch
+          estimate. Use the original request’s receipt date, not a later follow-up.
+          Reminder times use {timeZone}.
+        </p>
+        <FieldError id="original-receipt-error" message={state.fieldErrors.receivedOn} />
+      </div>
+      <label className="flex min-h-11 items-start gap-3 text-sm">
+        <input
+          className="mt-1 size-4"
+          type="checkbox"
+          name="confirmationAccepted"
+          required
+          defaultChecked={state.values.confirmationAccepted === "on"}
+          aria-invalid={Boolean(state.fieldErrors.confirmationAccepted)}
+          aria-describedby="receipt-confirmation-error"
+        />
+        <span>I checked the receipt of the original request and confirm this date.</span>
+      </label>
+      <FieldError
+        id="receipt-confirmation-error"
+        message={state.fieldErrors.confirmationAccepted}
+      />
+      <Button className="self-start" disabled={pending}>
+        {pending ? "Recording…" : "Record receipt date"}
+      </Button>
+    </form>
+  );
+}
 
 export function ManualSubmissionForm({
   initial,

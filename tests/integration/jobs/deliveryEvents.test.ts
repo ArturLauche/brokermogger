@@ -27,6 +27,8 @@ import {
   sendApprovedRequest,
 } from "@/lib/requests/lifecycle";
 import { encryptField } from "@/lib/security/crypto";
+import { recordRequestReceipt } from "@/lib/requests/receipt";
+import { dateInTimeZone, formatIsoDate } from "@/lib/format/datetime";
 import { testPrisma } from "../../helpers/db";
 import { workflowFixture } from "../../helpers/workflow";
 
@@ -93,6 +95,34 @@ async function receipt(providerMessageId: string, type = "email.delivered") {
 }
 
 describe("atomic provider delivery receipts", () => {
+  it("refines an initial dispatch estimate once and preserves an owner-recorded receipt on replay", async () => {
+    const f = await sent();
+    // Simulate provider acceptance and delivery without calling a remote sending API.
+    await testPrisma.removalRequest.update({
+      where: { id: f.request.id },
+      data: { deadlineBasis: "DISPATCH_ESTIMATE" },
+    });
+    const delivery = await receipt(f.providerMessageId);
+    await processStoredEmailWebhook(delivery.stored.id, delivery.job);
+    await markJobCompleted(delivery.job, { message: "Synthetic delivery." }, 1);
+    const delivered = await getOwnedRequest(f.actor, f.request.id);
+    expect(delivered.deadlineBasis).toBe("PROVIDER_DELIVERY_ESTIMATE");
+    expect(delivered.deadlineIsEstimate).toBe(true);
+    await recordRequestReceipt(f.actor, {
+      requestId: f.request.id,
+      receivedOn: dateInTimeZone(new Date(), "UTC"),
+      previousAnchorOn: formatIsoDate(delivered.deadlineAnchorOn),
+      previousBasis: delivered.deadlineBasis,
+      confirmationAccepted: true,
+    });
+    const recorded = await getOwnedRequest(f.actor, f.request.id);
+    const repeated = await receipt(f.providerMessageId);
+    await processStoredEmailWebhook(repeated.stored.id, repeated.job);
+    const current = await getOwnedRequest(f.actor, f.request.id);
+    expect(current.deadlineBasis).toBe("RECORDED_RECEIPT");
+    expect(current.deadlineAt).toEqual(recorded.deadlineAt);
+    expect(current.deadlineSnapshotId).toBe(f.request.deadlineSnapshotId);
+  });
   it("does not let an older delivery undo a bounce or a complaint", async () => {
     const f = await sent();
     const bounce = await receipt(f.providerMessageId, "email.bounced");

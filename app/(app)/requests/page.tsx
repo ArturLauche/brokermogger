@@ -67,7 +67,7 @@ export default async function RequestsPage({
               <TableHead>Broker</TableHead>
               <TableHead>Type</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Deadline</TableHead>
+              <TableHead>Response target</TableHead>
               <TableHead>Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -86,8 +86,8 @@ export default async function RequestsPage({
                   <StatusBadge kind="request" status={request.status} />
                 </TableCell>
                 <TableCell>
-                  {request.deadlineAt
-                    ? request.deadlineAt.toISOString().slice(0, 10)
+                  {request.deadlineOn
+                    ? `${request.deadlineOn.toISOString().slice(0, 10)}${request.deadlineIsEstimate ? " (estimate)" : ""}`
                     : "—"}
                 </TableCell>
                 <TableCell>

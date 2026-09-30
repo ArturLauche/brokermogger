@@ -12,6 +12,7 @@ import { readApprovedMessageInTx } from "./requestApprovedMessage";
 import { loadRequestForDecision } from "./requestDecision";
 import { appendRequestEventInTx, applyRequestStatusInTx } from "./requests";
 import { requeueUnmatchedDeliveryInTx } from "./deliveryEvents";
+import { calculateResponseTargetInTx } from "./responseTargets";
 
 export async function getApprovedManualMessage(actor: ActorContext, requestId: string) {
   return prisma.$transaction(async (tx) => {
@@ -124,7 +125,16 @@ export async function persistManualSubmission(
       where: { id: request.id },
       data: {
         sentAt: request.sentAt ?? input.submittedOn,
-        ...(input.receivedOn && !request.deliveredAt
+        ...(!request.sentAt
+          ? await calculateResponseTargetInTx(tx, {
+              requestId: request.id,
+              snapshotId: snapshot.id,
+              submittedOn: formatIsoDate(input.submittedOn),
+              receiptOn: input.receivedOn ? formatIsoDate(input.receivedOn) : null,
+              timeZone: request.user.timezone,
+            })
+          : {}),
+        ...(input.receivedOn && !request.sentAt && !request.deliveredAt
           ? { deliveredAt: input.receivedOn }
           : {}),
       },
@@ -247,10 +257,19 @@ export async function persistDeliveryReconciliation(
           : "The account holder confirmed that the provider did not accept this message.",
       },
     });
-    if (accepted && !request.sentAt && request.approvedAt)
+    if (accepted && !request.sentAt && request.approvedAt && ledger.snapshotId)
       await tx.removalRequest.update({
         where: { id: request.id },
-        data: { sentAt: ledger.sentAt ?? ledger.dispatchStartedAt ?? new Date() },
+        data: {
+          sentAt: ledger.sentAt ?? ledger.dispatchStartedAt ?? new Date(),
+          ...(await calculateResponseTargetInTx(tx, {
+            requestId: request.id,
+            snapshotId: ledger.snapshotId,
+            dispatchedAt: ledger.sentAt ?? ledger.dispatchStartedAt ?? new Date(),
+            simulated: ledger.provider !== "RESEND",
+            timeZone: request.user.timezone,
+          })),
+        },
       });
     const isCurrent =
       ledger.snapshotId !== null && ledger.snapshotId === request.currentSnapshotId;

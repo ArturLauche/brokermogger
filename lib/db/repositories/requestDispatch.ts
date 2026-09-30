@@ -13,6 +13,7 @@ import type { JobLease } from "@/lib/jobs/types";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { needsDeliveryReconciliation } from "@/lib/requests/dispatchPolicy";
 import { sha256Hex } from "@/lib/security/crypto";
+import { calculateResponseTargetInTx } from "./responseTargets";
 
 import { readApprovedMessageInTx } from "./requestApprovedMessage";
 import { loadRequestForDecision } from "./requestDecision";
@@ -324,6 +325,7 @@ export async function finishApprovedDispatch(
         deletedAt: null,
         user: { status: "ACTIVE", deletionRequestedAt: null },
       },
+      include: { user: { select: { timezone: true } } },
     });
     if (!request) return false;
     const changed = await tx.outboundEmail.updateMany({
@@ -363,7 +365,19 @@ export async function finishApprovedDispatch(
       });
       await tx.removalRequest.update({
         where: { id: request.id },
-        data: { sentAt: input.result.sentAt },
+        data: {
+          // Follow-ups are new messages, not a new initial response period.
+          ...(sent ? { sentAt: request.sentAt ?? input.result.sentAt } : {}),
+          ...(!request.sentAt && sent
+            ? await calculateResponseTargetInTx(tx, {
+                requestId: request.id,
+                snapshotId: input.snapshotId,
+                dispatchedAt: input.result.sentAt,
+                simulated: input.result.provider !== "RESEND",
+                timeZone: request.user.timezone,
+              })
+            : {}),
+        },
       });
       await applyRequestStatusInTx(tx, {
         requestId: request.id,

@@ -23,11 +23,13 @@ bypassed by a direct write.
 
 Two more conventions matter when reading the rules:
 
-- `deadlineDays` is `null` whenever the law sets no fixed period. The product
-  then schedules a courtesy follow up instead of asserting a date. It never
-  invents a deadline to make the interface look tidier.
-- `deadlineRule.verified` is `false` where the maintainers could not confirm the
-  timing from a primary source. Those numbers are working assumptions.
+- `deadlineDays` and legacy day-count JSON are compatibility fields, not an
+  executable timing policy. Calendar-month rules therefore have no day count.
+  A versioned `deadlineRule.policy` starts from receipt or a clearly labelled
+  submission estimate. Unsupported legacy timing produces no invented date.
+- An unverified period or incomplete business-day/holiday calendar remains an
+  estimate. Extensions and pauses are not applied automatically. See
+  [response-targets.md](response-targets.md) for sources, provenance and upgrades.
 
 ## Jurisdictions
 
@@ -87,9 +89,11 @@ Source:
 [EUR-Lex, Regulation (EU) 2016/679](https://eur-lex.europa.eu/eli/reg/2016/679/oj).
 Escalation is a complaint to the competent supervisory authority under
 Article 77; the list of national authorities is published by the
-[European Data Protection Board](https://www.edpb.europa.eu/about-edpb/about-edpb/members_en).
+[European Data Protection Board](https://www.edpb.europa.eu/about-edpb/our-members_en).
 
-The one month period is modelled as 30 days for scheduling. Erasure has
+The response policy uses one calendar month from receipt, with month-end and
+non-working-day handling. Public-holiday coverage requires separate review;
+dispatch-based dates remain estimates. Erasure has
 exceptions under Article 17(3), a controller may refuse manifestly unfounded or
 excessive requests under Article 12(5), and whether the recipient is a
 controller for the data in question has to be assessed per case.

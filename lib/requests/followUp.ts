@@ -158,8 +158,8 @@ export async function renderFollowUpSnapshot(
       "profile.country": countryDisplayName(profile.countryCode),
       "request.type": REQUEST_TYPE_LABELS[request.requestType],
       "request.legalBasis": request.legalBasisText,
-      "request.deadlineDate": request.deadlineAt
-        ? request.deadlineAt.toISOString().slice(0, 10)
+      "request.deadlineDate": request.deadlineOn
+        ? `${request.deadlineOn.toISOString().slice(0, 10)}${request.deadlineIsEstimate ? " (estimate)" : ""}`
         : "",
       "request.reference": reference,
       "broker.name": request.broker.tradingNames[0] ?? request.broker.legalName,

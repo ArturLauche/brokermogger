@@ -106,6 +106,23 @@ test("edits and approves a manual request, records submission, then confirms a r
     .check();
   await page.getByRole("button", { name: "Record submission", exact: true }).click();
   await expect(page).toHaveURL(/saved=submission/);
+  await expect(
+    page.getByText("Estimated response target", { exact: true })
+  ).toBeVisible();
+  await page.getByText("Record original receipt date", { exact: true }).click();
+  const receiptDate = page.getByLabel("Original request receipt date", { exact: true });
+  await receiptDate.fill((await receiptDate.getAttribute("max"))!);
+  await page
+    .getByLabel("I checked the receipt of the original request and confirm this date.")
+    .check();
+  await page.getByRole("button", { name: "Record receipt date", exact: true }).click();
+  await expect(page).toHaveURL(/saved=receipt/);
+  await expect(
+    page.getByText("Correct original receipt date", { exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByText(/Public-holiday coverage is unverified or incomplete/)
+  ).toBeVisible();
   await page.getByRole("button", { name: "Prepare follow-up", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Follow-up scheduled", exact: true })
