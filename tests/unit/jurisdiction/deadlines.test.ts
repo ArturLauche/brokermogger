@@ -130,6 +130,7 @@ describe("receipt-based response targets", () => {
   it("rejects malformed calendars and periods and does not break dispatch for an unrepresentable calculated date", () => {
     for (const change of [
       { period: null },
+      { sourceUrl: "not-a-url" },
       { period: 25 },
       { extension: { ...GDPR_RESPONSE_POLICY.extension!, period: 25 } },
       { calendar: { ...calendar, holidays: ["2027-01-01"] } },

@@ -1,4 +1,4 @@
-import { lockActiveAccount } from "./access";
+import { lockAuthorizedAccount } from "./access";
 /** Authorized catalogue and operations reads. Private job payloads are never listed. */
 import { z } from "zod";
 import type { ActorContext } from "@/lib/permissions/actor";
@@ -28,17 +28,6 @@ export async function countAdminOverview(actor: ActorContext) {
     ]);
 
   return { unverifiedBrokers, unpublishedRuleDrafts, failedJobs, pendingManualReviews };
-}
-
-export async function listAdminLegalRules(actor: ActorContext) {
-  requirePermission(actor, "admin:legalRule:read");
-  return prisma.legalRule.findMany({
-    include: {
-      jurisdiction: true,
-      versions: { orderBy: { version: "desc" }, take: 3 },
-    },
-    orderBy: { lawName: "asc" },
-  });
 }
 
 export async function listAdminJobs(actor: ActorContext, status?: JobStatus) {
@@ -80,7 +69,7 @@ export async function createBreakGlassGrant(actor: ActorContext, raw: unknown) {
     raw
   );
   return prisma.$transaction(async (tx) => {
-    await lockActiveAccount(tx, actor.userId);
+    await lockAuthorizedAccount(tx, actor, "admin:user:list");
     if (
       !(await tx.user.findFirst({
         where: { id: command.targetUserId, deletedAt: null },
@@ -131,60 +120,69 @@ export async function listActiveBreakGlassGrants(actor: ActorContext) {
 export async function revokeAdminAction(actor: ActorContext, id: string) {
   requirePermission(actor, "admin:user:list");
   parseWithSchema(entityIdSchema, id);
-  return prisma.adminAction.update({
-    where: { id },
-    data: { revokedAt: new Date() },
+  return prisma.$transaction(async (tx) => {
+    await lockAuthorizedAccount(tx, actor, "admin:user:list");
+    return tx.adminAction.update({
+      where: { id },
+      data: { revokedAt: new Date() },
+    });
   });
 }
 
 export async function retryJobRow(actor: ActorContext, jobId: string) {
   requirePermission(actor, "admin:job:manage");
   parseWithSchema(entityIdSchema, jobId);
-  const result = await prisma.backgroundJob.updateMany({
-    where: { id: jobId, status: { in: ["FAILED", "RETRYABLE"] } },
-    data: {
-      status: "RETRYABLE",
-      runAt: new Date(),
-      attemptCount: 0,
-      lastError: null,
-      completedAt: null,
-      cancelledAt: null,
-      lockedAt: null,
-      lockedBy: null,
-      lockExpiresAt: null,
-      leaseToken: null,
-    },
-  });
-  if (result.count !== 1)
-    throw new AppError({
-      code: "CONFLICT",
-      message: "Only failed or retryable jobs can be retried.",
+  return prisma.$transaction(async (tx) => {
+    if (!actor.isSystem) await lockAuthorizedAccount(tx, actor, "admin:job:manage");
+    const result = await tx.backgroundJob.updateMany({
+      where: { id: jobId, status: { in: ["FAILED", "RETRYABLE"] } },
+      data: {
+        status: "RETRYABLE",
+        runAt: new Date(),
+        attemptCount: 0,
+        lastError: null,
+        completedAt: null,
+        cancelledAt: null,
+        lockedAt: null,
+        lockedBy: null,
+        lockExpiresAt: null,
+        leaseToken: null,
+      },
     });
-  return result;
+    if (result.count !== 1)
+      throw new AppError({
+        code: "CONFLICT",
+        message: "Only failed or retryable jobs can be retried.",
+      });
+    return result;
+  });
 }
 
 export async function cancelJobRow(actor: ActorContext, jobId: string) {
   requirePermission(actor, "admin:job:manage");
   parseWithSchema(entityIdSchema, jobId);
-  const result = await prisma.backgroundJob.updateMany({
-    where: { id: jobId, status: { in: ["PENDING", "RETRYABLE", "RUNNING"] } },
-    data: {
-      status: "CANCELLED",
-      cancelledAt: new Date(),
-      leaseToken: null,
-      lockedAt: null,
-      lockedBy: null,
-      lockExpiresAt: null,
-      lastError:
-        "Cancelled by instance admin. A provider operation already started may still complete.",
-    },
-  });
-  if (result.count !== 1)
-    throw new AppError({
-      code: "CONFLICT",
-      message: "This job is no longer eligible for cancellation.",
+  return prisma.$transaction(async (tx) => {
+    if (!actor.isSystem) await lockAuthorizedAccount(tx, actor, "admin:job:manage");
+    const result = await tx.backgroundJob.updateMany({
+      where: { id: jobId, status: { in: ["PENDING", "RETRYABLE", "RUNNING"] } },
+      data: {
+        status: "CANCELLED",
+        cancelledAt: new Date(),
+        leaseToken: null,
+        lockedAt: null,
+        lockedBy: null,
+        lockExpiresAt: null,
+        lastError:
+          "Cancelled by instance admin. A provider operation already started may still complete.",
+      },
     });
-  return result;
+    if (result.count !== 1)
+      throw new AppError({
+        code: "CONFLICT",
+        message: "This job is no longer eligible for cancellation.",
+      });
+    return result;
+  });
 }
 
 export type { Prisma };

@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db/client";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
 import { parseWithSchema } from "@/lib/validation/form";
-import { lockActiveAccount } from "./access";
+import { lockAuthorizedAccount } from "./access";
 
 export async function listAdminSettings(actor: ActorContext) {
   requirePermission(actor, "admin:settings:read");
@@ -43,7 +43,7 @@ export async function saveAdminSetting(actor: ActorContext, raw: unknown) {
       ? (definition.defaultValue as string | number | boolean)
       : parseSettingValue(command.key, command.value);
   return prisma.$transaction(async (tx) => {
-    await lockActiveAccount(tx, actor.userId);
+    await lockAuthorizedAccount(tx, actor, "admin:settings:manage");
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`setting:${command.key}`}, 0))`;
     const current = await tx.systemSetting.findUnique({
       where: { key: command.key },

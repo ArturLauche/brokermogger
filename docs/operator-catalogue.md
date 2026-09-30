@@ -3,7 +3,9 @@
 Maintainers and instance administrators can create and edit brokers at
 `/admin/brokers`. Instance settings at `/admin/settings` require the instance
 administrator role. Repository boundaries enforce these permissions; a hidden
-button is never the authorization mechanism.
+button is never the authorization mechanism. Privileged writes also recheck the
+current role and account status while holding the account lock, so a demotion or
+deletion cannot leave a previously authenticated operator authorized to write.
 
 ## Broker workflow
 
@@ -79,6 +81,41 @@ Seeding preserves operator choices, including a published custom template create
 before the default catalogue was installed. A seeded competitor arrives inactive
 with a draft for review. Publication and seeds serialize their scope changes.
 
+## Legal rules
+
+Maintainers and administrators can create, search, filter and paginate rules at
+`/admin/legal-rules`. A new rule starts inactive with a draft. The stable key and
+jurisdiction remain fixed. The editor records supported types, a safe legal-basis
+line, applicability and exceptions, confidence, review flags, verification,
+escalation, primary sources, actual review date and effective UTC instants.
+
+Timing uses explicit calendar days, calendar months, business days or no fixed
+period. A primary timing source is required; an unverified period requires legal
+review. Public-holiday calendars have explicit source and coverage. Extensions
+and pauses are described as conditions and never applied automatically. Consult
+`response-targets.md` for operational estimates and recorded receipt behavior.
+Government-document flags describe potential verification requirements; they do
+not collect documents or override the optional consent-based evidence workflow.
+
+Save before reviewing the preview. It uses the generic letter with synthetic
+identifiers and the saved legal basis, plus a month-end receipt example. Actual
+jurisdiction-specific templates must be reviewed separately. Clause selections
+describe expected content and do not insert text automatically. Publication
+requires notes and explicit confirmation bound to the saved configuration hash.
+Stale edits and mismatched parent/version IDs are rejected.
+
+Publication and supersession commit together. A future-effective publication
+leaves the currently applicable version published and cannot be selected early.
+If the rule was inactive, publication retires its earlier published versions
+instead of reactivating withdrawn law; the reviewed successor becomes eligible
+only at its effective time.
+The catalogue selects the most recent effective version; an expired replacement
+does not revive earlier law. Deactivation stops all versions of that rule from
+serving new requests. Existing request snapshots and legal references stay
+unchanged. Published versions cannot be edited; copy one into a fresh draft to
+make a correction. Legacy timing without a typed policy must be sourced and
+repaired before publication, rather than inferred from an old day count.
+
 ## Settings
 
 The editor uses the validated catalogue in `lib/config/systemSettings.ts`; unknown
@@ -109,5 +146,7 @@ Integration coverage includes role boundaries, stale edits, public URL validatio
 child-ID scoping, failure rollback, verification gates, seed preservation, request
 compatibility and pagination. A production browser journey exercises creation,
 validation with retained input, contact verification, coverage, settings and the
-full template draft/repair/preview/publication/supersession workflow. Legal-rule
-authoring remains the next operator workflow.
+full template and legal-rule draft/repair/preview/publication/supersession
+workflows, including future-effective scheduling. Failure injection checks that
+legal publication cannot partially replace the current version. Demotion tests
+check current authority at privileged writes.

@@ -9,7 +9,6 @@ import {
   listActiveBreakGlassGrants,
   listAdminAudit,
   listAdminJobs,
-  listAdminLegalRules,
   retryJobRow,
   cancelJobRow,
   revokeAdminAction,
@@ -25,11 +24,6 @@ export async function openAdminConsole(actor: ActorContext) {
     resourceType: "instance",
   });
   return countAdminOverview(actor);
-}
-
-export async function getAdminLegalRules(actor: ActorContext) {
-  requirePermission(actor, "admin:legalRule:read");
-  return listAdminLegalRules(actor);
 }
 
 export async function getAdminJobs(actor: ActorContext) {

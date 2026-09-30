@@ -16,7 +16,7 @@ import { requirePermission } from "@/lib/permissions/policy";
 import { parseWithSchema } from "@/lib/validation/form";
 import { entityIdSchema } from "@/lib/validation/ids";
 import { publicUrlSchema } from "@/lib/validation/publicUrl";
-import { lockActiveAccount } from "./access";
+import { lockAuthorizedAccount } from "./access";
 
 const listSchema = pageInputSchema.extend({
   search: z.string().trim().max(100).default(""),
@@ -90,7 +90,7 @@ async function lockBroker(
   actor: ActorContext,
   scope: z.infer<typeof brokerEditScope>
 ) {
-  await lockActiveAccount(tx, actor.userId);
+  await lockAuthorizedAccount(tx, actor, "admin:broker:manage");
   await tx.$executeRaw`SELECT 1 FROM "Broker" WHERE id = ${scope.brokerId} FOR UPDATE`;
   const broker = await tx.broker.findFirst({
     where: { id: scope.brokerId, deletedAt: null },
@@ -157,7 +157,7 @@ export async function saveBrokerRecord(actor: ActorContext, raw: unknown) {
           select: { id: true, updatedAt: true },
         });
       }
-      await lockActiveAccount(tx, actor.userId);
+      await lockAuthorizedAccount(tx, actor, "admin:broker:manage");
       return tx.broker.create({
         data: { ...data, createdById: actor.userId },
         select: { id: true, updatedAt: true },

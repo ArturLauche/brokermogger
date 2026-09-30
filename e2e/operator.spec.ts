@@ -222,3 +222,192 @@ test("drafts, repairs, previews, publishes and supersedes a template", async ({
   await page.getByRole("button", { name: "Apply filters", exact: true }).click();
   await expect(page.getByRole("link", { name, exact: true })).toBeVisible();
 });
+
+test("sources, repairs, publishes and schedules legal versions while preserving current law", async ({
+  page,
+  baseURL,
+}) => {
+  expect(["localhost", "127.0.0.1", "[::1]"]).toContain(new URL(baseURL!).hostname);
+  expect(new URL(process.env.DATABASE_URL!).pathname).toMatch(/_test$/);
+  expect(process.env.EMAIL_PROVIDER).toBe("mock");
+  expect(process.env.ALLOW_EXTERNAL_SENDING).toBe("false");
+  const email = "legal-operator-" + randomUUID() + "@example.org";
+  await signIn(page, email);
+  const db = new PrismaClient();
+  let jurisdictionId: string;
+  try {
+    await seedJurisdictions(db);
+    await db.user.update({
+      where: { emailBi: accountEmailIndex(email) },
+      data: { role: "MAINTAINER" },
+    });
+    jurisdictionId = (await db.jurisdiction.findUniqueOrThrow({ where: { code: "DE" } }))
+      .id;
+  } finally {
+    await db.$disconnect();
+  }
+  const key = "browser.legal-" + randomUUID();
+  const name = "Browser legal " + key;
+  await page.goto("/admin/legal-rules/new");
+  await page
+    .getByLabel("Law or policy name", { exact: true })
+    .fill("Synthetic browser rule");
+  await page.getByLabel("Short name", { exact: true }).fill(name);
+  await page.getByLabel("Stable key", { exact: true }).fill(key);
+  await page.getByLabel("Jurisdiction", { exact: true }).selectOption(jurisdictionId);
+  await page
+    .getByLabel("Legal basis in letters", { exact: true })
+    .fill("Article 17 of Regulation (EU) 2016/679 where its scope and conditions apply");
+  await page
+    .getByLabel("Applicability and risks", { exact: true })
+    .fill(
+      "Synthetic browser fixture. Review territorial scope, controller identity and exemptions; no legal guarantee."
+    );
+  await page
+    .getByLabel("Response-period unit", { exact: true })
+    .selectOption("CALENDAR_MONTHS");
+  await page.getByLabel("Response period", { exact: true }).fill("1");
+  await page
+    .getByLabel("Period checked against primary source", { exact: true })
+    .selectOption("true");
+  await page
+    .getByLabel("Manual escalation instructions", { exact: true })
+    .fill(
+      "Review competent authority guidance and prepare any complaint manually. No external contact in this fixture."
+    );
+  await page
+    .getByLabel("Primary source URL", { exact: true })
+    .fill("https://example.org/law");
+  await page
+    .getByLabel("Primary source title", { exact: true })
+    .fill("Synthetic fixture referencing GDPR");
+  await page
+    .getByLabel("Actually reviewed on", { exact: true })
+    .fill(new Date().toISOString().slice(0, 10));
+  await page
+    .getByLabel("Reviewer attribution", { exact: true })
+    .fill("Synthetic browser fixture, not counsel");
+  await page
+    .getByLabel("Effective from (UTC)", { exact: true })
+    .fill("2018-05-25T00:00:00.000Z");
+  await page.getByRole("button", { name: "Create legal draft", exact: true }).click();
+  await expect(page.getByLabel("Primary source URL", { exact: true })).toHaveAttribute(
+    "aria-invalid",
+    "true"
+  );
+  await expect(page.getByLabel("Short name", { exact: true })).toHaveValue(name);
+  await page
+    .getByLabel("Primary source URL", { exact: true })
+    .fill("https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng");
+  await page.getByRole("button", { name: "Create legal draft", exact: true }).click();
+  await expect(page).toHaveURL(
+    /\/admin\/legal-rules\/[^/]+\/versions\/[^/?]+\?saved=created/
+  );
+  const legalRuleId = new URL(page.url()).pathname.split("/")[3]!;
+  await expect(page.getByRole("button", { name: "Publish legal version" })).toHaveCount(
+    0
+  );
+  await expect(page.locator("#preview")).toContainText("2026-02-28");
+  await page.getByLabel("Actually reviewed on", { exact: true }).fill("9998-01-01");
+  await page
+    .getByLabel("Review notes", { exact: true })
+    .fill(
+      "Synthetic review of scope, primary sources, month arithmetic and manual instructions."
+    );
+  await page
+    .getByRole("button", { name: "Save legal draft and preview", exact: true })
+    .click();
+  await expect(page.getByLabel("Actually reviewed on", { exact: true })).toHaveAttribute(
+    "aria-invalid",
+    "true"
+  );
+  await expect(page.getByLabel("Actually reviewed on", { exact: true })).toHaveValue(
+    "9998-01-01"
+  );
+  await page
+    .getByLabel("Actually reviewed on", { exact: true })
+    .fill(new Date().toISOString().slice(0, 10));
+  await page
+    .getByRole("button", { name: "Save legal draft and preview", exact: true })
+    .click();
+  await expect(page).toHaveURL(/saved=draft/);
+  await page.locator("#preview").getByText("deletion letter", { exact: true }).click();
+  await expect(page.locator("#preview")).toContainText("Alex Sample");
+  await page
+    .getByLabel("I reviewed this saved legal version and its sources", { exact: true })
+    .check();
+  await page.getByRole("button", { name: "Publish legal version", exact: true }).click();
+  await expect(page).toHaveURL(/saved=published/);
+  await page
+    .getByRole("button", { name: "Start a new legal draft", exact: true })
+    .click();
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("version 2");
+  await page
+    .getByLabel("Review notes", { exact: true })
+    .fill("Synthetic correction preserving published source and historical snapshots.");
+  await page
+    .getByLabel("Legal basis in letters", { exact: true })
+    .fill(
+      "Article 17 of Regulation (EU) 2016/679, subject to applicable conditions and exceptions"
+    );
+  await page
+    .getByRole("button", { name: "Save legal draft and preview", exact: true })
+    .click();
+  await page
+    .getByLabel("I reviewed this saved legal version and its sources", { exact: true })
+    .check();
+  await page.getByRole("button", { name: "Publish legal version", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Start a new legal draft", exact: true })
+    .click();
+  const future = new Date().getUTCFullYear() + 1 + "-01-01T00:00:00.000Z";
+  await page.getByLabel("Effective from (UTC)", { exact: true }).fill(future);
+  await page
+    .getByLabel("Review notes", { exact: true })
+    .fill(
+      "Synthetic future-effective revision; the current version must remain published."
+    );
+  await page
+    .getByRole("button", { name: "Save legal draft and preview", exact: true })
+    .click();
+  await page
+    .getByLabel("I reviewed this saved legal version and its sources", { exact: true })
+    .check();
+  await page.getByRole("button", { name: "Publish legal version", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("version 3");
+  await expect(
+    page.getByText(/Scheduled for .*not selected before that time/)
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Back to legal history", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Legal version history" })).toContainText(
+    "superseded"
+  );
+  await expect(page.getByRole("region", { name: "Legal version history" })).toContainText(
+    "scheduled"
+  );
+  await page.getByRole("button", { name: "Deactivate legal rule", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Rule deactivated");
+  const verify = new PrismaClient();
+  try {
+    const row = await verify.legalRule.findUniqueOrThrow({
+      where: { id: legalRuleId },
+      include: { versions: { orderBy: { version: "asc" } } },
+    });
+    expect(row.isActive).toBe(false);
+    expect(row.versions.map((version) => version.status)).toEqual([
+      "SUPERSEDED",
+      "PUBLISHED",
+      "PUBLISHED",
+    ]);
+    expect(row.versions[0]!.legalBasisText).toBe(
+      "Article 17 of Regulation (EU) 2016/679 where its scope and conditions apply"
+    );
+    expect(row.versions[2]!.effectiveFrom.toISOString()).toBe(future);
+  } finally {
+    await verify.$disconnect();
+  }
+  await page.goto("/admin/legal-rules");
+  await page.getByLabel("Search legal rules", { exact: true }).fill(key);
+  await page.getByRole("button", { name: "Apply filters", exact: true }).click();
+  await expect(page.getByRole("link", { name, exact: true })).toBeVisible();
+});

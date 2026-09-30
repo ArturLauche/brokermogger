@@ -61,6 +61,22 @@ async function publish(
   });
 }
 describe("operator template authoring", () => {
+  it("rejects a demoted maintainer before creating or editing catalogue content", async () => {
+    const actor = await operator();
+    const first = await createTemplate(actor, command);
+    await testPrisma.user.update({ where: { id: actor.userId }, data: { role: "USER" } });
+    await expect(
+      createTemplateRecord(actor, { ...command, key: "operator.demoted" })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      updateTemplateMetadata(actor, {
+        ...(await scope(first.templateId)),
+        name: "Unauthorized edit",
+        description: "",
+      })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(await testPrisma.requestTemplate.count()).toBe(1);
+  });
   it("enforces permissions, active operators and the template/version relationship", async () => {
     const actor = await operator();
     await expect(

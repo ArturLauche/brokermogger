@@ -497,3 +497,30 @@ verification, and production key/build checks against the compiled app.
   production browser journeys passed, including original receipt recording.
   Legal authoring, sourced coverage, remaining pagination, operational hardening,
   scale benchmarks and final PR/CI delivery remain in progress.
+
+### Legal-rule authoring and current operator authority
+
+- Added searchable, jurisdiction-filtered legal administration with stable
+  pagination, inactive draft creation, metadata editing, sourced timing and
+  applicability, saved synthetic previews, publication, scheduling and history.
+  Published content stays immutable; malformed legacy timing must be repaired
+  from a source rather than inferred from an old day count. Saved configuration
+  hashes and revision checks bind publication to the reviewed version.
+- Publication and supersession commit atomically. Future versions leave the
+  currently applicable version available until their effective time. A regression
+  reproduced publication reviving a withdrawn predecessor; publication from an
+  inactive rule now retires those older versions and waits for the successor's
+  effective time. Expiry does not revive superseded law.
+- Privileged writes recheck the stored role under the active-account lock.
+  Regressions first reproduced stale operator authority after demotion; broker,
+  template, legal, settings, job-control and emergency-access writes now use that
+  current authority. Trusted internal worker job controls keep their system path.
+- Typecheck, lint, formatting, all 393 unit/component tests and nine legal-rule
+  integration cases passed. Related operator/worker and immutable-seed checks
+  passed across targeted runs. A fresh production build and all ten Chromium
+  journeys passed; the legal journey passed again after the scheduling correction.
+  The interface review now covers 48 routes and 240 captures with no overflow,
+  heading, label, CSP or axe AA defects. All 101 keyboard/zoom-approximation checks
+  passed. See `docs/interface-verification.md` and `docs/operator-catalogue.md`.
+- Sourced country/state coverage, remaining pagination, operational hardening,
+  scale benchmarks, full delivery verification and the PR/CI remain in progress.

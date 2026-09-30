@@ -11,7 +11,10 @@ import { dateInTimeZone } from "@/lib/format/datetime";
 
 const sourceUrl = z
   .url()
-  .refine((value) => new URL(value).protocol === "https:", "Use an HTTPS source URL.");
+  .refine(
+    (value) => URL.canParse(value) && new URL(value).protocol === "https:",
+    "Use an HTTPS source URL."
+  );
 export const holidayCalendarSchema = z
   .object({
     validFrom: calendarDateSchema,

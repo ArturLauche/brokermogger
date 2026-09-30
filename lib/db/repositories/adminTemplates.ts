@@ -19,7 +19,7 @@ import {
 } from "@/lib/templates/authoring";
 import { parseWithSchema } from "@/lib/validation/form";
 import { entityIdSchema } from "@/lib/validation/ids";
-import { lockActiveAccount } from "./access";
+import { lockAuthorizedAccount } from "./access";
 import { sha256Hex } from "@/lib/security/crypto";
 import {
   assertCatalogueRevision,
@@ -177,7 +177,7 @@ export async function createTemplateRecord(actor: ActorContext, raw: unknown) {
   const prepared = prepareTemplateSource(command);
   return translateCatalogueConflict(() =>
     prisma.$transaction(async (tx) => {
-      await lockActiveAccount(tx, actor.userId);
+      await lockAuthorizedAccount(tx, actor, "admin:template:manage");
       const lock = `catalogue:template:${command.key}`;
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lock}, 0))`;
       if (
@@ -223,7 +223,7 @@ export async function updateTemplateMetadata(actor: ActorContext, raw: unknown) 
   requirePermission(actor, "admin:template:manage");
   const command = parseWithSchema(templateMetadataSchema, raw);
   return prisma.$transaction(async (tx) => {
-    await lockActiveAccount(tx, actor.userId);
+    await lockAuthorizedAccount(tx, actor, "admin:template:manage");
     const template = await lockTemplate(tx, command);
     await touchTemplate(tx, actor, template, {
       name: command.name,
@@ -237,7 +237,7 @@ export async function startTemplateDraft(actor: ActorContext, raw: unknown) {
   requirePermission(actor, "admin:template:manage");
   const command = parseWithSchema(templateVersionScopeSchema, raw);
   return prisma.$transaction(async (tx) => {
-    await lockActiveAccount(tx, actor.userId);
+    await lockAuthorizedAccount(tx, actor, "admin:template:manage");
     const template = await lockTemplate(tx, command);
     const source = await getVersion(tx, template.id, command.versionId);
     const latest = await tx.requestTemplateVersion.findFirst({
@@ -271,7 +271,7 @@ export async function saveTemplateDraft(actor: ActorContext, raw: unknown) {
   const command = parseWithSchema(saveTemplateDraftSchema, raw);
   const prepared = prepareTemplateSource(command);
   return prisma.$transaction(async (tx) => {
-    await lockActiveAccount(tx, actor.userId);
+    await lockAuthorizedAccount(tx, actor, "admin:template:manage");
     const template = await lockTemplate(tx, command);
     const version = await getVersion(tx, template.id, command.versionId);
     requireDraft(version.status);
@@ -309,7 +309,7 @@ export async function publishTemplateVersion(actor: ActorContext, raw: unknown) 
   requirePermission(actor, "admin:template:manage");
   const command = parseWithSchema(publishTemplateSchema, raw);
   return prisma.$transaction(async (tx) => {
-    await lockActiveAccount(tx, actor.userId);
+    await lockAuthorizedAccount(tx, actor, "admin:template:manage");
     await lockTemplateScope(tx, command.templateId);
     const template = await lockTemplate(tx, command);
     const version = await getVersion(tx, template.id, command.versionId);
@@ -375,7 +375,7 @@ export async function deactivateTemplate(actor: ActorContext, raw: unknown) {
   requirePermission(actor, "admin:template:manage");
   const command = parseWithSchema(templateScopeSchema, raw);
   return prisma.$transaction(async (tx) => {
-    await lockActiveAccount(tx, actor.userId);
+    await lockAuthorizedAccount(tx, actor, "admin:template:manage");
     await lockTemplateScope(tx, command.templateId);
     const template = await lockTemplate(tx, command);
     await touchTemplate(tx, actor, template, { isActive: false });

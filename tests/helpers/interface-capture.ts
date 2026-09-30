@@ -17,6 +17,10 @@ import { getOwnedRequest } from "../../lib/db/repositories/requests";
 import { approveRequest } from "../../lib/requests/approval";
 import { recordManualSubmission } from "../../lib/requests/manual";
 import { confirmResponse, recordResponse } from "../../lib/responses/service";
+import { createLegalRule } from "../../lib/admin/legalRules";
+import { createTemplate } from "../../lib/admin/templates";
+import { DEFAULT_TEMPLATE_SOURCE } from "../../lib/templates/authoring";
+import { syntheticLegalSource } from "./legalSource";
 
 /** Add synthetic records through the actual workflows, without resetting any schema. */
 async function createFixture(db: PrismaClient) {
@@ -179,6 +183,63 @@ async function main() {
       });
       draft = { id: result.requestIds[0]! };
     }
+    const actor = testActor(user.id, "INSTANCE_ADMIN");
+    const legalKey = "interface.legal-" + user.id;
+    let legal = await db.legalRule.findFirst({
+      where: { key: legalKey, jurisdictionId: request.jurisdictionId! },
+      include: { versions: { where: { status: "DRAFT" }, take: 1 } },
+    });
+    if (!legal?.versions[0]) {
+      const result = await createLegalRule(actor, {
+        ...syntheticLegalSource(),
+        key: legalKey,
+        jurisdictionId: request.jurisdictionId!,
+        lawName: "Synthetic interface configuration",
+        shortName: "Synthetic legal draft",
+        description: "Interface fixture only",
+        changeNotes: "",
+      });
+      legal = await db.legalRule.findUniqueOrThrow({
+        where: { id: result.legalRuleId },
+        include: { versions: { where: { status: "DRAFT" }, take: 1 } },
+      });
+    }
+    const publishedLegal = await db.legalRuleVersion.findFirst({
+      where: {
+        status: "PUBLISHED",
+        legalRule: {
+          key: "gdpr-access-rectification-erasure",
+          jurisdiction: { code: "DE" },
+        },
+      },
+      orderBy: { version: "desc" },
+      select: { id: true, legalRuleId: true },
+    });
+    const templateKey = "interface.template-" + user.id;
+    let template = await db.requestTemplate.findUnique({
+      where: { key: templateKey },
+      include: { versions: { where: { status: "DRAFT" }, take: 1 } },
+    });
+    if (!template?.versions[0]) {
+      const result = await createTemplate(actor, {
+        ...DEFAULT_TEMPLATE_SOURCE,
+        name: "Synthetic letter draft",
+        description: "Interface fixture only",
+        key: templateKey,
+        requestType: "DELETION",
+        channel: "EMAIL",
+        jurisdictionId: "",
+      });
+      template = await db.requestTemplate.findUniqueOrThrow({
+        where: { id: result.templateId },
+        include: { versions: { where: { status: "DRAFT" }, take: 1 } },
+      });
+    }
+    const publishedTemplate = await db.requestTemplateVersion.findFirst({
+      where: { status: "PUBLISHED", template: { key: "generic.deletion" } },
+      orderBy: { version: "desc" },
+      select: { id: true, templateId: true },
+    });
     const context = await browser.newContext({
       baseURL: env.APP_BASE_URL,
       viewport: { width: 1440, height: 1000 },
@@ -227,8 +288,29 @@ async function main() {
       `/admin/brokers/${request.brokerId}`,
       "/admin/brokers/new",
       "/admin/legal-rules",
+      "/admin/legal-rules/new",
+      "/admin/legal-rules/" + legal.id,
+      "/admin/legal-rules/" + legal.id + "/versions/" + legal.versions[0]!.id,
+      ...(publishedLegal
+        ? [
+            "/admin/legal-rules/" +
+              publishedLegal.legalRuleId +
+              "/versions/" +
+              publishedLegal.id,
+          ]
+        : []),
       "/admin/templates",
       "/admin/templates/new",
+      "/admin/templates/" + template.id,
+      "/admin/templates/" + template.id + "/versions/" + template.versions[0]!.id,
+      ...(publishedTemplate
+        ? [
+            "/admin/templates/" +
+              publishedTemplate.templateId +
+              "/versions/" +
+              publishedTemplate.id,
+          ]
+        : []),
       "/admin/settings",
       "/admin/jobs",
       "/admin/audit",
@@ -289,7 +371,7 @@ async function main() {
             ).__bmUiViolations ?? [],
         }));
         const accessibility =
-          label === "after" && width === 375
+          label !== "before" && width === 375
             ? (
                 await new AxeBuilder({ page })
                   .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])

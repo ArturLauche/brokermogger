@@ -68,6 +68,16 @@ zero vulnerabilities after updating only the affected development dependencies.
 The eventual delivery run repeats the full integration suite and remaining
 production checks after legal coverage and operational work is complete.
 
+The legal-rule editor expands coverage to 48 routes, including new-rule entry,
+metadata, draft repair, saved previews, published history and template-version
+screens. A fresh production capture produced 240 images at the same five widths:
+zero page overflow, heading defects, unnamed controls, CSP errors and axe AA
+violations. All 101 keyboard and zoom-approximation checks passed. The ten
+production browser journeys pass; the legal journey was repeated after the
+withdrawn-rule scheduling correction. Synthetic operator comparisons are
+[legal administration](verification/interface/legal-rules-desktop.png) and
+[draft editing at 375px](verification/interface/legal-draft-mobile.png).
+
 ## Measured JavaScript transfer
 
 Three fresh Chromium contexts per build measured compressed Next JavaScript
