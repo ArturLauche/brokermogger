@@ -1129,6 +1129,7 @@ model RemovalRequest {
   manualSubmissions ManualSubmission[]
 
   @@index([userId, status])
+  @@index([userId, createdAt, id])
   @@index([profileId, status])
   @@index([brokerId, status])
   @@index([status, deadlineAt])

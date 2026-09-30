@@ -23,7 +23,12 @@ export function createdBeforeCursor(value: string | undefined) {
     );
   }
   const createdAt = new Date(cursor.createdAt);
-  return { OR: [{ createdAt: { lt: createdAt } }, { createdAt, id: { lt: cursor.id } }] };
+  // The redundant upper bound lets PostgreSQL seek into an ordered index rather
+  // than scanning every newer row before evaluating the equal-timestamp tie.
+  return {
+    createdAt: { lte: createdAt },
+    OR: [{ createdAt: { lt: createdAt } }, { createdAt, id: { lt: cursor.id } }],
+  };
 }
 
 export function cursorPage<T extends { id: string; createdAt: Date }>(

@@ -381,7 +381,7 @@ describe("complete account exports with separate sensitive confirmation", () => 
   it("exports paged record categories completely without leaking another account's rows", async () => {
     const f = await fixture();
     await testPrisma.notification.createMany({
-      data: Array.from({ length: 205 }, (_, index) => ({
+      data: Array.from({ length: 505 }, (_, index) => ({
         userId: f.user.id,
         type: "ACCOUNT_SECURITY_EVENT",
         title: `Private notification ${index}`,
@@ -400,10 +400,20 @@ describe("complete account exports with separate sensitive confirmation", () => 
     });
     const body = (await exportMaskedAccount(f.actor)).toString();
     const parsed = JSON.parse(body);
-    expect(parsed.notifications).toHaveLength(205);
+    expect(parsed.notifications).toHaveLength(505);
     expect(new Set(parsed.notifications.map((row: { id: string }) => row.id)).size).toBe(
-      205
+      505
     );
     expect(body).not.toContain("FOREIGN_NOTIFICATION");
+    expect(body).not.toContain("Private notification");
+    const sensitive = await ready(f);
+    const fullBody = (await downloadAccountExport(f.actor, sensitive.id)).body.toString();
+    const full = JSON.parse(fullBody);
+    expect(full.notifications).toHaveLength(505);
+    expect(new Set(full.notifications.map((row: { id: string }) => row.id))).toEqual(
+      new Set(parsed.notifications.map((row: { id: string }) => row.id))
+    );
+    expect(fullBody).toContain("Private notification 504");
+    expect(fullBody).not.toContain("FOREIGN_NOTIFICATION");
   });
 });
