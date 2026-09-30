@@ -71,6 +71,7 @@ export const AUDIT_ACTIONS = [
 
   // Admin and maintainer
   "admin.console_accessed",
+  "admin.audit_verification_requested",
   "admin.break_glass_granted",
   "admin.break_glass_revoked",
   "admin.user_data_viewed",

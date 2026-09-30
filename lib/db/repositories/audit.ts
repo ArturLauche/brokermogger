@@ -63,7 +63,7 @@ export interface AuditChainRow {
   createdAt: Date;
 }
 
-const CHAIN_SELECT = {
+export const CHAIN_SELECT = {
   id: true,
   sequence: true,
   actorUserId: true,

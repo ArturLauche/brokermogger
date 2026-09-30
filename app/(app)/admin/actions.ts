@@ -7,6 +7,7 @@ import {
   grantBreakGlass,
   retryAdminJob,
   revokeBreakGlass,
+  requestAdminAuditVerification,
 } from "@/lib/admin/service";
 import { requireRole } from "@/lib/auth";
 import { formString, parseWithSchema } from "@/lib/validation/form";
@@ -24,6 +25,22 @@ export async function retryJobAction(formData: FormData): Promise<void> {
     redirect("/admin/jobs?error=retry");
   }
   redirect("/admin/jobs");
+}
+
+export async function requestAuditCheckAction(formData: FormData): Promise<void> {
+  const actor = await requireRole("INSTANCE_ADMIN");
+  try {
+    const input = parseWithSchema(
+      z.object({}).strict(),
+      Object.fromEntries(
+        [...formData.entries()].filter(([key]) => !key.startsWith("$ACTION_"))
+      )
+    );
+    await requestAdminAuditVerification(actor, input);
+  } catch {
+    redirect("/admin/audit?error=verification");
+  }
+  redirect("/admin/audit?check=requested");
 }
 
 export async function cancelJobAction(formData: FormData): Promise<void> {

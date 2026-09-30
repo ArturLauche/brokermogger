@@ -20,7 +20,9 @@
  */
 import type { ActorType, AuditOutcome, UserRole } from "@prisma/client";
 
-import { canonicalJson, chainHash } from "@/lib/security/crypto";
+import { chainHash } from "@/lib/security/crypto";
+import { auditCanonicalPayload } from "./hash";
+export { auditCanonicalPayload } from "./hash";
 import {
   appendAuditLog,
   findAuditLogByHash,
@@ -295,33 +297,6 @@ function normaliseActor(actor: AuditActor): NormalisedActor {
     userAgentHash: actor.userAgentHash,
     fallbackTargetUserId: null,
   };
-}
-
-/**
- * Canonical hash input. Deliberately excludes `id`, `sequence` and request
- * context so that the chain covers the meaning of an event, not its storage
- * details.
- */
-export function auditCanonicalPayload(fields: {
-  action: string;
-  resourceType: string;
-  resourceId: string | null;
-  actorUserId: string | null;
-  targetUserId: string | null;
-  outcome: AuditOutcome;
-  createdAt: Date;
-  metadata: unknown;
-}): string {
-  return canonicalJson({
-    action: fields.action,
-    resourceType: fields.resourceType,
-    resourceId: fields.resourceId,
-    actorUserId: fields.actorUserId,
-    targetUserId: fields.targetUserId,
-    outcome: fields.outcome,
-    createdAt: fields.createdAt,
-    metadata: fields.metadata,
-  });
 }
 
 // ---------------------------------------------------------------------------

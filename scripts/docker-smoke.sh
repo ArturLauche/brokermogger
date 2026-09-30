@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 cd "$(dirname "$0")/.."
 mkdir -p .tmp
@@ -30,6 +31,7 @@ trap cleanup_smoke EXIT
 "${smoke_compose[@]}" up -d --wait app worker
 "${smoke_compose[@]}" exec -T worker node --import tsx scripts/docker-smoke.ts prepare
 "${smoke_compose[@]}" exec -T worker node --import tsx scripts/docker-smoke.ts wait
+verify_app_downloads() {
 "${smoke_compose[@]}" exec -T app node --input-type=module <<'JS'
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -70,4 +72,24 @@ for (const [path, kind] of [
 }
 process.stdout.write('Docker authenticated downloads and app runtime checks passed.\n');
 JS
+}
+verify_app_downloads
 "${smoke_compose[@]}" exec -T worker node --import tsx scripts/docker-smoke.ts verify
+
+# Stop both writers and restore to a second disposable database with the same keys.
+"${smoke_compose[@]}" stop app worker
+"${smoke_compose[@]}" run --rm -T --no-deps worker node --import tsx scripts/docker-smoke.ts prepare-recovery
+"${smoke_compose[@]}" exec -T postgres pg_dump -U brokermogger -d brokermogger_smoke_test --format=custom --no-owner --no-privileges > "$smoke_directory/database.dump"
+"${smoke_compose[@]}" run --rm -T --no-deps worker tar -C /data/objects -cf - . > "$smoke_directory/objects.tar"
+"${smoke_compose[@]}" exec -T postgres createdb -U brokermogger brokermogger_smoke_restore_test
+"${smoke_compose[@]}" exec -T postgres pg_restore -U brokermogger -d brokermogger_smoke_restore_test --exit-on-error --no-owner --no-privileges < "$smoke_directory/database.dump"
+# These are this script's private synthetic volumes, never operator storage.
+"${smoke_compose[@]}" run --rm -T --no-deps worker find /data/objects -type f -delete
+"${smoke_compose[@]}" run --rm -T --no-deps worker tar -C /data/objects -xf - < "$smoke_directory/objects.tar"
+printf 'SMOKE_DATABASE=brokermogger_smoke_restore_test\n' >> "$smoke_environment"
+"${smoke_compose[@]}" run --rm -T --no-deps migrate
+"${smoke_compose[@]}" up -d --no-deps --force-recreate --wait app worker
+verify_app_downloads
+"${smoke_compose[@]}" exec -T worker node --import tsx scripts/docker-smoke.ts wait-recovery
+"${smoke_compose[@]}" exec -T worker node --import tsx scripts/docker-smoke.ts verify
+printf 'Docker database/object restore and repeated migration rehearsal passed.\n'

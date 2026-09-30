@@ -127,8 +127,16 @@ export async function deleteAuditLogsOlderThan(
   take: number
 ): Promise<number> {
   return withAppendOnlyDeletes(async (tx) => {
+    const firstRetained = await tx.auditLog.findFirst({
+      where: { createdAt: { gte: cutoff } },
+      orderBy: { sequence: "asc" },
+      select: { sequence: true },
+    });
     const rows = await tx.auditLog.findMany({
-      where: { createdAt: { lt: cutoff } },
+      where: {
+        createdAt: { lt: cutoff },
+        ...(firstRetained ? { sequence: { lt: firstRetained.sequence } } : {}),
+      },
       select: { id: true },
       orderBy: { sequence: "asc" },
       take,
@@ -142,7 +150,33 @@ export async function deleteAuditLogsOlderThan(
 }
 
 export async function countAuditLogsOlderThan(cutoff: Date): Promise<number> {
-  return prisma.auditLog.count({ where: { createdAt: { lt: cutoff } } });
+  const firstRetained = await prisma.auditLog.findFirst({
+    where: { createdAt: { gte: cutoff } },
+    orderBy: { sequence: "asc" },
+    select: { sequence: true },
+  });
+  return prisma.auditLog.count({
+    where: {
+      createdAt: { lt: cutoff },
+      ...(firstRetained ? { sequence: { lt: firstRetained.sequence } } : {}),
+    },
+  });
+}
+
+export async function countAuditVerificationsOlderThan(cutoff: Date) {
+  return prisma.auditChainVerification.count({ where: { completedAt: { lt: cutoff } } });
+}
+export async function deleteAuditVerificationsOlderThan(cutoff: Date, take: number) {
+  const rows = await prisma.auditChainVerification.findMany({
+    where: { completedAt: { lt: cutoff } },
+    select: { id: true },
+    take,
+  });
+  return (
+    await prisma.auditChainVerification.deleteMany({
+      where: { id: { in: rows.map((row) => row.id) } },
+    })
+  ).count;
 }
 
 export async function deleteConsentRecordsOlderThan(

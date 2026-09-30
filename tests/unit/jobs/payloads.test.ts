@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { parseJobPayload } from "@/lib/jobs/payloads";
+import { parseJobPayload, isKnownJobType } from "@/lib/jobs/payloads";
 import { ValidationError } from "@/lib/core/errors";
 
 describe("job payload schemas", () => {
+  it.each(["__proto__", "constructor", "toString"])(
+    "rejects inherited property %s as a job type",
+    (value) => {
+      expect(isKnownJobType(value)).toBe(false);
+    }
+  );
   it("accepts a well formed SEND_REQUEST payload", () => {
     expect(
       parseJobPayload("SEND_REQUEST", {

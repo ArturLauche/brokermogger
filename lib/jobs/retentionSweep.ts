@@ -21,6 +21,8 @@ import {
 } from "@/lib/db/repositories/requests";
 import {
   countAuditLogsOlderThan,
+  countAuditVerificationsOlderThan,
+  deleteAuditVerificationsOlderThan,
   countExpiredUnmatchedDelivery,
   expireUnmatchedDelivery,
   countConsentRecordsOlderThan,
@@ -89,6 +91,7 @@ export async function runRetentionSweep(input: { dryRun: boolean }): Promise<Job
     webhookEvents: 0,
     expiredUnmatchedDelivery: 0,
     auditLogs: 0,
+    auditVerifications: 0,
     consentRecords: 0,
     rateLimitBuckets: 0,
   };
@@ -106,6 +109,7 @@ export async function runRetentionSweep(input: { dryRun: boolean }): Promise<Job
       outboundEmail,
       webhookEvents,
       auditLogs,
+      auditVerifications,
       consentRecords,
       rateLimitBuckets,
     ] = await Promise.all([
@@ -117,6 +121,7 @@ export async function runRetentionSweep(input: { dryRun: boolean }): Promise<Job
       countOutboundEmailsOlderThan(emailCutoff),
       countProcessedWebhookEventsOlderThan(emailCutoff),
       countAuditLogsOlderThan(auditCutoff),
+      countAuditVerificationsOlderThan(auditCutoff),
       countConsentRecordsOlderThan(consentCutoff),
       countExpiredRateLimitBuckets(now),
     ]);
@@ -129,6 +134,7 @@ export async function runRetentionSweep(input: { dryRun: boolean }): Promise<Job
       outboundEmail,
       webhookEvents,
       auditLogs,
+      auditVerifications,
       consentRecords,
       rateLimitBuckets,
     });
@@ -168,6 +174,9 @@ export async function runRetentionSweep(input: { dryRun: boolean }): Promise<Job
   );
   counts.auditLogs = await drainCount((take) =>
     deleteAuditLogsOlderThan(auditCutoff, take)
+  );
+  counts.auditVerifications = await drainCount((take) =>
+    deleteAuditVerificationsOlderThan(auditCutoff, take)
   );
   counts.consentRecords = await drainCount((take) =>
     deleteConsentRecordsOlderThan(consentCutoff, take)

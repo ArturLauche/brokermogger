@@ -80,6 +80,15 @@ withdrawn-rule scheduling correction. Synthetic operator comparisons are
 
 ## Measured JavaScript transfer
 
+The operational pass also produced 240 production captures across all 48 routes:
+no page overflow, heading/label defects, unexpected console or CSP errors, or axe AA violations. All
+101 keyboard and zoom-approximation checks pass. The new production journey
+starts an actual worker, queues verification through the UI, reads the completed
+check and checks process health at 320px. The [jobs](verification/interface/admin-jobs-1440.png)
+and [audit](verification/interface/admin-audit-1440.png) captures now show those
+completed controls. Capture manifests record the image path for each route and
+width to keep comparison labels tied to their actual screens.
+
 The pagination pass was checked with a fresh Next.js 16.3.8 production build:
 12 browser journeys pass, including access to older requests, expired evidence
 and broker selections preserved across search and pages. A new capture covers

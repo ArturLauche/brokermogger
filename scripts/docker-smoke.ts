@@ -15,8 +15,11 @@ import { storePrivateFile } from "@/lib/storage/privateFiles";
 import { getStorage } from "@/lib/storage";
 import { requestReport } from "@/lib/reports/service";
 import { requestAccountExport } from "@/lib/exports/service";
+import { requestAccountDeletion } from "@/lib/account/service";
 
-const command = z.enum(["prepare", "wait", "verify"]).parse(process.argv[2]);
+const command = z
+  .enum(["prepare", "wait", "verify", "prepare-recovery", "wait-recovery"])
+  .parse(process.argv[2]);
 const infoSchema = z.object({
   evidenceId: z.string(),
   reportId: z.string(),
@@ -24,10 +27,14 @@ const infoSchema = z.object({
   sensitiveExportId: z.string(),
   userId: z.string(),
   sessionToken: z.string(),
+  recoveryUserId: z.string().optional(),
+  recoveryFileKey: z.string().optional(),
 });
 const infoPath = join(env.STORAGE_LOCAL_DIR, ".docker-smoke-info");
 if (
-  new URL(env.DATABASE_URL).pathname !== "/brokermogger_smoke_test" ||
+  !["/brokermogger_smoke_test", "/brokermogger_smoke_restore_test"].includes(
+    new URL(env.DATABASE_URL).pathname
+  ) ||
   env.APP_ENV !== "staging" ||
   env.EMAIL_PROVIDER !== "mock" ||
   env.ALLOW_EXTERNAL_SENDING ||
@@ -40,6 +47,8 @@ if (
 
 async function main() {
   if (command === "prepare") {
+    if (new URL(env.DATABASE_URL).pathname !== "/brokermogger_smoke_test")
+      throw new Error("Only the initial smoke database accepts fixture creation.");
     const id = randomUUID();
     await prisma.user.create({
       data: { id, ...encryptedAccountEmail(id, "smoke@example.org"), timezone: "UTC" },
@@ -115,6 +124,79 @@ async function main() {
     return;
   }
   const info = infoSchema.parse(JSON.parse(await readFile(infoPath, "utf8")));
+  if (command === "prepare-recovery") {
+    const id = randomUUID(),
+      profileId = randomUUID();
+    await prisma.user.create({
+      data: { id, ...encryptedAccountEmail(id, "erase-smoke@example.org") },
+    });
+    await prisma.userProfile.create({
+      data: {
+        id: profileId,
+        ownerUserId: id,
+        kind: "SELF",
+        consentStatus: "SELF",
+        ...encryptedProfileFields(profileId, {
+          displayName: "Synthetic recovery profile",
+          legalName: "Alex Recovery",
+          contactEmail: "erase-smoke@example.org",
+          countryCode: "DE",
+          region: null,
+          residencyConfirmed: true,
+        }),
+      },
+    });
+    const actor = {
+      ...systemActor("docker-recovery"),
+      isSystem: false,
+      role: "USER" as const,
+      userId: id,
+    };
+    const file = await storePrivateFile(actor, {
+      userId: id,
+      profileId,
+      requestId: null,
+      kind: "OTHER",
+      filename: "recovery.pdf",
+      contentType: "application/pdf",
+      body: Buffer.from("%PDF-1.7\nSynthetic recovery\n%%EOF"),
+      expiresAt: null,
+    });
+    await requestAccountDeletion(actor);
+    await writeFile(
+      infoPath,
+      JSON.stringify({ ...info, recoveryUserId: id, recoveryFileKey: file.storageKey }),
+      { mode: 0o600 }
+    );
+    process.stdout.write("Synthetic pending erasure included in recovery checkpoint.\n");
+    return;
+  }
+  if (command === "wait-recovery") {
+    if (!info.recoveryUserId || !info.recoveryFileKey)
+      throw new Error("The erasure recovery checkpoint is missing.");
+    const until = Date.now() + 120_000;
+    while (Date.now() < until) {
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { id: info.recoveryUserId },
+      });
+      if (user.anonymizedAt) {
+        if (
+          user.status !== "DELETED" ||
+          user.emailEnc ||
+          user.emailBi ||
+          (await prisma.evidenceFile.count({ where: { userId: user.id } })) ||
+          (await getStorage("local").exists(info.recoveryFileKey))
+        )
+          throw new Error("Restored erasure left recoverable private content.");
+        process.stdout.write(
+          "Restored pending deletion resumed and erased its private object.\n"
+        );
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    throw new Error("Restored erasure did not complete.");
+  }
   if (command === "wait") {
     const until = Date.now() + 120_000;
     while (Date.now() < until) {

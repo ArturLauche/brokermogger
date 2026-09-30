@@ -275,6 +275,10 @@ export async function finishAccountErasure(
         "Stored files still await deletion. Cleanup will resume."
       );
     }
+    // File tombstones are useful during recovery, but are not retained consent or audit proof.
+    // Remove their keys, checksums, sizes and relationship metadata only after every purge succeeds.
+    await tx.evidenceFile.deleteMany({ where: { userId, storageState: "PURGED" } });
+    await tx.userQuota.deleteMany({ where: { userId } });
     await tx.user.updateMany({
       where: {
         id: userId,

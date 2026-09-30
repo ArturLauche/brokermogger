@@ -27,6 +27,7 @@ RUN PRISMA_SKIP_POSTINSTALL_GENERATE=true npm ci --omit=dev
 
 FROM base AS worker
 ENV NODE_ENV=production
+ENV WORKER_HEALTH_FILE=/tmp/brokermogger-worker-id
 ENV STORAGE_LOCAL_DIR=/data/objects
 ENV MOCK_EMAIL_DIR=/data/mail
 COPY --from=worker-deps /app/node_modules ./node_modules
@@ -37,6 +38,7 @@ COPY workers ./workers
 COPY prisma ./prisma
 COPY scripts ./scripts
 USER nextjs
+HEALTHCHECK --interval=15s --timeout=10s --start-period=30s --retries=3 CMD ["node", "--import", "tsx", "workers/health.ts"]
 CMD ["node", "--import", "tsx", "workers/worker.ts"]
 
 FROM base AS migrate

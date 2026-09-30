@@ -128,6 +128,12 @@ describe("account erasure", () => {
     expect(user.status).toBe("DELETED");
     expect(user.emailEnc).toBeNull();
     expect(user.emailBi).toBeNull();
+    expect(
+      await testPrisma.evidenceFile.count({ where: { userId: fixture.user.id } })
+    ).toBe(0);
+    expect(await testPrisma.userQuota.count({ where: { userId: fixture.user.id } })).toBe(
+      0
+    );
     const profile = await testPrisma.userProfile.findUniqueOrThrow({
       where: { id: fixture.profile.id },
     });

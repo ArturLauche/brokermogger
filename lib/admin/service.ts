@@ -2,7 +2,12 @@
  * Admin console helpers.
  */
 
-import { recordAudit, verifyAuditChain } from "@/lib/audit/service";
+import { recordAudit } from "@/lib/audit/service";
+import {
+  getAuditVerificationStatus,
+  requestAuditVerification,
+} from "@/lib/db/repositories/auditVerification";
+import { readOperationalMetrics } from "@/lib/db/repositories/metrics";
 import {
   countAdminOverview,
   createBreakGlassGrant,
@@ -58,9 +63,28 @@ export async function getAdminAudit(actor: ActorContext, raw: unknown = {}) {
   return listAdminAudit(actor, raw);
 }
 
-export async function verifyAdminAuditChain(actor: ActorContext) {
+export async function getAdminAuditVerification(actor: ActorContext) {
   requirePermission(actor, "admin:audit:read");
-  return verifyAuditChain();
+  return getAuditVerificationStatus(actor);
+}
+
+export async function requestAdminAuditVerification(
+  actor: ActorContext,
+  raw: unknown = {}
+) {
+  const job = await requestAuditVerification(actor, raw);
+  await recordAudit({
+    actor,
+    action: "admin.audit_verification_requested",
+    resourceType: "background_job",
+    resourceId: job.id,
+  });
+  return job;
+}
+
+export async function getAdminOperationalMetrics(actor: ActorContext) {
+  requirePermission(actor, "admin:job:read");
+  return readOperationalMetrics();
 }
 
 export async function grantBreakGlass(

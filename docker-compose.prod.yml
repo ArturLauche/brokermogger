@@ -84,6 +84,7 @@ services:
         required: false
     environment:
       NODE_ENV: production
+      WORKER_HEALTH_FILE: /tmp/brokermogger-worker-id
       APP_ENV: production
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL using postgres as the host and URL-encoded credentials}
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-resend}

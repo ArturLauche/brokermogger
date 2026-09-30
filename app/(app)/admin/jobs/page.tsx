@@ -8,7 +8,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getAdminJobs } from "@/lib/admin/service";
+import { getAdminJobs, getAdminOperationalMetrics } from "@/lib/admin/service";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { requireRole } from "@/lib/auth";
 import { getDateFormatter } from "@/app/_lib/datetime";
 import { JobStatus, JobType } from "@prisma/client";
@@ -28,12 +29,16 @@ export default async function AdminJobsPage({
     status?: string;
     type?: string;
     cursor?: string;
+    error?: string;
   }>;
 }) {
   const actor = await requireRole("INSTANCE_ADMIN");
   const { formatStamp } = await getDateFormatter();
   const params = await searchParams;
-  const page = await getAdminJobs(actor, params);
+  const [page, metrics] = await Promise.all([
+    getAdminJobs(actor, params),
+    getAdminOperationalMetrics(actor),
+  ]);
 
   return (
     <>
@@ -41,6 +46,63 @@ export default async function AdminJobsPage({
         title="Jobs"
         description="Background work, retry status and recoverable failures."
       />
+      {params.error ? (
+        <Alert variant="destructive">
+          <AlertTitle>The job could not be changed</AlertTitle>
+          <AlertDescription>
+            Reload its current status. Retry is available only for failed or retryable
+            work; completed and cancelled jobs cannot be revived.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      <section className="space-y-4 border-b pb-6" aria-labelledby="queue-health-heading">
+        <h2 id="queue-health-heading" className="text-lg font-semibold">
+          Queue health
+        </h2>
+        <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <dt className="text-sm text-muted-foreground">Worker heartbeats</dt>
+            <dd className="mt-1 text-lg font-semibold">{metrics.workersActive} recent</dd>
+            <dd className="text-sm text-muted-foreground">
+              {metrics.workerLastSeenAt
+                ? `Last seen ${formatStamp(metrics.workerLastSeenAt)}`
+                : "No process has reported yet"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-sm text-muted-foreground">Work due now</dt>
+            <dd className="mt-1 text-lg font-semibold">{metrics.jobsDue} jobs</dd>
+            <dd className="text-sm text-muted-foreground">
+              Oldest waiting: {metrics.oldestDueAgeSeconds}s · {metrics.expiredJobLeases}{" "}
+              expired leases
+            </dd>
+          </div>
+          <div>
+            <dt className="text-sm text-muted-foreground">Uncertain delivery</dt>
+            <dd className="mt-1 text-lg font-semibold">
+              {metrics.ambiguousDeliveries} broker messages
+            </dd>
+            <dd className="text-sm text-muted-foreground">
+              {metrics.ambiguousNotifications} notification emails · reconcile before
+              retrying
+            </dd>
+          </div>
+          <div>
+            <dt className="text-sm text-muted-foreground">Deletion cleanup</dt>
+            <dd className="mt-1 text-lg font-semibold">
+              {metrics.deletionBacklog} accounts pending
+            </dd>
+            <dd className="text-sm text-muted-foreground">
+              Oldest: {metrics.oldestDeletionAgeSeconds}s · {metrics.filesPendingPurge}{" "}
+              file purges pending
+            </dd>
+          </div>
+        </dl>
+        <p className="text-sm text-muted-foreground">
+          A recent heartbeat is at most 60 seconds old. External cron runs are monitored
+          by their scheduler; they do not register a persistent worker process.
+        </p>
+      </section>
       <ListFilters
         path="/admin/jobs"
         prefix="job"

@@ -54,6 +54,7 @@ const JOB_PAYLOAD_SCHEMAS = {
   RETENTION_SWEEP: z.object({
     dryRun: z.boolean(),
   }),
+  VERIFY_AUDIT_CHAIN: z.object({}).strict(),
 } as const satisfies { [K in JobType]: z.ZodType<JobPayloadMap[K]> };
 
 export function parseJobPayload<T extends JobType>(type: T, raw: unknown): JobPayload<T> {
@@ -69,5 +70,5 @@ export function parseJobPayload<T extends JobType>(type: T, raw: unknown): JobPa
 }
 
 export function isKnownJobType(value: string): value is JobType {
-  return value in JOB_PAYLOAD_SCHEMAS;
+  return Object.hasOwn(JOB_PAYLOAD_SCHEMAS, value);
 }

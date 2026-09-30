@@ -245,6 +245,17 @@ async function main() {
       viewport: { width: 1440, height: 1000 },
     });
     const page = await context.newPage();
+    const browserProblems: string[] = [];
+    page.on("pageerror", (error) => browserProblems.push(error.message));
+    page.on("console", (message) => {
+      if (!["error", "warning"].includes(message.type())) return;
+      if (
+        /Failed to load resource:.*404/.test(message.text()) &&
+        new URL(page.url()).pathname === "/this-page-does-not-exist"
+      )
+        return;
+      browserProblems.push(message.text());
+    });
     await page.addInitScript(() => {
       const violations: { directive: string; resource: string }[] = [];
       Object.assign(window, { __bmUiViolations: violations });
@@ -334,6 +345,7 @@ async function main() {
     for (const route of routes) {
       routeIndex += 1;
       for (const width of [320, 375, 768, 1024, 1440]) {
+        browserProblems.length = 0;
         await page.setViewportSize({ width, height: 1000 });
         const response = await page.goto(route, { waitUntil: "domcontentloaded" });
         await page.getByRole("main").waitFor();
@@ -344,8 +356,9 @@ async function main() {
               node.textContent?.startsWith("Loading")
             )
         );
+        const imagePath = `${directory}/${routeIndex}-${width}.png`;
         await page.screenshot({
-          path: `${directory}/${routeIndex}-${width}.png`,
+          path: imagePath,
           fullPage: true,
         });
         const findings = await page.evaluate(() => ({
@@ -387,6 +400,8 @@ async function main() {
             : [];
         result.push({
           route,
+          imagePath,
+          browserProblems: [...browserProblems],
           viewport: width,
           status: response?.status(),
           ...findings,

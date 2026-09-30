@@ -1,5 +1,8 @@
 # Upgrade private storage
 
+See [backup and recovery](backup-and-recovery.md) for consistent backup,
+isolated restore, deletion reconciliation and rollback procedures.
+
 This upgrade encrypts login email, magic-link lookup identities, request text,
 provider webhook payloads, evidence and generated files. Existing snapshot IDs
 and content hashes remain stable. The migration clears legacy plaintext columns

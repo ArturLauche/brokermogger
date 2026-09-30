@@ -15,6 +15,7 @@ export const RECURRING_INTERVAL_SECONDS = {
   RETENTION_SWEEP: DAY,
   PURGE_EVIDENCE: 6 * HOUR,
   PURGE_TEMP_ID_FILES: HOUR,
+  VERIFY_AUDIT_CHAIN: DAY,
 } as const;
 
 export async function ensureRecurringJobs(): Promise<void> {
@@ -43,6 +44,12 @@ export async function ensureRecurringJobs(): Promise<void> {
       idempotencyKey: "recurring:PURGE_TEMP_ID_FILES",
       priority: 60,
     }),
+    ensureRecurringJob({
+      type: "VERIFY_AUDIT_CHAIN",
+      payload: {},
+      idempotencyKey: "recurring:VERIFY_AUDIT_CHAIN",
+      priority: 90,
+    }),
   ]);
 
   log.info(
@@ -51,6 +58,7 @@ export async function ensureRecurringJobs(): Promise<void> {
       retentionSweep: results[1]?.id,
       purgeEvidence: results[2]?.id,
       purgeTempId: results[3]?.id,
+      auditVerification: results[4]?.id,
     },
     "Recurring jobs ensured"
   );

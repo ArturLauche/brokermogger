@@ -75,6 +75,7 @@ const rawSchema = z.object({
   JOB_BATCH_SIZE: z.coerce.number().int().min(1).max(100).default(5),
   JOB_LOCK_SECONDS: z.coerce.number().int().min(10).max(3600).default(300),
   JOB_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(5),
+  WORKER_HEALTH_FILE: z.string().optional(),
   CRON_SECRET: z.string().optional(),
 
   METRICS_TOKEN: z.string().optional(),

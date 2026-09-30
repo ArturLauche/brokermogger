@@ -29,6 +29,9 @@ docker compose -f docker-compose.prod.yml logs --tail=100 migrate app worker
 
 The migration container must exit successfully before app or worker starts.
 The app readiness probe checks database connectivity at `/api/health/ready`.
+The worker probe checks its own database heartbeat; its image configures
+`WORKER_HEALTH_FILE=/tmp/brokermogger-worker-id`. See
+[queue and audit monitoring](observability.md) for freshness and recovery semantics.
 Keep both runtimes on the same commit and restart them together after upgrades.
 The migration image is intentionally not an application server or worker.
 
@@ -39,6 +42,8 @@ Back up this volume together with the database and retain the matching encryptio
 keyring separately. Mock delivery uses a separate `/data/mail` volume. Configure
 S3 explicitly when using remote storage; preserve access to backends recorded on
 existing objects until their migration and deletion work is complete.
+Follow the [backup and restore procedure](backup-and-recovery.md) and rehearse it
+on disposable infrastructure before relying on a backup.
 
 ## Disposable smoke test
 

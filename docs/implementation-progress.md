@@ -688,3 +688,28 @@ verification, and production key/build checks against the compiled app.
   production script protection checks, with no development tools in the app.
   CI now runs this smoke test and dependency auditing. See
   `docs/production-deployment.md` for configuration and storage requirements.
+
+### Worker monitoring and background audit checks
+
+- Added a process-specific database heartbeat, including idle work, graceful stop
+  and Docker health probes. Operator pages and metrics expose due queue age,
+  expired leases, uncertain delivery, pending account erasure and file purges
+  without private job payloads. Future scheduled work does not inflate queue age.
+- Audit verification runs daily or on request, in bounded pages over a stable
+  read-only database snapshot. The page shows the last complete result and queue
+  state. Publication is lease fenced, current operator authority is rechecked,
+  and duplicate clicks reuse the same active job.
+- A regression reproduced retention deleting a middle audit row when timestamps
+  are out of order. Cleanup now removes only a contiguous prefix and displays
+  its retained anchor. Hash formats and existing historical rows are unchanged.
+- Typecheck, lint and all 446 unit/component tests pass. Thirty integration
+  checks pass across monitoring, multi-page verification, tampering, concurrent
+  appends, retained anchors, stale leases and list access. Twenty-nine additional
+  targeted checks pass after the restore rehearsal exposed unnecessary account
+  file tombstones; final cleanup removes their keys/checksums and fair-use counters.
+- All 13 production browser journeys pass. All 240 captures and
+  101 keyboard/zoom-approximation checks pass. The Docker rehearsal restores an
+  actual database/object backup to a second disposable database, reapplies
+  migrations, verifies downloads and resumes pending deletion. See
+  `docs/backup-and-recovery.md`. Remaining detail histories, recovery paths,
+  scale benchmarks, final complete verification and PR/CI remain in progress.

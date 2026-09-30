@@ -25,6 +25,7 @@ export interface JobPayloadMap {
   DEADLINE_WATCH: { windowDays: number };
   RECHECK_REMINDER: { removalRequestId: string };
   RETENTION_SWEEP: { dryRun: boolean };
+  VERIFY_AUDIT_CHAIN: Record<string, never>;
 }
 
 export type JobPayload<T extends JobType> = JobPayloadMap[T];

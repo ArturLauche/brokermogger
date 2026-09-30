@@ -180,12 +180,14 @@ export async function runClaimedJob(
 
 export async function processOnce(
   workerId: string,
-  handlers: JobHandlerRegistry
+  handlers: JobHandlerRegistry,
+  shouldStop: () => boolean = () => false
 ): Promise<number> {
   await expireStaleLocks();
   // Claim only when ready to execute. Jobs waiting in a local batch cannot lose their lease.
   let processed = 0;
   for (; processed < env.JOB_BATCH_SIZE; processed += 1) {
+    if (shouldStop()) break;
     const [job] = await claimDueJobs(workerId, 1);
     if (!job) break;
     await runClaimedJob(job, handlers);

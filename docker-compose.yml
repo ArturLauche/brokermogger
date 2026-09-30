@@ -141,6 +141,7 @@ services:
         required: false
     environment:
       NODE_ENV: production
+      WORKER_HEALTH_FILE: /tmp/brokermogger-worker-id
       APP_ENV: development
       APP_BASE_URL: http://localhost:3000
       DATABASE_URL: postgresql://brokermogger:brokermogger@postgres:5432/brokermogger?schema=public

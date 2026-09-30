@@ -42,6 +42,14 @@ function recurringRepeat(
 
 export function createJobHandlers(): JobHandlerRegistry {
   return {
+    async VERIFY_AUDIT_CHAIN(job): Promise<JobResult> {
+      const { verifyAuditForJob } = await import("@/lib/audit/verification");
+      const result = await verifyAuditForJob(job);
+      return {
+        ...result,
+        ...recurringRepeat(job, RECURRING_INTERVAL_SECONDS.VERIFY_AUDIT_CHAIN),
+      };
+    },
     async SEND_REQUEST(job): Promise<JobResult> {
       const actor = systemActor(job.id);
       const result = await sendApprovedRequest(
