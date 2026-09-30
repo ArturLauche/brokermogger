@@ -216,24 +216,22 @@ export async function getOwnedResponse(actor: ActorContext, id: string) {
   };
 }
 
-export async function listOwnedResponses(
-  actor: ActorContext,
-  input: {
-    cursor?: string | undefined;
-    limit?: number;
-    filter?: "all" | "unmatched" | "review" | undefined;
-  } = {}
-) {
+export async function listOwnedResponses(actor: ActorContext, raw: unknown = {}) {
   requirePermission(actor, "response:read", { ownerUserId: actor.userId });
-  const page = parseWithSchema(pageInputSchema, input);
+  const page = parseWithSchema(
+    pageInputSchema.extend({
+      filter: z.enum(["all", "unmatched", "review"]).default("all"),
+    }),
+    raw
+  );
   const rows = await prisma.brokerResponse.findMany({
     where: {
       userId: actor.userId,
       deletedAt: null,
       user: { status: "ACTIVE", deletionRequestedAt: null },
-      ...(input.filter === "unmatched"
+      ...(page.filter === "unmatched"
         ? { removalRequestId: null }
-        : input.filter === "review"
+        : page.filter === "review"
           ? { confirmedAt: null }
           : {}),
       ...createdBeforeCursor(page.cursor),

@@ -188,6 +188,8 @@ export async function anonymiseDeletedAccount(
         deadlineNote: null,
         deadlinePolicyVersion: null,
         deadlineWarningForAt: null,
+        deadlineHandledForAt: null,
+        deadlineHandledFollowUpCount: null,
       },
     });
     await tx.householdConsent.updateMany({

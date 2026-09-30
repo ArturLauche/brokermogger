@@ -27,6 +27,10 @@ import { ListResultSummary } from "@/components/common/list-result-summary";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { evidenceKindSchema } from "@/lib/validation/enums";
+import { readListResult } from "@/app/_lib/list-result";
+import { ListInputErrorPage } from "@/components/common/list-input-error";
+import { isAppError } from "@/lib/core/errors";
+import { notFound } from "next/navigation";
 
 import { deleteEvidenceAction } from "./actions";
 
@@ -52,14 +56,24 @@ export default async function EvidencePage({
   const actor = await requireActorOrRedirect();
   const { active } = await resolveActiveProfileForRequest(actor);
   const params = await searchParams;
-  const [page, requestPage, selected] = await Promise.all([
-    listEvidence(actor, active?.id ?? null, params),
-    listOwnedRequests(actor, active?.id ?? null, {
-      search: params.requestSearch,
-      cursor: params.requestCursor,
-    }),
-    params.requestId ? getOwnedRequestChoice(actor, params.requestId) : null,
-  ]);
+  const result = await readListResult(
+    Promise.all([
+      listEvidence(actor, active?.id ?? null, params),
+      listOwnedRequests(actor, active?.id ?? null, {
+        search: params.requestSearch,
+        cursor: params.requestCursor,
+      }),
+      params.requestId
+        ? getOwnedRequestChoice(actor, params.requestId).catch((error) => {
+            if (isAppError(error) && ["NOT_FOUND", "FORBIDDEN"].includes(error.code))
+              notFound();
+            throw error;
+          })
+        : null,
+    ])
+  );
+  if (!result.ok) return <ListInputErrorPage title="Evidence" path="/evidence" />;
+  const [page, requestPage, selected] = result.value;
   const requests = [
     ...new Map(
       [...(selected ? [selected] : []), ...requestPage.items].map((row) => [row.id, row])

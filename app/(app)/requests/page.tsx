@@ -22,6 +22,8 @@ import { ListFilters } from "@/components/common/list-filters";
 import { ListResultSummary } from "@/components/common/list-result-summary";
 import { REQUEST_STATUS_LABELS } from "@/components/common/status-badge";
 import { REQUEST_TYPE_LABELS } from "@/lib/requests/labels";
+import { readListResult } from "@/app/_lib/list-result";
+import { ListInputErrorPage } from "@/components/common/list-input-error";
 
 export const metadata = { title: "Requests" };
 export const dynamic = "force-dynamic";
@@ -40,7 +42,11 @@ export default async function RequestsPage({
   const actor = await requireActorOrRedirect();
   const { active } = await resolveActiveProfileForRequest(actor);
   const params = await searchParams;
-  const page = await listOwnedRequests(actor, active?.id ?? null, params);
+  const result = await readListResult(
+    listOwnedRequests(actor, active?.id ?? null, params)
+  );
+  if (!result.ok) return <ListInputErrorPage title="Requests" path="/requests" />;
+  const page = result.value;
   const { created } = params;
 
   return (

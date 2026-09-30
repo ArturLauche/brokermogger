@@ -38,14 +38,11 @@ export async function scheduleOverdueRequest(
         request.deadlineAt > input.now
       )
         return { marked: false, queued: false };
-      const prior = await tx.notification.findFirst({
-        where: {
-          userId: request.userId,
-          dedupeKey: `deadline-handled:${request.id}:${request.followUpCount}`,
-        },
-        select: { id: true },
-      });
-      if (request.status === "NO_RESPONSE" && prior)
+      if (
+        request.status === "NO_RESPONSE" &&
+        request.deadlineHandledForAt?.getTime() === request.deadlineAt.getTime() &&
+        request.deadlineHandledFollowUpCount === request.followUpCount
+      )
         return { marked: false, queued: false };
       if (request.status !== "NO_RESPONSE")
         await applyRequestStatusInTx(tx, {
@@ -113,15 +110,25 @@ export async function scheduleOverdueRequest(
           )
         );
         const runAt = new Date(anchor.getTime() + input.firstReminderDays * 86400_000);
-        await queueFollowUpInTx(tx, actor, overdue, input.maxFollowUps, runAt);
+        await queueFollowUpInTx(
+          tx,
+          actor,
+          overdue,
+          input.maxFollowUps,
+          runAt,
+          undefined,
+          request.deadlineAt
+        );
         queued = true;
         await tx.backgroundJob.upsert({
-          where: { idempotencyKey: `recheck:${request.id}:${request.followUpCount}` },
+          where: {
+            idempotencyKey: `recheck:${request.id}:${request.followUpCount}:${request.deadlineAt.toISOString()}`,
+          },
           update: {},
           create: {
             type: "RECHECK_REMINDER",
             payloadJson: { removalRequestId: request.id },
-            idempotencyKey: `recheck:${request.id}:${request.followUpCount}`,
+            idempotencyKey: `recheck:${request.id}:${request.followUpCount}:${request.deadlineAt.toISOString()}`,
             runAt,
             relatedUserId: request.userId,
             relatedRequestId: request.id,
@@ -144,7 +151,14 @@ export async function scheduleOverdueRequest(
           ? "A follow-up draft has been scheduled. It will require your review and approval before submission."
           : "Review your consent, correspondence and previous delivery outcome before taking the next step.",
         actionUrl: `/requests/${request.id}`,
-        dedupeKey: `deadline-handled:${request.id}:${request.followUpCount}`,
+        dedupeKey: `deadline-handled:${request.id}:${request.followUpCount}:${request.deadlineAt.toISOString()}`,
+      });
+      await tx.removalRequest.update({
+        where: { id: request.id },
+        data: {
+          deadlineHandledForAt: request.deadlineAt,
+          deadlineHandledFollowUpCount: request.followUpCount,
+        },
       });
       return { marked: true, queued };
     },

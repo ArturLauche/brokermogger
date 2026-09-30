@@ -21,6 +21,7 @@ import { createLegalRule } from "../../lib/admin/legalRules";
 import { createTemplate } from "../../lib/admin/templates";
 import { DEFAULT_TEMPLATE_SOURCE } from "../../lib/templates/authoring";
 import { syntheticLegalSource } from "./legalSource";
+import { addIdentifier } from "../../lib/db/repositories/profiles";
 
 /** Add synthetic records through the actual workflows, without resetting any schema. */
 async function createFixture(db: PrismaClient) {
@@ -184,6 +185,21 @@ async function main() {
       draft = { id: result.requestIds[0]! };
     }
     const actor = testActor(user.id, "INSTANCE_ADMIN");
+    const editableIdentifier =
+      (await db.profileIdentifier.findFirst({
+        where: {
+          profileId: profile.id,
+          deletedAt: null,
+          type: "PHONE",
+          isPrimary: false,
+        },
+      })) ??
+      (await addIdentifier(actor, profile.id, {
+        type: "PHONE",
+        value: "+12025550123",
+        label: "Optional contact",
+        isPrimary: false,
+      }));
     const legalKey = "interface.legal-" + user.id;
     let legal = await db.legalRule.findFirst({
       where: { key: legalKey, jurisdictionId: request.jurisdictionId! },
@@ -274,7 +290,7 @@ async function main() {
       "/onboarding",
       "/vault",
       `/vault/profiles/${profile.id}/edit`,
-      `/vault/identifiers/${identifier.id}/edit`,
+      `/vault/identifiers/${editableIdentifier.id}/edit`,
       "/household",
       "/brokers",
       `/brokers/${request.brokerId}`,

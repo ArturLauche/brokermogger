@@ -35,6 +35,7 @@ import {
 } from "./navigation";
 import { ProfileSwitcher, type ProfileSummary } from "./profile-switcher";
 import { UserMenu } from "./user-menu";
+import { LinkPending } from "@/components/common/link-pending";
 
 export interface AppShellUser {
   displayName: string;
@@ -92,6 +93,7 @@ export function AppShell({
                   >
                     <Icon aria-hidden="true" className="size-4 shrink-0" />
                     {item.label}
+                    <LinkPending />
                   </Link>
                 </li>
               );

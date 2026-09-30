@@ -27,6 +27,8 @@ import { ListNavigation } from "@/components/common/list-navigation";
 import { ListFilters } from "@/components/common/list-filters";
 import { ListResultSummary } from "@/components/common/list-result-summary";
 import { brokerCategorySchema } from "@/lib/validation/enums";
+import { readListResult } from "@/app/_lib/list-result";
+import { ListInputErrorPage } from "@/components/common/list-input-error";
 
 export const metadata = { title: "Brokers" };
 export const dynamic = "force-dynamic";
@@ -60,10 +62,14 @@ export default async function BrokersPage({
   }
 
   const params = await searchParams;
-  const page = await listBrokersForDirectory({
-    ...params,
-    ...(jurisdictionId ? { jurisdictionId } : {}),
-  });
+  const result = await readListResult(
+    listBrokersForDirectory({
+      ...params,
+      ...(jurisdictionId ? { jurisdictionId } : {}),
+    })
+  );
+  if (!result.ok) return <ListInputErrorPage title="Brokers" path="/brokers" />;
+  const page = result.value;
 
   return (
     <div className="flex flex-col gap-6">

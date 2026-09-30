@@ -27,7 +27,7 @@ export default async function EditDraftPage({
   const editable =
     (request.status === "DRAFT" || canTransition(request.status, "DRAFT", "USER")) &&
     !request.outboundEmails.length &&
-    !request.manualSubmissions.some((row) => row.snapshotId === snapshot?.id);
+    !request.currentSnapshotSubmitted;
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
       <PageHeader

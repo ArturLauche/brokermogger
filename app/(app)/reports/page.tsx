@@ -10,6 +10,8 @@ import { requireActorOrRedirect } from "@/lib/auth";
 import { dateInTimeZone, formatIsoDate } from "@/lib/format/datetime";
 import { listReports } from "@/lib/reports/service";
 import { ReportForm, ReportJobAction } from "./report-forms";
+import { readListResult } from "@/app/_lib/list-result";
+import { ListInputErrorPage } from "@/components/common/list-input-error";
 
 export const metadata = { title: "Reports" };
 export const dynamic = "force-dynamic";
@@ -26,18 +28,20 @@ export default async function ReportsPage({
 }) {
   const actor = await requireActorOrRedirect();
   const params = await searchParams;
-  const filter = ["working", "ready", "failed"].includes(params.filter ?? "")
-    ? params.filter!
-    : "all";
-  const [{ active, profiles }, { timeZone, formatStamp }, page] = await Promise.all([
-    resolveActiveProfileForRequest(actor),
-    getDateFormatter(),
-    listReports(actor, {
-      filter,
-      profileId: params.profileId || null,
-      cursor: params.cursor,
-    }),
-  ]);
+  const filter = params.filter ?? "all";
+  const result = await readListResult(
+    Promise.all([
+      resolveActiveProfileForRequest(actor),
+      getDateFormatter(),
+      listReports(actor, {
+        filter,
+        profileId: params.profileId || null,
+        cursor: params.cursor,
+      }),
+    ])
+  );
+  if (!result.ok) return <ListInputErrorPage title="Reports" path="/reports" />;
+  const [{ active, profiles }, { timeZone, formatStamp }, page] = result.value;
   const today = dateInTimeZone(new Date(), timeZone);
   const previous = new Date(`${today}T00:00:00Z`);
   previous.setUTCFullYear(previous.getUTCFullYear() - 1);

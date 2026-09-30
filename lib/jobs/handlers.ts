@@ -153,10 +153,14 @@ export function createJobHandlers(): JobHandlerRegistry {
     },
 
     async DEADLINE_WATCH(job): Promise<JobResult> {
-      const result = await runDeadlineWatch(job.payload.windowDays, job);
+      const result = await runDeadlineWatch(
+        job.payload.windowDays,
+        job,
+        job.payload.progress
+      );
       return {
-        ...result,
         ...recurringRepeat(job, RECURRING_INTERVAL_SECONDS.DEADLINE_WATCH),
+        ...result,
       };
     },
 

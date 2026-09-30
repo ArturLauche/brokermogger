@@ -3,7 +3,7 @@ import { LetterPreview } from "@/components/common/letter-preview";
 import { PageHeader } from "@/components/common/page-header";
 import { Button } from "@/components/ui/button";
 import { requireActorOrRedirect } from "@/lib/auth";
-import { getOwnedRequest } from "@/lib/db/repositories/requests";
+import { loadPrivateRequest } from "@/app/_lib/private-request";
 import { dateInTimeZone } from "@/lib/format/datetime";
 import { getDateFormatter } from "@/app/_lib/datetime";
 import { ManualSubmissionForm } from "../manual-forms";
@@ -18,7 +18,7 @@ export default async function ManualSubmissionPage({
 }) {
   const actor = await requireActorOrRedirect();
   const { id } = await params;
-  const request = await getOwnedRequest(actor, id);
+  const request = await loadPrivateRequest(actor, id);
   const { timeZone } = await getDateFormatter();
   const snapshot = request.snapshots[0];
   const ready =
@@ -141,19 +141,6 @@ export default async function ManualSubmissionPage({
               today={today}
               approvedOn={dateInTimeZone(request.approvedAt!, timeZone)}
               timeZone={timeZone}
-              files={request.evidenceFiles
-                .filter(
-                  (file) =>
-                    file.storageState === "READY" &&
-                    file.kind !== "IDENTITY_DOCUMENT" &&
-                    (!file.expiresAt || file.expiresAt > new Date())
-                )
-                .map((file) => ({
-                  id: file.id,
-                  label:
-                    file.filenameMasked ??
-                    `${file.kind.toLowerCase()} · ${file.id.slice(0, 8)}`,
-                }))}
               instructionsOnly={request.channel === "DROP"}
             />
           </section>

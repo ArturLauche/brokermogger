@@ -20,8 +20,7 @@ import { randomUUID } from "node:crypto";
 import { prisma, type PrismaTransaction } from "@/lib/db/client";
 import { AppError, NotFoundError } from "@/lib/core/errors";
 import type { ActorContext } from "@/lib/permissions/actor";
-import { isCrossAccountAccess, requirePermission } from "@/lib/permissions/policy";
-import { recordAuditOrThrow } from "@/lib/audit/service";
+import { requirePermission } from "@/lib/permissions/policy";
 import { encryptSnapshotText, readSnapshotText } from "@/lib/requests/snapshot";
 import { assertTransition, type TransitionActor } from "@/lib/requests/stateMachine";
 import { canonicalJson, chainHash, sha256Hex } from "@/lib/security/crypto";
@@ -40,19 +39,25 @@ function clampTake(take: number | undefined): number {
 }
 
 export async function getOwnedRequest(actor: ActorContext, requestId: string) {
+  await requireOwnedRequestPrivate(actor, requestId);
   const request = await prisma.removalRequest.findFirst({
-    where: { id: requestId, deletedAt: null },
+    where: {
+      id: requestId,
+      deletedAt: null,
+      ...(!actor.isSystem
+        ? { userId: actor.userId, user: { status: "ACTIVE", deletionRequestedAt: null } }
+        : {}),
+    },
     include: {
       broker: { include: { contactMethods: true, jurisdictionCoverage: true } },
-      profile: true,
+      profile: { select: { displayName: true, consentStatus: true } },
       jurisdiction: true,
       snapshots: { orderBy: { version: "desc" }, take: 1 },
-      events: { orderBy: { createdAt: "asc" } },
       legalRuleVersion: true,
       templateVersion: { include: { template: { select: { requestType: true } } } },
       responses: {
         where: { deletedAt: null },
-        orderBy: { receivedAt: "desc" },
+        orderBy: [{ receivedAt: "desc" }, { id: "desc" }],
         take: 25,
         select: {
           id: true,
@@ -64,7 +69,6 @@ export async function getOwnedRequest(actor: ActorContext, requestId: string) {
         },
       },
       _count: { select: { responses: { where: { deletedAt: null } } } },
-      manualSubmissions: { orderBy: { createdAt: "desc" } },
       outboundEmails: {
         where: {
           dispatchState: { in: ["DISPATCHING", "AMBIGUOUS", "RECONCILIATION_REQUIRED"] },
@@ -77,7 +81,6 @@ export async function getOwnedRequest(actor: ActorContext, requestId: string) {
         },
         orderBy: { createdAt: "desc" },
       },
-      evidenceFiles: { where: { deletedAt: null }, orderBy: { createdAt: "desc" } },
     },
   });
 
@@ -85,33 +88,38 @@ export async function getOwnedRequest(actor: ActorContext, requestId: string) {
     throw new NotFoundError("This request does not exist.");
   }
 
-  requirePermission(actor, "request:read", { ownerUserId: request.userId });
-  if (isCrossAccountAccess(actor, { ownerUserId: request.userId })) {
-    await recordAuditOrThrow({
-      actor,
-      action: "admin.user_data_viewed",
-      resourceType: "removal_request",
-      resourceId: request.id,
-      targetUserId: request.userId,
-    });
-    return {
-      ...request,
-      snapshots: [],
-      responses: [],
-      evidenceFiles: [],
-      manualSubmissions: [],
-      outboundEmails: [],
-      profile: {
-        ...request.profile,
-        displayName: "Private profile",
-        legalNameEnc: null,
-        legalNameBi: null,
-        contactEmailEnc: null,
-        contactEmailBi: null,
-      },
-    };
-  }
-  return { ...request, snapshots: request.snapshots.map(readSnapshotText) };
+  const currentSnapshotSubmitted =
+    !!request.currentSnapshotId &&
+    !!(await prisma.manualSubmission.findFirst({
+      where: { removalRequestId: request.id, snapshotId: request.currentSnapshotId },
+      select: { id: true },
+    }));
+  return {
+    ...request,
+    currentSnapshotSubmitted,
+    snapshots: request.snapshots.map(readSnapshotText),
+  };
+}
+
+/** Authorize before loading private relations, including for emergency operators. */
+export async function requireOwnedRequestPrivate(actor: ActorContext, rawId: unknown) {
+  const id = parseWithSchema(entityIdSchema, rawId);
+  const request = await prisma.removalRequest.findFirst({
+    where: {
+      id,
+      deletedAt: null,
+      ...(!actor.isSystem
+        ? {
+            user: { status: "ACTIVE", deletionRequestedAt: null },
+            profile: { deletedAt: null },
+          }
+        : {}),
+    },
+    select: { id: true, userId: true },
+  });
+  if (!request) throw new NotFoundError("This request does not exist.");
+  requirePermission(actor, "request:readPrivate", { ownerUserId: request.userId });
+  return request;
 }
 
 /** Snapshot pinned at approval. Callers must not fall back to the latest version. */
@@ -617,7 +625,22 @@ export async function listOverdueWaitingRequests(
         { status: { in: WAITING_FOR_DEADLINE } },
         {
           status: "NO_RESPONSE",
-          notifications: { none: { dedupeKey: { startsWith: "deadline-handled:" } } },
+          OR: [
+            { deadlineHandledForAt: null },
+            { deadlineHandledFollowUpCount: null },
+            {
+              NOT: {
+                deadlineHandledForAt: { equals: prisma.removalRequest.fields.deadlineAt },
+              },
+            },
+            {
+              NOT: {
+                deadlineHandledFollowUpCount: {
+                  equals: prisma.removalRequest.fields.followUpCount,
+                },
+              },
+            },
+          ],
         },
       ],
       deadlineAt: { lte: now },
@@ -646,6 +669,7 @@ export async function listDeadlineWarningRequests(input: {
     where: {
       deletedAt: null,
       user: { status: "ACTIVE", deletionRequestedAt: null },
+      profile: { deletedAt: null },
       status: { in: WAITING_FOR_DEADLINE },
       deadlineAt: { gt: input.now, lte: input.warningBefore },
       OR: [

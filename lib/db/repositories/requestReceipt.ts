@@ -6,7 +6,8 @@ import { requirePermission } from "@/lib/permissions/policy";
 import type { RequestReceiptCommand } from "@/lib/requests/receipt";
 import { loadRequestForDecision } from "./requestDecision";
 import { calculateResponseTargetInTx } from "./responseTargets";
-import { appendRequestEventInTx } from "./requests";
+import { appendRequestEventInTx, applyRequestStatusInTx } from "./requests";
+import { readFollowUpWork } from "@/lib/requests/followUpWork";
 
 async function originalSubmission(
   tx: PrismaTransaction,
@@ -118,16 +119,94 @@ export async function persistRequestReceipt(
       receiptOn: input.receivedOn,
       timeZone: request.user.timezone,
     });
+    const targetChanged = clock.deadlineAt?.getTime() !== request.deadlineAt?.getTime();
+    const pending = targetChanged
+      ? await tx.backgroundJob.findFirst({
+          where: {
+            idempotencyKey: `follow-up:${request.id}:${request.followUpCount + 1}`,
+            type: "PREPARE_FOLLOW_UP",
+            relatedUserId: request.userId,
+            relatedRequestId: request.id,
+            status: { in: ["PENDING", "RETRYABLE", "RUNNING"] },
+          },
+          select: { id: true, payloadJson: true },
+        })
+      : null;
+    const work = pending
+      ? readFollowUpWork(pending.payloadJson, request.id, request.followUpCount + 1)
+      : null;
+    const cancelledAutomatic = !!pending && work?.origin === "DEADLINE";
+    if (targetChanged) {
+      await tx.backgroundJob.updateMany({
+        where: {
+          relatedUserId: request.userId,
+          relatedRequestId: request.id,
+          status: { in: ["PENDING", "RETRYABLE", "RUNNING"] },
+          OR: [
+            ...(cancelledAutomatic ? [{ id: pending!.id }] : []),
+            {
+              type: "RECHECK_REMINDER",
+              idempotencyKey: {
+                in: [
+                  `recheck:${request.id}:${request.followUpCount}`,
+                  ...(request.deadlineAt
+                    ? [
+                        `recheck:${request.id}:${request.followUpCount}:${request.deadlineAt.toISOString()}`,
+                      ]
+                    : []),
+                ],
+              },
+            },
+          ],
+        },
+        data: {
+          status: "CANCELLED",
+          cancelledAt: new Date(),
+          lockedAt: null,
+          lockedBy: null,
+          lockExpiresAt: null,
+          leaseToken: null,
+          lastError: "The account holder corrected the original response target.",
+        },
+      });
+    }
+    let currentStatus = request.status;
+    if (
+      (cancelledAutomatic && request.status === "FOLLOW_UP_SCHEDULED") ||
+      (request.status === "NO_RESPONSE" &&
+        (!clock.deadlineAt || clock.deadlineAt > new Date()))
+    ) {
+      await applyRequestStatusInTx(tx, {
+        requestId: request.id,
+        from: request.status,
+        to: "WAITING_FOR_BROKER",
+        actor: "USER",
+        actorUserId: actor.userId,
+        message:
+          "The original receipt date corrected the response target. Obsolete automatic preparation was stopped; any submitted message remains unchanged.",
+      });
+      currentStatus = "WAITING_FOR_BROKER";
+    }
     await tx.removalRequest.update({ where: { id: request.id }, data: clock });
+    if (targetChanged)
+      await tx.removalRequest.update({
+        where: { id: request.id },
+        data: {
+          deadlineWarningForAt: null,
+          deadlineHandledForAt: null,
+          deadlineHandledFollowUpCount: null,
+          ...(cancelledAutomatic ? { nextFollowUpAt: null } : {}),
+        },
+      });
     await appendRequestEventInTx(tx, {
       removalRequestId: request.id,
       type: "CORRECTION",
-      fromStatus: request.status,
-      toStatus: request.status,
+      fromStatus: currentStatus,
+      toStatus: currentStatus,
       actorType: "USER",
       actorUserId: actor.userId,
       message:
-        "The account holder recorded the original request’s receipt date. The approved message was preserved.",
+        "The account holder recorded the original request’s receipt date. Existing messages were preserved; review any dates they mention before approving or submitting them.",
       payload: {
         snapshotId: source.snapshotId,
         receivedOn: input.receivedOn,

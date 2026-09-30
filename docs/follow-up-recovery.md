@@ -18,6 +18,17 @@ Concurrent preparation requests share one job. Failed or cancelled preparation
 has an owner-visible retry on the request page; retry resets that job's attempts
 while preserving its logs. Closing a request cancels pending work.
 
+Damaged preparation payloads do not guess a reminder kind. The owner chooses a
+follow-up or, where a previous follow-up was submitted, a final reminder. Repair
+checks the job's owner, request, type and expected sequence before replacing the
+payload and fencing any old worker. An unrelated job is never repurposed.
+
+The deadline watcher persists its fixed scan window and last completed page under
+the current lease. When a pass reaches its bounded work limit, it resumes after
+one second instead of repeatedly starting at the oldest failing records. Failed
+requests remain eligible in the next complete scan; completing or cancelling a
+job with a stale lease cannot overwrite its saved progress.
+
 After upgrading, previously stranded `NO_RESPONSE` requests can be picked up by
 the next deadline watch. Active consent and the current follow-up cap still apply.
 Run the app and worker from the same revision; stop old workers during an upgrade.

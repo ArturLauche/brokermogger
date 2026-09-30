@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { requireActorOrRedirect } from "@/lib/auth";
-import { getOwnedRequest } from "@/lib/db/repositories/requests";
+import { loadPrivateRequest } from "@/app/_lib/private-request";
 import { getDateFormatter } from "@/app/_lib/datetime";
 import { dateInTimeZone } from "@/lib/format/datetime";
 import { PageHeader } from "@/components/common/page-header";
@@ -16,7 +16,7 @@ export default async function RecordReplyPage({
   params: Promise<{ id: string }>;
 }) {
   const actor = await requireActorOrRedirect();
-  const request = await getOwnedRequest(actor, (await params).id);
+  const request = await loadPrivateRequest(actor, (await params).id);
   const { timeZone } = await getDateFormatter();
   const today = dateInTimeZone(new Date(), timeZone);
   return (
@@ -41,17 +41,6 @@ export default async function RecordReplyPage({
         }}
         today={today}
         timeZone={timeZone}
-        files={request.evidenceFiles
-          .filter(
-            (file) =>
-              file.storageState === "READY" &&
-              file.kind !== "IDENTITY_DOCUMENT" &&
-              (!file.expiresAt || file.expiresAt > new Date())
-          )
-          .map((file) => ({
-            id: file.id,
-            label: file.filenameMasked ?? `File ${file.id.slice(0, 8)}`,
-          }))}
       />
     </div>
   );

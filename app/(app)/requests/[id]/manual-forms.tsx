@@ -5,6 +5,7 @@ import { FieldError, FormFeedback } from "@/components/common/form-feedback";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { EvidencePicker } from "@/components/common/evidence-picker";
 import { initialActionState } from "@/lib/validation/actionResult";
 import {
   submitManuallyAction,
@@ -87,14 +88,12 @@ export function ManualSubmissionForm({
   today,
   approvedOn,
   timeZone,
-  files,
   instructionsOnly = false,
 }: {
   initial: SubmissionFields;
   today: string;
   approvedOn: string;
   timeZone: string;
-  files: { id: string; label: string }[];
   instructionsOnly?: boolean;
 }) {
   const [state, action, pending] = useActionState(
@@ -149,20 +148,13 @@ export function ManualSubmissionForm({
       </div>
       <div className="space-y-2">
         <Label htmlFor="evidenceFileId">Submission evidence (optional)</Label>
-        <select
-          className={selectClass}
+        <EvidencePicker
+          requestId={initial.requestId}
           id="evidenceFileId"
           name="evidenceFileId"
-          defaultValue={state.values.evidenceFileId}
-          aria-describedby="evidenceFileId-hint evidenceFileId-error"
-        >
-          <option value="">No file attached</option>
-          {files.map((file) => (
-            <option key={file.id} value={file.id}>
-              {file.label}
-            </option>
-          ))}
-        </select>
+          initialValue={state.values.evidenceFileId}
+          describedBy="evidenceFileId-hint evidenceFileId-error"
+        />
         <p id="evidenceFileId-hint" className="text-sm text-muted-foreground">
           Attach an uploaded receipt or screenshot for this request. Identity documents
           are not submission evidence.

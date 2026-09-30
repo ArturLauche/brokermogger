@@ -78,8 +78,6 @@ withdrawn-rule scheduling correction. Synthetic operator comparisons are
 [legal administration](verification/interface/legal-rules-desktop.png) and
 [draft editing at 375px](verification/interface/legal-draft-mobile.png).
 
-## Measured JavaScript transfer
-
 The operational pass also produced 240 production captures across all 48 routes:
 no page overflow, heading/label defects, unexpected console or CSP errors, or axe AA violations. All
 101 keyboard and zoom-approximation checks pass. The new production journey
@@ -99,6 +97,36 @@ Synthetic list screens are recorded for [requests](verification/interface/reques
 [jobs](verification/interface/admin-jobs-1440.png) and
 [audit](verification/interface/admin-audit-1440.png).
 
+The history/recovery pass adds bounded event and submission pages, a searchable
+attachment dialog and local recovery from invalid URL filters. Its production
+journey reaches the oldest history page and an attachment beyond the first page,
+preserves unfinished reply text and selection, and verifies Escape focus
+restoration. The dialog is captured at all five widths and passes axe AA.
+
+Missing and foreign workspace items now return HTTP 404 with one main region,
+one H1 and a dashboard recovery link. Broad workspace/admin loading boundaries
+had committed HTTP 200 before ownership checks finished; navigation progress now
+appears inside links, while the existing report/export loading screens and form
+pending states remain. Zod's browser interpreter avoids its eval probe, retaining
+strict script CSP and unchanged validation.
+
+The final capture again passes all 240 route/viewport checks and all 101
+keyboard/zoom-approximation checks. The fixture now selects an optional phone
+identifier so the actual identifier editor is checked, rather than its intended
+primary-identifier redirect to profile editing. The newest production build
+passes all 14 browser journeys. Attachment controls remain stationary while the
+available-file list scrolls; selected files and unfinished text survive searching
+and paging. Comparisons are [375px](verification/interface/attachment-dialog-375.png)
+and [desktop](verification/interface/attachment-dialog-1440.png).
+
+To reproduce on the dedicated mock browser schema, run
+`node --import tsx tests/helpers/interface-capture.ts final`, then
+`node --import tsx tests/helpers/interface-keyboard.ts final` with that test
+environment loaded. Both commands guard the database and transport. Their
+ignored local manifests contain the actual routes, image paths and results.
+
+## Measured JavaScript transfer
+
 Three fresh Chromium contexts per build measured compressed Next JavaScript
 resources after the public page settled. Each run returned the same byte totals:
 
@@ -111,4 +139,5 @@ resources after the public page settled. Each run returned the same byte totals:
 [Raw totals and method](verification/interface/landing-transfer.json) are kept
 with the images. Removing unused global providers and using native FAQ
 disclosures accounts for the reduction. This measures network transfer, not
-user latency or LCP. Larger database/worker benchmarks remain part of the plan.
+user latency or LCP. Completed database/worker measurements and their limits are
+in [performance verification](performance.md).

@@ -7,6 +7,7 @@ import {
 } from "@/lib/db/repositories/jobs";
 import { getWebhookEventById } from "@/lib/db/repositories/outboundEmail";
 import { getOwnedRequest } from "@/lib/db/repositories/requests";
+import { listRequestEvents } from "@/lib/db/repositories/requestHistory";
 import { backfillPrivatePayloads } from "@/lib/db/repositories/privacyMigration";
 import {
   countExpiredUnmatchedDelivery,
@@ -185,9 +186,11 @@ describe("atomic provider delivery receipts", () => {
     const after = await getOwnedRequest(f.actor, f.request.id);
     expect(after.status).toBe(before.status);
     expect(after.currentSnapshotId).toBe(before.currentSnapshotId);
-    expect(after.events.some((event) => event.message?.includes("earlier message"))).toBe(
-      true
-    );
+    expect(
+      (await listRequestEvents(f.actor, f.request.id)).items.some((event) =>
+        event.message?.includes("earlier message")
+      )
+    ).toBe(true);
   });
 
   it("fences a stale worker before changing the ledger or event", async () => {

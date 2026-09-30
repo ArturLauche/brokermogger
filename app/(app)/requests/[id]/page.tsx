@@ -13,6 +13,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { requireActorOrRedirect } from "@/lib/auth";
 import { isAppError } from "@/lib/core/errors";
 import { getOwnedRequest } from "@/lib/db/repositories/requests";
+import {
+  getRequestAccessSummary,
+  listRequestEvents,
+  listRequestSubmissions,
+} from "@/lib/db/repositories/requestHistory";
+import { ListNavigation } from "@/components/common/list-navigation";
+import { ListResultSummary } from "@/components/common/list-result-summary";
+import { readListResult } from "@/app/_lib/list-result";
+import { ListInputErrorPage } from "@/components/common/list-input-error";
 import { dateInTimeZone, formatIsoDate } from "@/lib/format/datetime";
 import { responseTargetLabel } from "@/lib/jurisdiction/deadlines";
 import { getRequestReceiptContext } from "@/lib/db/repositories/requestReceipt";
@@ -46,22 +55,77 @@ export default async function RequestDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string; saved?: string }>;
+  searchParams: Promise<{
+    error?: string;
+    saved?: string;
+    historyCursor?: string;
+    submissionCursor?: string;
+  }>;
 }) {
   const actor = await requireActorOrRedirect();
   const { formatStamp, timeZone } = await getDateFormatter();
   const { id } = await params;
-  const { error, saved } = await searchParams;
+  const { error, saved, historyCursor, submissionCursor } = await searchParams;
 
-  let request;
-  try {
-    request = await getOwnedRequest(actor, id);
-  } catch (caught) {
-    if (isAppError(caught) && caught.code === "NOT_FOUND") {
+  const accessError = (caught: unknown): never => {
+    if (
+      isAppError(caught) &&
+      ["NOT_FOUND", "FORBIDDEN", "VALIDATION_FAILED"].includes(caught.code)
+    )
       notFound();
-    }
     throw caught;
-  }
+  };
+  const access = await getRequestAccessSummary(actor, id).catch(accessError);
+  if (access.emergencyRead)
+    return (
+      <div className="flex flex-col gap-6">
+        <PageHeader
+          title={access.request.broker.legalName}
+          description="Audited emergency support view"
+          actions={<StatusBadge kind="request" status={access.request.status} />}
+        />
+        <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+          This view contains operational state and public catalogue information. Personal
+          fields, messages, correspondence, file downloads and account actions require the
+          account holder.
+        </p>
+        <DefinitionList
+          items={[
+            { term: "Request", description: access.request.id },
+            {
+              term: "Type",
+              description: access.request.requestType.toLowerCase().replaceAll("_", " "),
+            },
+            { term: "Jurisdiction", description: access.request.jurisdiction.name },
+            {
+              term: "Channel",
+              description: access.request.channel.toLowerCase().replaceAll("_", " "),
+            },
+            { term: "Created", description: formatStamp(access.request.createdAt) },
+            {
+              term: "Last updated",
+              description: formatStamp(access.request.updatedAt),
+            },
+          ]}
+        />
+      </div>
+    );
+  const request = await getOwnedRequest(actor, id).catch(accessError);
+
+  const historyResult = await readListResult(
+    Promise.all([
+      listRequestEvents(actor, request.id, { cursor: historyCursor }),
+      listRequestSubmissions(actor, request.id, { cursor: submissionCursor }),
+    ])
+  );
+  if (!historyResult.ok)
+    return (
+      <ListInputErrorPage
+        title={request.broker.legalName}
+        path={`/requests/${request.id}`}
+      />
+    );
+  const [history, submissions] = historyResult.value;
 
   const canManage = can(actor, "request:update", { ownerUserId: request.userId }).allowed;
   const receipt =
@@ -74,6 +138,7 @@ export default async function RequestDetailPage({
     canManage &&
     request.status === "FOLLOW_UP_SCHEDULED" &&
     (!work.followUp ||
+      work.followUp.invalidPayload ||
       ["FAILED", "CANCELLED", "COMPLETED"].includes(work.followUp.status));
   const sendFailed =
     canManage &&
@@ -136,10 +201,29 @@ export default async function RequestDetailPage({
           </h2>
           <p className="text-sm text-muted-foreground">
             {followUpFailed
-              ? "Preparation did not finish. Try again, or close the request if you no longer need it."
+              ? work.followUp?.invalidPayload
+                ? "The saved preparation is damaged. Choose a new reminder to replace it. Any previous worker will lose permission to publish, and the new draft will need fresh approval."
+                : "Preparation did not finish. Try again, or close the request if you no longer need it."
               : `A draft will be prepared ${request.nextFollowUpAt ? formatStamp(request.nextFollowUpAt) : "shortly"}. It will need your review and fresh approval.`}
           </p>
-          {followUpFailed ? (
+          {followUpFailed && work.followUp?.invalidPayload ? (
+            <div className="flex flex-wrap gap-3">
+              <form action={prepareFollowUpAction}>
+                <input type="hidden" name="requestId" value={request.id} />
+                <input type="hidden" name="kind" value="FOLLOW_UP" />
+                <SubmitButton pendingText="Scheduling…">Prepare follow-up</SubmitButton>
+              </form>
+              {work.hasSubmittedFollowUp ? (
+                <form action={prepareFollowUpAction}>
+                  <input type="hidden" name="requestId" value={request.id} />
+                  <input type="hidden" name="kind" value="FINAL_REMINDER" />
+                  <SubmitButton variant="outline" pendingText="Scheduling…">
+                    Prepare final reminder
+                  </SubmitButton>
+                </form>
+              ) : null}
+            </div>
+          ) : followUpFailed ? (
             <form action={prepareFollowUpAction}>
               <input type="hidden" name="requestId" value={request.id} />
               <SubmitButton pendingText="Scheduling…">Retry preparation</SubmitButton>
@@ -368,7 +452,7 @@ export default async function RequestDetailPage({
           escalation guidance, or close the request when appropriate.
         </p>
       ) : null}
-      <Tabs defaultValue="timeline">
+      <Tabs defaultValue={submissionCursor ? "evidence" : "timeline"}>
         <TabsList aria-label="Request details">
           <TabsTrigger value="timeline">Timeline</TabsTrigger>
           <TabsTrigger value="snapshot">Snapshot</TabsTrigger>
@@ -380,9 +464,14 @@ export default async function RequestDetailPage({
             <h2 id="timeline-heading" className="text-lg font-semibold">
               Timeline
             </h2>
+            <ListResultSummary
+              shown={history.items.length}
+              total={history.total}
+              noun="event"
+            />
             <Timeline
               label="Request history"
-              events={request.events.map((event) => ({
+              events={history.items.map((event) => ({
                 id: event.id,
                 title: event.type.replaceAll("_", " ").toLowerCase(),
                 timestamp: formatStamp(event.createdAt),
@@ -390,6 +479,14 @@ export default async function RequestDetailPage({
                 actor: event.actorType.toLowerCase(),
                 detail: event.message,
               }))}
+            />
+            <ListNavigation
+              path={`/requests/${request.id}`}
+              filters={{ submissionCursor }}
+              cursor={historyCursor}
+              cursorName="historyCursor"
+              nextCursor={history.nextCursor}
+              label="Request history"
             />
           </section>
         </TabsContent>
@@ -403,11 +500,11 @@ export default async function RequestDetailPage({
           )}
         </TabsContent>
         <TabsContent value="evidence">
-          {request.manualSubmissions.length ? (
+          {submissions.total ? (
             <section className="mb-6 space-y-3">
               <h2 className="text-lg font-semibold">Manual submissions</h2>
               <ul className="space-y-2 text-sm">
-                {request.manualSubmissions.map((submission) => (
+                {submissions.items.map((submission) => (
                   <li key={submission.id}>
                     Submitted {formatIsoDate(submission.submittedOn)}
                     {submission.receivedOn
@@ -425,9 +522,25 @@ export default async function RequestDetailPage({
                         </a>
                       </>
                     ) : null}
+                    {submission.unavailableEvidence
+                      ? " · Receipt file expired or removed"
+                      : null}
                   </li>
                 ))}
               </ul>
+              <ListResultSummary
+                shown={submissions.items.length}
+                total={submissions.total}
+                noun="submission"
+              />
+              <ListNavigation
+                path={`/requests/${request.id}`}
+                filters={{ historyCursor }}
+                cursor={submissionCursor}
+                cursorName="submissionCursor"
+                nextCursor={submissions.nextCursor}
+                label="Manual submissions"
+              />
               <p className="text-sm text-muted-foreground">
                 Dates recorded by the account holder.
               </p>
@@ -435,7 +548,7 @@ export default async function RequestDetailPage({
           ) : null}
           <p className="text-sm text-muted-foreground">
             Files for this request are listed under{" "}
-            <Link className="underline" href="/evidence">
+            <Link className="underline" href={`/evidence?requestId=${request.id}`}>
               Evidence
             </Link>
             .

@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   listOverdueWaitingRequests: vi.fn(),
   getSetting: vi.fn(),
   recordAudit: vi.fn(),
+  checkpointDeadlineWatchProgress: vi.fn(),
+  hasCurrentLease: vi.fn(),
 }));
 vi.mock("@/lib/db/repositories/requestDeadlines", () => ({
   scheduleOverdueRequest: mocks.scheduleOverdueRequest,
@@ -19,6 +21,10 @@ vi.mock("@/lib/db/repositories/requests", () => ({
 }));
 vi.mock("@/lib/config/runtimeSettings", () => ({ getSetting: mocks.getSetting }));
 vi.mock("@/lib/audit/service", () => ({ recordAudit: mocks.recordAudit }));
+vi.mock("@/lib/db/repositories/deadlineProgress", () => ({
+  checkpointDeadlineWatchProgress: mocks.checkpointDeadlineWatchProgress,
+}));
+vi.mock("@/lib/db/repositories/jobs", () => ({ hasCurrentLease: mocks.hasCurrentLease }));
 const { isRecheckReminderApplicable, runDeadlineWatch, runRecheckReminder } =
   await import("@/lib/jobs/deadlineWatch");
 const job = { id: "job-1", leaseToken: "lease-1" };
@@ -35,8 +41,41 @@ beforeEach(() => {
   mocks.listOverdueWaitingRequests.mockResolvedValue([]);
   mocks.scheduleOverdueRequest.mockResolvedValue({ marked: true, queued: true });
   mocks.recordDeadlineWarning.mockResolvedValue(true);
+  mocks.checkpointDeadlineWatchProgress.mockResolvedValue(true);
+  mocks.hasCurrentLease.mockResolvedValue(true);
 });
 describe("deadline watch orchestration", () => {
+  it("checkpoints a bounded scan so repeated failures cannot starve request 1001", async () => {
+    const deadlineAt = new Date("2026-01-01");
+    const requests = Array.from({ length: 1001 }, (_, index) => ({
+      id: `request-${String(index).padStart(5, "0")}`,
+      deadlineAt,
+    }));
+    mocks.listOverdueWaitingRequests.mockImplementation(async (_now, take, after) =>
+      requests.filter((row) => !after || row.id > after.id).slice(0, take)
+    );
+    mocks.scheduleOverdueRequest.mockImplementation(async (_actor, input) => {
+      if (input.requestId !== requests.at(-1)!.id)
+        throw new Error("Repeated fixture failure");
+      return { marked: true, queued: true };
+    });
+    const result = await runDeadlineWatch(7, job);
+    expect(result.repeatAfterSeconds).toBe(1);
+    const progress = mocks.checkpointDeadlineWatchProgress.mock.calls.at(-1)![1];
+    expect(progress.overdueAfter.id).toBe(requests[999]!.id);
+    const resumed = await runDeadlineWatch(7, job, progress);
+    expect(resumed.metadata).toMatchObject({ marked: 1, followUpsQueued: 1 });
+    expect(resumed.repeatAfterSeconds).toBeUndefined();
+    expect(mocks.scheduleOverdueRequest).toHaveBeenCalledTimes(1001);
+    expect(mocks.checkpointDeadlineWatchProgress.mock.calls.at(-1)![1]).toBeUndefined();
+  });
+  it("stops before listing a new batch when cancellation revokes the lease", async () => {
+    mocks.hasCurrentLease.mockResolvedValue(false);
+    await runDeadlineWatch(7, job);
+    expect(mocks.listDeadlineWarningRequests).not.toHaveBeenCalled();
+    expect(mocks.listOverdueWaitingRequests).not.toHaveBeenCalled();
+    expect(mocks.checkpointDeadlineWatchProgress).not.toHaveBeenCalled();
+  });
   it("excludes resolved and superseded states from reminders", () => {
     for (const state of ["COMPLETED", "CLOSED", "REJECTED", "FAILED"] as const)
       expect(isRecheckReminderApplicable(state)).toBe(false);

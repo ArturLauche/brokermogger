@@ -25,6 +25,7 @@ it("rehearses the additive response-clock upgrade with submitted and unsent lega
         join(directory, "schema.prisma"),
       ],
       {
+        cwd: directory,
         env: { ...process.env, DATABASE_URL: url.toString() },
         stdio: "pipe",
         timeout: 60_000,
@@ -95,6 +96,18 @@ it("rehearses the additive response-clock upgrade with submitted and unsent lega
     migrate();
     const sent = await client.removalRequest.findUniqueOrThrow({
       where: { id: "legacy-sent" },
+      select: {
+        status: true,
+        sentAt: true,
+        deadlineAt: true,
+        deadlineOn: true,
+        deadlineBasis: true,
+        deadlineIsEstimate: true,
+        deadlinePolicyVersion: true,
+        currentSnapshotId: true,
+        approvedSnapshotId: true,
+        deadlineWarningForAt: true,
+      },
     });
     expect(sent).toMatchObject({
       status: "SENT",
@@ -110,6 +123,13 @@ it("rehearses the additive response-clock upgrade with submitted and unsent lega
     });
     const draft = await client.removalRequest.findUniqueOrThrow({
       where: { id: "legacy-draft" },
+      select: {
+        status: true,
+        sentAt: true,
+        deadlineAt: true,
+        deadlineOn: true,
+        deadlineBasis: true,
+      },
     });
     expect(draft).toMatchObject({
       status: "DRAFT",

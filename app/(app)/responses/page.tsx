@@ -15,6 +15,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { RESPONSE_LABELS } from "@/lib/responses/labels";
+import { readListResult } from "@/app/_lib/list-result";
+import { ListInputErrorPage } from "@/components/common/list-input-error";
 
 export const metadata = { title: "Correspondence" };
 export const dynamic = "force-dynamic";
@@ -26,9 +28,12 @@ export default async function ResponsesPage({
 }) {
   const actor = await requireActorOrRedirect();
   const params = await searchParams;
-  const filter =
-    params.filter === "unmatched" || params.filter === "review" ? params.filter : "all";
-  const page = await listOwnedResponses(actor, { cursor: params.cursor, filter });
+  const filter = params.filter ?? "all";
+  const result = await readListResult(
+    listOwnedResponses(actor, { cursor: params.cursor, filter })
+  );
+  if (!result.ok) return <ListInputErrorPage title="Correspondence" path="/responses" />;
+  const page = result.value;
   const { formatStamp } = await getDateFormatter();
   return (
     <div className="flex flex-col gap-6">

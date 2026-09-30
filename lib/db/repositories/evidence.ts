@@ -41,6 +41,7 @@ export async function listOwnedEvidence(
     deletedAt: null,
     storageState: "READY",
     kind: input.kind === "all" ? { not: "ACCOUNT_EXPORT" } : input.kind,
+    ...(input.requestId ? { removalRequestId: input.requestId } : {}),
     ...(!ownedProfile ? { id: { in: [] } } : {}),
     AND: [
       ...(profileId ? [{ OR: [{ profileId }, { profileId: null }] }] : []),

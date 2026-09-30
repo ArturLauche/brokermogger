@@ -3,6 +3,7 @@ import { AppError } from "@/lib/core/errors";
 import { selectRequestDelivery } from "@/lib/brokers/sendable";
 import { assertRenderedDelivery } from "@/lib/requests/rendering";
 import { followUpKindSchema, type FollowUpKind } from "@/lib/requests/followUpKind";
+import { readFollowUpWork } from "@/lib/requests/followUpWork";
 import { prisma, type PrismaTransaction } from "@/lib/db/client";
 import { parseJobPayload } from "@/lib/jobs/payloads";
 import type { JobLease } from "@/lib/jobs/types";
@@ -59,7 +60,8 @@ async function lockReminderLease(
   job: JobLease,
   requestId: string,
   followUpNumber: number,
-  kind: FollowUpKind
+  kind: FollowUpKind,
+  deadlineAt: Date | null
 ) {
   if (
     !(await lockJobLeaseInTx(tx, job, "PREPARE_FOLLOW_UP", {
@@ -72,9 +74,13 @@ async function lockReminderLease(
     where: { id: job.id },
     select: { payloadJson: true },
   });
+  const payload = parseJobPayload("PREPARE_FOLLOW_UP", stored.payloadJson);
   return (
-    (parseJobPayload("PREPARE_FOLLOW_UP", stored.payloadJson).kind ?? "FOLLOW_UP") ===
-    kind
+    (payload.kind ?? "FOLLOW_UP") === kind &&
+    (payload.origin !== "DEADLINE" ||
+      (!!deadlineAt &&
+        deadlineAt.toISOString() === payload.expectedDeadlineAt &&
+        deadlineAt <= new Date()))
   );
 }
 
@@ -85,14 +91,34 @@ export async function queueFollowUpInTx(
   request: Decision,
   maxFollowUps: number,
   runAt: Date,
-  requestedKind?: FollowUpKind
+  requestedKind?: FollowUpKind,
+  automaticTarget?: Date
 ) {
   const followUpNumber = request.followUpCount + 1;
   const idempotencyKey = `follow-up:${request.id}:${followUpNumber}`;
   const previous = await tx.backgroundJob.findUnique({ where: { idempotencyKey } });
-  const previousKind = previous
-    ? (parseJobPayload("PREPARE_FOLLOW_UP", previous.payloadJson).kind ?? "FOLLOW_UP")
+  if (
+    previous &&
+    (previous.type !== "PREPARE_FOLLOW_UP" ||
+      previous.relatedRequestId !== request.id ||
+      previous.relatedUserId !== request.userId)
+  )
+    throw new AppError({
+      code: "CONFLICT",
+      message:
+        "The scheduled preparation is bound to different records. Ask the instance operator to review it.",
+    });
+  const previousPayload = previous
+    ? readFollowUpWork(previous.payloadJson, request.id, followUpNumber)
     : null;
+  const damaged = !!previous && !previousPayload;
+  if (damaged && !requestedKind)
+    throw new AppError({
+      code: "CONFLICT",
+      message:
+        "This preparation is damaged. Explicitly choose a follow-up or final reminder to replace it.",
+    });
+  const previousKind = previousPayload ? (previousPayload.kind ?? "FOLLOW_UP") : null;
   const kind = requestedKind ?? previousKind ?? "FOLLOW_UP";
   if (previousKind && previousKind !== kind)
     throw new AppError({
@@ -140,6 +166,9 @@ export async function queueFollowUpInTx(
     removalRequestId: request.id,
     followUpNumber,
     kind,
+    ...(automaticTarget
+      ? { origin: "DEADLINE", expectedDeadlineAt: automaticTarget.toISOString() }
+      : { origin: "MANUAL" }),
   });
   if (!previous)
     await tx.backgroundJob.create({
@@ -152,7 +181,7 @@ export async function queueFollowUpInTx(
         relatedUserId: request.userId,
       },
     });
-  else if (["FAILED", "CANCELLED", "COMPLETED"].includes(previous.status))
+  else if (damaged || ["FAILED", "CANCELLED", "COMPLETED"].includes(previous.status))
     await tx.backgroundJob.update({
       where: { id: previous.id },
       data: {
@@ -169,13 +198,17 @@ export async function queueFollowUpInTx(
         lastError: null,
       },
     });
-  else if (previous.status !== "RUNNING" && runAt < previous.runAt)
-    await tx.backgroundJob.update({ where: { id: previous.id }, data: { runAt } });
+  else if (previous.status !== "RUNNING")
+    await tx.backgroundJob.update({
+      where: { id: previous.id },
+      data: { payloadJson, ...(runAt < previous.runAt ? { runAt } : {}) },
+    });
   await tx.removalRequest.update({
     where: { id: request.id },
     data: {
       nextFollowUpAt:
         previous &&
+        !damaged &&
         ["PENDING", "RETRYABLE", "RUNNING"].includes(previous.status) &&
         previous.runAt < runAt
           ? previous.runAt
@@ -222,7 +255,16 @@ export async function canPrepareFollowUp(
 ) {
   return prisma.$transaction(async (tx) => {
     const request = await loadRequestForDecision(tx, actor, requestId, "request:update");
-    if (!(await lockReminderLease(tx, job, requestId, followUpNumber, kind)))
+    if (
+      !(await lockReminderLease(
+        tx,
+        job,
+        requestId,
+        followUpNumber,
+        kind,
+        request.deadlineAt
+      ))
+    )
       return false;
     if (
       request.status !== "FOLLOW_UP_SCHEDULED" ||
@@ -295,7 +337,8 @@ export async function commitFollowUpDraft(
         input.job,
         request.id,
         input.followUpNumber,
-        input.kind ?? "FOLLOW_UP"
+        input.kind ?? "FOLLOW_UP",
+        request.deadlineAt
       ))
     )
       return { created: false };

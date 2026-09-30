@@ -5,6 +5,7 @@ import { resetRuntimeSettingsCacheForTests } from "@/lib/config/runtimeSettings"
 import { enqueueJob } from "@/lib/jobs/queue";
 import { claimDueJobs, markJobCompleted } from "@/lib/db/repositories/jobs";
 import { getOwnedRequest } from "@/lib/db/repositories/requests";
+import { getRequestWork } from "@/lib/db/repositories/requestWork";
 import { createJobHandlers } from "@/lib/jobs/handlers";
 import { regenerateRequestDraft, editRequestDraft } from "@/lib/requests/editing";
 import { readApprovalEnvelope } from "@/lib/requests/envelope";
@@ -57,6 +58,76 @@ async function prepare(f: Awaited<ReturnType<typeof sent>>) {
 }
 
 describe("contextual follow-up actions", () => {
+  it("keeps a damaged preparation readable and requires an explicit reminder choice to repair it", async () => {
+    const f = await sent();
+    await prepareFollowUp(f.actor, f.request.id);
+    const job = await testPrisma.backgroundJob.findUniqueOrThrow({
+      where: { idempotencyKey: `follow-up:${f.request.id}:1` },
+    });
+    await testPrisma.backgroundJob.update({
+      where: { id: job.id },
+      data: { status: "FAILED", payloadJson: { kind: "FINAL_REMINDER" } },
+    });
+    const work = await getRequestWork(f.actor, f.request.id);
+    expect(work.followUp).toMatchObject({
+      status: "FAILED",
+      kind: null,
+      invalidPayload: true,
+    });
+    expect(work.followUp).not.toHaveProperty("payloadJson");
+    await expect(prepareFollowUp(f.actor, f.request.id)).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
+    await prepareFollowUp(f.actor, f.request.id, "FOLLOW_UP");
+    expect((await getRequestWork(f.actor, f.request.id)).followUp).toMatchObject({
+      status: "PENDING",
+      kind: "FOLLOW_UP",
+      invalidPayload: false,
+    });
+    const [repaired] = await claimDueJobs("repair-follow-up", 1);
+    await createJobHandlers().PREPARE_FOLLOW_UP!(
+      repaired as ClaimedJob<"PREPARE_FOLLOW_UP">
+    );
+    expect((await getOwnedRequest(f.actor, f.request.id)).status).toBe(
+      "AWAITING_USER_APPROVAL"
+    );
+  });
+
+  it("fences a damaged running preparation when its owner explicitly repairs it", async () => {
+    const f = await sent();
+    await prepareFollowUp(f.actor, f.request.id);
+    const [stale] = await claimDueJobs("damaged-follow-up", 1);
+    await testPrisma.backgroundJob.update({
+      where: { id: stale!.id },
+      data: { payloadJson: {} },
+    });
+    await prepareFollowUp(f.actor, f.request.id, "FOLLOW_UP");
+    await prepareFollowUpDraft(systemActor(stale!.id), f.request.id, 1, stale!);
+    expect((await getOwnedRequest(f.actor, f.request.id)).followUpCount).toBe(0);
+    expect(await markJobCompleted(stale!, { message: "Stale preparation" }, 1)).toBe(
+      false
+    );
+    expect((await getRequestWork(f.actor, f.request.id)).followUp?.status).toBe(
+      "PENDING"
+    );
+  });
+
+  it("does not expose or repair a job bound to a different owner or request", async () => {
+    const f = await sent();
+    await prepareFollowUp(f.actor, f.request.id);
+    await testPrisma.backgroundJob.update({
+      where: { idempotencyKey: `follow-up:${f.request.id}:1` },
+      data: {
+        relatedUserId: null,
+        payloadJson: { removalRequestId: "clforeignrequest00000000", followUpNumber: 1 },
+      },
+    });
+    expect((await getRequestWork(f.actor, f.request.id)).followUp).toBeNull();
+    await expect(
+      prepareFollowUp(f.actor, f.request.id, "FOLLOW_UP")
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
   it("uses a fresh legal version for a new follow-up without rewriting the original message or clock", async () => {
     const f = await sent();
     const original = f.request.snapshots[0]!;

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { getOwnedRequest } from "@/lib/db/repositories/requests";
+import { listRequestEvents } from "@/lib/db/repositories/requestHistory";
 import { claimDueJobs, markJobCompleted } from "@/lib/db/repositories/jobs";
+import { createJobHandlers } from "@/lib/jobs/handlers";
+import { enqueueJob } from "@/lib/jobs/queue";
+import { randomUUID } from "node:crypto";
+import type { ClaimedJob } from "@/lib/jobs/types";
 import { getRequestReceiptContext } from "@/lib/db/repositories/requestReceipt";
 import { formatIsoDate, dateInTimeZone } from "@/lib/format/datetime";
 import { systemActor } from "@/lib/permissions/actor";
@@ -63,6 +68,70 @@ function correction(
   };
 }
 describe("persisted response clocks and recorded receipts", () => {
+  it("cancels an obsolete automatic preparation and fences its worker when receipt moves the target into the future", async () => {
+    const f = await prepared();
+    await submit(f);
+    await testPrisma.removalRequest.update({
+      where: { id: f.requestId },
+      data: { deadlineAt: new Date(Date.now() - 14 * 86400_000) },
+    });
+    await enqueueJob({
+      type: "DEADLINE_WATCH",
+      payload: { windowDays: 14 },
+      idempotencyKey: `receipt-watch:${randomUUID()}`,
+      priority: 0,
+    });
+    const [watch] = await claimDueJobs("receipt-watch", 1);
+    await createJobHandlers().DEADLINE_WATCH!(watch as ClaimedJob<"DEADLINE_WATCH">);
+    await markJobCompleted(watch!, { message: "Automatic reminder scheduled" }, 1);
+    const scheduled = await getOwnedRequest(f.actor, f.requestId);
+    expect(scheduled.status).toBe("FOLLOW_UP_SCHEDULED");
+    const jobs = await claimDueJobs("receipt-obsolete-preparation", 5);
+    const old = jobs.find(
+      (job) => job.type === "PREPARE_FOLLOW_UP"
+    ) as ClaimedJob<"PREPARE_FOLLOW_UP">;
+    expect(old).toBeTruthy();
+    await recordRequestReceipt(f.actor, correction(scheduled, f.today));
+    const corrected = await getOwnedRequest(f.actor, f.requestId);
+    expect(corrected.status).toBe("WAITING_FOR_BROKER");
+    expect(corrected.nextFollowUpAt).toBeNull();
+    expect(corrected.currentSnapshotId).toBe(scheduled.currentSnapshotId);
+    expect(corrected.snapshots[0]!.body).toBe(scheduled.snapshots[0]!.body);
+    expect(corrected.deadlineAt!.getTime()).toBeGreaterThan(Date.now());
+    await createJobHandlers().PREPARE_FOLLOW_UP!(old);
+    expect(await markJobCompleted(old, { message: "Obsolete worker" }, 1)).toBe(false);
+    expect((await getOwnedRequest(f.actor, f.requestId)).followUpCount).toBe(0);
+    expect(
+      await testPrisma.backgroundJob.count({
+        where: {
+          relatedRequestId: f.requestId,
+          type: { in: ["PREPARE_FOLLOW_UP", "RECHECK_REMINDER"] },
+          status: { in: ["PENDING", "RUNNING", "RETRYABLE"] },
+        },
+      })
+    ).toBe(0);
+  });
+
+  it("preserves an owner's explicitly requested reminder across a receipt correction", async () => {
+    const f = await prepared();
+    await submit(f);
+    await prepareFollowUp(f.actor, f.requestId, "FOLLOW_UP");
+    const scheduled = await getOwnedRequest(f.actor, f.requestId);
+    await recordRequestReceipt(f.actor, correction(scheduled, f.today));
+    const next = await getOwnedRequest(f.actor, f.requestId);
+    expect(next.status).toBe("FOLLOW_UP_SCHEDULED");
+    expect(next.nextFollowUpAt).toEqual(scheduled.nextFollowUpAt);
+    expect(
+      await testPrisma.backgroundJob.count({
+        where: {
+          relatedRequestId: f.requestId,
+          type: "PREPARE_FOLLOW_UP",
+          status: "PENDING",
+        },
+      })
+    ).toBe(1);
+  });
+
   it("starts only after submission and keeps the initial clock when a new follow-up is submitted", async () => {
     const f = await prepared();
     const initial = await submit(f, true);
@@ -132,7 +201,7 @@ describe("persisted response clocks and recorded receipts", () => {
     expect(recorded.approvedEnvelopeHash).toBe(initial.approvedEnvelopeHash);
     expect(recorded.snapshots[0]!.body).toBe(initial.snapshots[0]!.body);
     expect(
-      recorded.events.filter((r) =>
+      (await listRequestEvents(f.actor, f.requestId)).items.filter((r) =>
         r.message?.includes("original request’s receipt date")
       )
     ).toHaveLength(1);

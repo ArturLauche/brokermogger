@@ -16,6 +16,8 @@ import { JobStatus, JobType } from "@prisma/client";
 import { ListFilters } from "@/components/common/list-filters";
 import { ListNavigation } from "@/components/common/list-navigation";
 import { ListResultSummary } from "@/components/common/list-result-summary";
+import { readListResult } from "@/app/_lib/list-result";
+import { ListInputErrorPage } from "@/components/common/list-input-error";
 
 import { cancelJobAction, retryJobAction } from "../actions";
 
@@ -35,10 +37,11 @@ export default async function AdminJobsPage({
   const actor = await requireRole("INSTANCE_ADMIN");
   const { formatStamp } = await getDateFormatter();
   const params = await searchParams;
-  const [page, metrics] = await Promise.all([
-    getAdminJobs(actor, params),
-    getAdminOperationalMetrics(actor),
-  ]);
+  const result = await readListResult(
+    Promise.all([getAdminJobs(actor, params), getAdminOperationalMetrics(actor)])
+  );
+  if (!result.ok) return <ListInputErrorPage title="Jobs" path="/admin/jobs" />;
+  const [page, metrics] = result.value;
 
   return (
     <>

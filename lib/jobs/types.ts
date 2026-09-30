@@ -8,12 +8,22 @@
 import type { JobType } from "@prisma/client";
 
 /** Payload shape per job type. Payloads never contain personal data. */
+export type DeadlineWatchProgress = {
+  now: string;
+  warningBefore: string;
+  warningsDone: boolean;
+  warningAfter?: { deadlineAt: string; id: string } | undefined;
+  overdueAfter?: { deadlineAt: string; id: string } | undefined;
+};
+
 export interface JobPayloadMap {
   SEND_REQUEST: { removalRequestId: string; snapshotId: string; attempt: number };
   PREPARE_FOLLOW_UP: {
     removalRequestId: string;
     followUpNumber: number;
     kind?: "FOLLOW_UP" | "FINAL_REMINDER" | undefined;
+    origin?: "MANUAL" | "DEADLINE" | undefined;
+    expectedDeadlineAt?: string | undefined;
   };
   DISPATCH_NOTIFICATION: { notificationId: string };
   PROCESS_EMAIL_WEBHOOK: { webhookEventId: string };
@@ -22,7 +32,7 @@ export interface JobPayloadMap {
   DELETE_ACCOUNT_DATA: { userId: string; requestedAt: string };
   PURGE_EVIDENCE: { olderThanIso: string };
   PURGE_TEMP_ID_FILES: { olderThanIso?: string | undefined };
-  DEADLINE_WATCH: { windowDays: number };
+  DEADLINE_WATCH: { windowDays: number; progress?: DeadlineWatchProgress | undefined };
   RECHECK_REMINDER: { removalRequestId: string };
   RETENTION_SWEEP: { dryRun: boolean };
   VERIFY_AUDIT_CHAIN: Record<string, never>;

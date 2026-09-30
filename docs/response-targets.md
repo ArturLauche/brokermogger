@@ -50,6 +50,13 @@ appends history in the same transaction as the clock. It uses the original
 submitted snapshot, even after a follow-up exists. Account, profile and
 identifier erasure remove these dates, their snapshot link and correction trail.
 
+A changed original receipt date cancels only preparation proven to have been
+scheduled automatically for the old response target, plus its obsolete recheck.
+It fences a running attempt and clears warning/handled markers so the new target
+can be processed. Explicitly requested reminder preparation survives the
+correction. A future corrected target can return an overdue request to waiting;
+approved text and previously submitted messages remain unchanged.
+
 ## Upgrade
 
 1. Keep external sending disabled. Pause app and worker writes and take the
@@ -74,3 +81,17 @@ applies this migration, verifies content and counts, then re-enters deployment.
 The old application does not understand the new provenance or inclusive-date
 fields. Keep sending and reminder processing paused during a rollback; review
 the database backup and migration boundaries before resuming an older version.
+
+`20260930030000_deadline_recovery` adds target-specific handled markers and
+backfills automatic-preparation provenance only where the latest request event
+is system scheduling to `FOLLOW_UP_SCHEDULED`, and job ownership and reminder
+sequence prove the relationship. Manual choices, final reminders and later
+correction/delivery events are not relabelled. Deploy the matching worker before
+resuming reminders. A separate disposable-schema rehearsal verifies those cases,
+the stronger audit-result constraint and a repeated deployment.
+
+`20261001010000_request_page_index` adds the ownership/time/id index for request
+pages. Apply it in the same maintenance window: ordinary index creation can
+block request writes while building. It changes neither historical content nor
+request visibility. The matching cursor retains the exact timestamp/id ordering
+and page boundaries.

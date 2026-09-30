@@ -268,6 +268,12 @@ const BASE_TRANSITIONS: Readonly<Record<RequestStatus, readonly TransitionRule[]
   ],
   NO_RESPONSE: [
     {
+      to: "WAITING_FOR_BROKER",
+      actors: ["USER"],
+      description:
+        "A confirmed receipt correction moves the response target into the future",
+    },
+    {
       to: "FOLLOW_UP_SCHEDULED",
       actors: ["SYSTEM", "USER"],
       description: "Follow up prepared",

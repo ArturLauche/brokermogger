@@ -7,6 +7,7 @@ import { REQUEST_STATUS_LABELS } from "@/components/common/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { EvidencePicker } from "@/components/common/evidence-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { RESPONSE_LABELS, RESPONSE_STATUS } from "@/lib/responses/labels";
 import { initialActionState } from "@/lib/validation/actionResult";
@@ -26,12 +27,10 @@ export function RecordResponseForm({
   initial,
   today,
   timeZone,
-  files,
 }: {
   initial: RecordResponseFields;
   today: string;
   timeZone: string;
-  files: { id: string; label: string }[];
 }) {
   const [state, action, pending] = useActionState(
     recordResponseAction,
@@ -127,20 +126,13 @@ export function RecordResponseForm({
       </div>
       <div className="space-y-2">
         <Label htmlFor="evidenceFileId">Reply evidence (optional)</Label>
-        <select
+        <EvidencePicker
+          requestId={initial.requestId}
           id="evidenceFileId"
           name="evidenceFileId"
-          className={selectClass}
-          defaultValue={state.values.evidenceFileId}
-          aria-describedby="evidenceFileId-hint evidenceFileId-error"
-        >
-          <option value="">No file attached</option>
-          {files.map((file) => (
-            <option key={file.id} value={file.id}>
-              {file.label}
-            </option>
-          ))}
-        </select>
+          initialValue={state.values.evidenceFileId}
+          describedBy="evidenceFileId-hint evidenceFileId-error"
+        />
         <p id="evidenceFileId-hint" className="text-sm text-muted-foreground">
           A previously uploaded file for this request. Identity documents are excluded.
         </p>

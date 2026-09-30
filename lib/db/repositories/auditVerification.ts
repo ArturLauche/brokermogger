@@ -93,7 +93,13 @@ export async function getAuditVerificationStatus(actor: ActorContext) {
     }),
     prisma.backgroundJob.findUnique({
       where: { idempotencyKey: AUDIT_VERIFICATION_KEY },
-      select: { id: true, status: true, runAt: true, lastError: true },
+      select: {
+        id: true,
+        status: true,
+        runAt: true,
+        attemptCount: true,
+        maxAttempts: true,
+      },
     }),
   ]);
   return { last, job };

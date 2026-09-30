@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
 
 import { DefinitionList } from "@/components/common/definition-list";
 import { ExternalLink } from "@/components/common/external-link";
@@ -10,8 +9,7 @@ import { StatusBadge } from "@/components/common/status-badge";
 import { SubmitButton } from "@/components/common/submit-button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { requireActorOrRedirect } from "@/lib/auth";
-import { isAppError } from "@/lib/core/errors";
-import { getOwnedRequest } from "@/lib/db/repositories/requests";
+import { loadPrivateRequest } from "@/app/_lib/private-request";
 import { formatIsoDate } from "@/lib/format/datetime";
 import { responseTargetLabel } from "@/lib/jurisdiction/deadlines";
 import { can } from "@/lib/permissions/policy";
@@ -35,10 +33,7 @@ export default async function ReviewRequestPage({
   const actor = await requireActorOrRedirect();
   const { id } = await params;
   const { error } = await searchParams;
-  const request = await getOwnedRequest(actor, id).catch((caught) => {
-    if (isAppError(caught) && caught.code === "NOT_FOUND") notFound();
-    throw caught;
-  });
+  const request = await loadPrivateRequest(actor, id);
   const snapshot = request.snapshots[0];
   const legalVersion = request.legalRuleVersion;
   const verification = legalVersion?.verificationRequirements;
@@ -57,7 +52,7 @@ export default async function ReviewRequestPage({
     can(actor, "request:update", { ownerUserId: request.userId }).allowed &&
     canTransition(request.status, "DRAFT", "USER") &&
     !request.outboundEmails.length &&
-    !request.manualSubmissions.some((row) => row.snapshotId === snapshot?.id);
+    !request.currentSnapshotSubmitted;
   const identifiers = Array.isArray(request.includedIdentifiers)
     ? (request.includedIdentifiers as { type?: string; masked?: string }[])
         .map((item) => item.masked ?? item.type ?? "")

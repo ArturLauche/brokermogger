@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { LinkPending } from "./link-pending";
 
 export function ListNavigation({
   path,
@@ -26,13 +27,17 @@ export function ListNavigation({
     <nav aria-label={`${label} pages`} className="flex flex-wrap gap-3">
       {cursor ? (
         <Button asChild variant="outline">
-          <Link href={`${path}?${first}`}>First page</Link>
+          <Link href={`${path}?${first}`}>
+            First page
+            <LinkPending />
+          </Link>
         </Button>
       ) : null}
       {nextCursor ? (
         <Button asChild variant="outline">
           <Link href={`${path}?${next}`}>
             Next page<span className="sr-only"> of {label.toLowerCase()}</span>
+            <LinkPending />
           </Link>
         </Button>
       ) : null}

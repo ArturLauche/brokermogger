@@ -23,6 +23,8 @@ import { ListFilters } from "@/components/common/list-filters";
 import { ListNavigation } from "@/components/common/list-navigation";
 import { ListResultSummary } from "@/components/common/list-result-summary";
 import { SubmitButton } from "@/components/common/submit-button";
+import { readListResult } from "@/app/_lib/list-result";
+import { ListInputErrorPage } from "@/components/common/list-input-error";
 
 import {
   grantBreakGlassAction,
@@ -46,11 +48,15 @@ export default async function AdminAuditPage({
   const actor = await requireRole("INSTANCE_ADMIN");
   const { formatStamp } = await getDateFormatter();
   const params = await searchParams;
-  const [page, chain, grants] = await Promise.all([
-    getAdminAudit(actor, params),
-    getAdminAuditVerification(actor),
-    listBreakGlass(actor),
-  ]);
+  const result = await readListResult(
+    Promise.all([
+      getAdminAudit(actor, params),
+      getAdminAuditVerification(actor),
+      listBreakGlass(actor),
+    ])
+  );
+  if (!result.ok) return <ListInputErrorPage title="Audit" path="/admin/audit" />;
+  const [page, chain, grants] = result.value;
   const { error } = params;
 
   return (
@@ -119,6 +125,7 @@ export default async function AdminAuditPage({
               chain.job?.status === "RUNNING" ||
               (!!chain.job &&
                 ["PENDING", "RETRYABLE"].includes(chain.job.status) &&
+                chain.job.attemptCount < chain.job.maxAttempts &&
                 chain.job.runAt <= new Date())
             }
           >

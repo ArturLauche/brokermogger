@@ -3,7 +3,7 @@ import { NotFoundError } from "@/lib/core/errors";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { isCrossAccountAccess, requirePermission } from "@/lib/permissions/policy";
 import { hasSubmittedFollowUpInTx } from "./requestFollowUp";
-import { parseJobPayload } from "@/lib/jobs/payloads";
+import { readFollowUpWork } from "@/lib/requests/followUpWork";
 
 /** Queue status for an owner's recovery controls; payloads and errors remain private. */
 export async function getRequestWork(actor: ActorContext, requestId: string) {
@@ -24,8 +24,13 @@ export async function getRequestWork(actor: ActorContext, requestId: string) {
     lockExpiresAt: true,
   } as const;
   const [followUp, send, hasSubmittedFollowUp] = await Promise.all([
-    prisma.backgroundJob.findUnique({
-      where: { idempotencyKey: `follow-up:${requestId}:${request.followUpCount + 1}` },
+    prisma.backgroundJob.findFirst({
+      where: {
+        idempotencyKey: `follow-up:${requestId}:${request.followUpCount + 1}`,
+        type: "PREPARE_FOLLOW_UP",
+        relatedUserId: request.userId,
+        relatedRequestId: requestId,
+      },
       select: { ...select, payloadJson: true },
     }),
     prisma.backgroundJob.findFirst({
@@ -43,9 +48,15 @@ export async function getRequestWork(actor: ActorContext, requestId: string) {
   const safeFollowUp = followUp
     ? (() => {
         const { payloadJson, ...status } = followUp;
+        const payload = readFollowUpWork(
+          payloadJson,
+          requestId,
+          request.followUpCount + 1
+        );
         return {
           ...status,
-          kind: parseJobPayload("PREPARE_FOLLOW_UP", payloadJson).kind ?? "FOLLOW_UP",
+          kind: payload ? (payload.kind ?? "FOLLOW_UP") : null,
+          invalidPayload: !payload,
         };
       })()
     : null;

@@ -21,6 +21,8 @@ import { MAX_BROKERS_PER_WORKFLOW } from "@/lib/requests/fairUse";
 import { applicableInitialTypes } from "@/lib/requests/initial";
 import { IDENTIFIER_TYPE_LABELS } from "@/lib/requests/labels";
 import { WorkflowForm } from "./workflow-form";
+import { readListResult } from "@/app/_lib/list-result";
+import { ListInputErrorPage } from "@/components/common/list-input-error";
 
 export const metadata = { title: "New privacy request" };
 export const dynamic = "force-dynamic";
@@ -104,17 +106,24 @@ export default async function NewRequestPage({
       </div>
     );
   }
+  if (params.brokers !== undefined && typeof params.brokers !== "string")
+    return <ListInputErrorPage title="Start a privacy request" path="/requests/new" />;
   const preselected = new Set(
     (params.brokers ?? "")
       .split(",")
       .filter((id) => entityIdSchema.safeParse(id).success)
       .slice(0, MAX_BROKERS_PER_WORKFLOW)
   );
-  const [directory, selected, templated] = await Promise.all([
-    listBrokersForDirectory({ search: params.search, cursor: params.cursor }),
-    getSelectedBrokersForChoice([...preselected]),
-    listPublishedTemplateTypes(resolved.jurisdiction.id),
-  ]);
+  const result = await readListResult(
+    Promise.all([
+      listBrokersForDirectory({ search: params.search, cursor: params.cursor }),
+      getSelectedBrokersForChoice([...preselected]),
+      listPublishedTemplateTypes(resolved.jurisdiction.id),
+    ])
+  );
+  if (!result.ok)
+    return <ListInputErrorPage title="Start a privacy request" path="/requests/new" />;
+  const [directory, selected, templated] = result.value;
   const brokers = [
     ...new Map(
       [...selected, ...directory.items].map((broker) => [broker.id, broker])
