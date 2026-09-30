@@ -10,21 +10,86 @@ import { isCrossAccountAccess, requirePermission } from "@/lib/permissions/polic
 import { recordAuditOrThrow } from "@/lib/audit/service";
 import { invalidateAccountExportsInTx } from "./accountExports";
 import { lockActiveAccount } from "./access";
+import { evidenceListSchema } from "@/lib/evidence/queries";
+import { parseWithSchema } from "@/lib/validation/form";
+import { entityIdSchema } from "@/lib/validation/ids";
+import { createdBeforeCursor, cursorPage } from "@/lib/pagination";
 
-export async function listOwnedEvidence(actor: ActorContext, profileId: string | null) {
+export async function listOwnedEvidence(
+  actor: ActorContext,
+  profileId: string | null,
+  raw: unknown = {}
+) {
   requirePermission(actor, "evidence:read", { ownerUserId: actor.userId });
-  return prisma.evidenceFile.findMany({
-    where: {
-      userId: actor.userId,
-      deletedAt: null,
-      storageState: "READY",
-      kind: { not: "ACCOUNT_EXPORT" },
-      ...(profileId ? { OR: [{ profileId }, { profileId: null }] } : {}),
-    },
-    include: { removalRequest: { include: { broker: true } } },
-    orderBy: { createdAt: "desc" },
-    take: 100,
-  });
+  const input = parseWithSchema(evidenceListSchema, raw);
+  const ownedProfile =
+    !profileId ||
+    Boolean(
+      await prisma.userProfile.findFirst({
+        where: {
+          id: parseWithSchema(entityIdSchema, profileId),
+          ownerUserId: actor.userId,
+          deletedAt: null,
+        },
+        select: { id: true },
+      })
+    );
+  const now = new Date();
+  const where: Prisma.EvidenceFileWhereInput = {
+    userId: actor.userId,
+    user: { status: "ACTIVE", deletionRequestedAt: null },
+    deletedAt: null,
+    storageState: "READY",
+    kind: input.kind === "all" ? { not: "ACCOUNT_EXPORT" } : input.kind,
+    ...(!ownedProfile ? { id: { in: [] } } : {}),
+    AND: [
+      ...(profileId ? [{ OR: [{ profileId }, { profileId: null }] }] : []),
+      ...(input.expiry === "available"
+        ? [{ OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }]
+        : input.expiry === "expired"
+          ? [{ expiresAt: { lte: now } }]
+          : []),
+      ...(input.search
+        ? [
+            {
+              OR: [
+                {
+                  filenameMasked: {
+                    contains: input.search,
+                    mode: "insensitive" as const,
+                  },
+                },
+                {
+                  removalRequest: {
+                    broker: {
+                      legalName: { contains: input.search, mode: "insensitive" as const },
+                    },
+                  },
+                },
+              ],
+            },
+          ]
+        : []),
+    ],
+  };
+  const [rows, total] = await Promise.all([
+    prisma.evidenceFile.findMany({
+      where: { AND: [where, createdBeforeCursor(input.cursor)] },
+      select: {
+        id: true,
+        createdAt: true,
+        kind: true,
+        expiresAt: true,
+        byteSize: true,
+        filenameMasked: true,
+        removalRequest: { select: { id: true, broker: { select: { legalName: true } } } },
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: input.limit + 1,
+    }),
+    prisma.evidenceFile.count({ where }),
+  ]);
+  return { ...cursorPage(rows, input.limit), total };
 }
 
 export async function getOwnedEvidence(actor: ActorContext, evidenceId: string) {

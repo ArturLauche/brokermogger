@@ -27,8 +27,12 @@ import {
 import { parseWithSchema } from "@/lib/validation/form";
 import { sanitiseText } from "@/lib/security/sanitize";
 
-export async function listEvidence(actor: ActorContext, profileId: string | null) {
-  return listOwnedEvidence(actor, profileId);
+export async function listEvidence(
+  actor: ActorContext,
+  profileId: string | null,
+  raw: unknown = {}
+) {
+  return listOwnedEvidence(actor, profileId, raw);
 }
 
 export async function uploadEvidence(

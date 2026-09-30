@@ -1,7 +1,8 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { RequestType } from "@prisma/client";
 import { FieldError, FormFeedback } from "@/components/common/form-feedback";
 import { Button } from "@/components/ui/button";
@@ -11,23 +12,36 @@ import { REQUEST_TYPE_LABELS } from "@/lib/requests/labels";
 import { MAX_BROKERS_PER_WORKFLOW } from "@/lib/requests/fairUse";
 import { initialActionState } from "@/lib/validation/actionResult";
 import { createWorkflow, type WorkflowFields, type WorkflowState } from "./actions";
+import { ListNavigation } from "@/components/common/list-navigation";
+
+type BrokerChoice = {
+  id: string;
+  label: string;
+  active: boolean;
+  supportedTypes: RequestType[];
+};
 
 export function WorkflowForm({
   initial,
   types,
   identifiers,
   brokers,
+  directory,
 }: {
   initial: WorkflowFields;
   types: RequestType[];
   identifiers: { id: string; label: string }[];
-  brokers: {
-    id: string;
-    label: string;
-    active: boolean;
-    supportedTypes: RequestType[];
-  }[];
+  brokers: BrokerChoice[];
+  directory: {
+    total: number;
+    nextCursor: string | null;
+    cursor: string;
+    search: string;
+    brokerQuery: string;
+  };
 }) {
+  const router = useRouter();
+  const [searching, startSearch] = useTransition();
   const [state, action, pending] = useActionState<WorkflowState, FormData>(
     createWorkflow,
     initialActionState(initial)
@@ -39,14 +53,26 @@ export function WorkflowForm({
   const [selectedBrokers, setBrokers] = useState(
     initial.brokerIds.split(",").filter(Boolean)
   );
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(directory.search);
+  const [selectedChoices, setSelectedChoices] = useState(
+    new Map(
+      brokers
+        .filter((broker) => selectedBrokers.includes(broker.id))
+        .map((broker) => [broker.id, broker])
+    )
+  );
   const toggle = (values: string[], value: string) =>
     values.includes(value) ? values.filter((id) => id !== value) : [...values, value];
-  const visibleBrokers = brokers.filter(
-    (broker) =>
-      selectedBrokers.includes(broker.id) ||
-      broker.label.toLowerCase().includes(search.trim().toLowerCase())
-  );
+  const visibleBrokers = [
+    ...new Map(
+      [...selectedChoices.values(), ...brokers].map((broker) => [broker.id, broker])
+    ).values(),
+  ];
+  const searchDirectory = () => {
+    const query = new URLSearchParams({ search: search.trim() });
+    if (directory.brokerQuery) query.set("brokers", directory.brokerQuery);
+    startSearch(() => router.push(`/requests/new?${query}`, { scroll: false }));
+  };
   return (
     <form action={action} className="flex flex-col gap-8" aria-busy={pending}>
       <input type="hidden" name="profileId" value={initial.profileId} />
@@ -141,16 +167,38 @@ export function WorkflowForm({
           Choose up to {MAX_BROKERS_PER_WORKFLOW} brokers. Availability for submission is
           checked during review.
         </p>
-        <Label htmlFor="broker-search">Find a broker in this list</Label>
-        <Input
-          id="broker-search"
-          type="search"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Broker name"
-        />
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-0 flex-1 space-y-2">
+            <Label htmlFor="broker-search">Find a broker</Label>
+            <Input
+              id="broker-search"
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  searchDirectory();
+                }
+              }}
+              maxLength={100}
+              disabled={pending || searching}
+              placeholder="Broker name"
+            />
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={searchDirectory}
+            disabled={pending || searching}
+          >
+            {searching ? "Searching…" : "Search brokers"}
+          </Button>
+        </div>
         <p className="text-sm" role="status">
-          {selectedBrokers.length} selected
+          {selectedBrokers.length} selected · {directory.total} matching{" "}
+          {directory.total === 1 ? "broker" : "brokers"}. Selections stay available while
+          searching or paging.
         </p>
         <div
           className="max-h-80 overflow-y-auto overscroll-contain"
@@ -173,7 +221,16 @@ export function WorkflowForm({
                   name="brokerId"
                   value={broker.id}
                   checked={selectedBrokers.includes(broker.id)}
-                  onChange={() => setBrokers(toggle(selectedBrokers, broker.id))}
+                  onChange={() => {
+                    const selected = toggle(selectedBrokers, broker.id);
+                    setBrokers(selected);
+                    setSelectedChoices((previous) => {
+                      const next = new Map(previous);
+                      if (selected.includes(broker.id)) next.set(broker.id, broker);
+                      else next.delete(broker.id);
+                      return next;
+                    });
+                  }}
                   disabled={
                     pending || (!compatible && !selectedBrokers.includes(broker.id))
                   }
@@ -204,11 +261,20 @@ export function WorkflowForm({
             </p>
           ) : null}
         </div>
+        <ListNavigation
+          path="/requests/new"
+          filters={{ search: directory.search, brokers: directory.brokerQuery }}
+          cursor={directory.cursor}
+          nextCursor={directory.nextCursor}
+          label="Broker choices"
+        />
         <FieldError id="brokerIds-error" message={state.fieldErrors.brokerIds} />
       </fieldset>
       <Button
         type="submit"
-        disabled={pending || !types.length || !identifiers.length || !brokers.length}
+        disabled={
+          pending || !types.length || !identifiers.length || !selectedBrokers.length
+        }
         className="self-start"
       >
         {pending ? "Preparing drafts…" : "Generate drafts"}

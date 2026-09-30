@@ -27,6 +27,10 @@ import { assertTransition, type TransitionActor } from "@/lib/requests/stateMach
 import { canonicalJson, chainHash, sha256Hex } from "@/lib/security/crypto";
 import { sendingIdentityInTx } from "./inboundMailboxes";
 import { assertRenderedSendingIdentity } from "@/lib/requests/rendering";
+import { requestListSchema } from "@/lib/requests/queries";
+import { parseWithSchema } from "@/lib/validation/form";
+import { entityIdSchema } from "@/lib/validation/ids";
+import { createdBeforeCursor, cursorPage } from "@/lib/pagination";
 
 export const DEFAULT_LIST_LIMIT = 100;
 export const MAX_LIST_LIMIT = 200;
@@ -140,19 +144,63 @@ export async function getSnapshotForRequest(
 export async function listOwnedRequests(
   actor: ActorContext,
   profileId: string | null,
-  options: { take?: number } = {}
+  raw: unknown = {}
 ) {
   requirePermission(actor, "request:read", { ownerUserId: actor.userId });
-  return prisma.removalRequest.findMany({
+  const input = parseWithSchema(requestListSchema, raw);
+  const where: Prisma.RemovalRequestWhereInput = {
+    userId: actor.userId,
+    user: { status: "ACTIVE", deletionRequestedAt: null },
+    profile: { ownerUserId: actor.userId, deletedAt: null },
+    deletedAt: null,
+    ...(profileId ? { profileId: parseWithSchema(entityIdSchema, profileId) } : {}),
+    ...(input.status !== "all" ? { status: input.status } : {}),
+    ...(input.requestType !== "all" ? { requestType: input.requestType } : {}),
+    ...(input.search
+      ? {
+          OR: [
+            { id: { contains: input.search, mode: "insensitive" } },
+            { broker: { legalName: { contains: input.search, mode: "insensitive" } } },
+          ],
+        }
+      : {}),
+  };
+  const [rows, total] = await Promise.all([
+    prisma.removalRequest.findMany({
+      where: { AND: [where, createdBeforeCursor(input.cursor)] },
+      select: {
+        id: true,
+        createdAt: true,
+        status: true,
+        requestType: true,
+        deadlineOn: true,
+        deadlineIsEstimate: true,
+        broker: { select: { legalName: true } },
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: input.limit + 1,
+    }),
+    prisma.removalRequest.count({ where }),
+  ]);
+  return { ...cursorPage(rows, input.limit), total };
+}
+
+/** A selected request remains available even when it is outside the current result page. */
+export async function getOwnedRequestChoice(actor: ActorContext, rawId: unknown) {
+  requirePermission(actor, "request:read", { ownerUserId: actor.userId });
+  const id = parseWithSchema(entityIdSchema, rawId);
+  const row = await prisma.removalRequest.findFirst({
     where: {
+      id,
       userId: actor.userId,
       deletedAt: null,
-      ...(profileId ? { profileId } : {}),
+      user: { status: "ACTIVE", deletionRequestedAt: null },
+      profile: { ownerUserId: actor.userId, deletedAt: null },
     },
-    include: { broker: true, profile: true, jurisdiction: true },
-    orderBy: { updatedAt: "desc" },
-    take: clampTake(options.take),
+    select: { id: true, status: true, broker: { select: { legalName: true } } },
   });
+  if (!row) throw new NotFoundError("This request does not exist.");
+  return row;
 }
 
 export interface RequestEventInput {

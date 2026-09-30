@@ -80,6 +80,16 @@ withdrawn-rule scheduling correction. Synthetic operator comparisons are
 
 ## Measured JavaScript transfer
 
+The pagination pass was checked with a fresh Next.js 16.3.8 production build:
+12 browser journeys pass, including access to older requests, expired evidence
+and broker selections preserved across search and pages. A new capture covers
+all 48 routes at the five widths (240 images), with no unintended overflow,
+heading/label defects, unexpected CSP or console errors, or axe AA violations.
+Synthetic list screens are recorded for [requests](verification/interface/requests-1440.png),
+[evidence at 375px](verification/interface/evidence-375.png),
+[jobs](verification/interface/admin-jobs-1440.png) and
+[audit](verification/interface/admin-audit-1440.png).
+
 Three fresh Chromium contexts per build measured compressed Next JavaScript
 resources after the public page settled. Each run returned the same byte totals:
 

@@ -23,11 +23,19 @@ import {
   listPublishedLegalRules,
 } from "@/lib/db/repositories/catalog";
 import { resolveJurisdiction } from "@/lib/jurisdiction/resolve";
+import { ListNavigation } from "@/components/common/list-navigation";
+import { ListFilters } from "@/components/common/list-filters";
+import { ListResultSummary } from "@/components/common/list-result-summary";
+import { brokerCategorySchema } from "@/lib/validation/enums";
 
 export const metadata = { title: "Brokers" };
 export const dynamic = "force-dynamic";
 
-export default async function BrokersPage() {
+export default async function BrokersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ search?: string; category?: string; cursor?: string }>;
+}) {
   const actor = await requireActorOrRedirect();
   const { active } = await resolveActiveProfileForRequest(actor);
   const jurisdictions = await listActiveJurisdictions();
@@ -51,7 +59,11 @@ export default async function BrokersPage() {
     }
   }
 
-  const brokers = await listBrokersForDirectory(jurisdictionId ? { jurisdictionId } : {});
+  const params = await searchParams;
+  const page = await listBrokersForDirectory({
+    ...params,
+    ...(jurisdictionId ? { jurisdictionId } : {}),
+  });
 
   return (
     <div className="flex flex-col gap-6">
@@ -67,7 +79,27 @@ export default async function BrokersPage() {
           sending.
         </AlertDescription>
       </Alert>
-      {brokers.length === 0 ? (
+      <ListFilters
+        path="/brokers"
+        prefix="broker-directory"
+        searchLabel="Broker name"
+        values={params}
+        selects={[
+          {
+            name: "category",
+            label: "Category",
+            options: [
+              { value: "all", label: "All categories" },
+              ...brokerCategorySchema.options.map((value) => ({
+                value,
+                label: value.toLowerCase().replaceAll("_", " "),
+              })),
+            ],
+          },
+        ]}
+      />
+      <ListResultSummary shown={page.items.length} total={page.total} noun="broker" />
+      {page.items.length === 0 ? (
         <EmptyState
           icon={Building2Icon}
           title="No brokers match"
@@ -84,7 +116,7 @@ export default async function BrokersPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {brokers.map((broker) => (
+            {page.items.map((broker) => (
               <TableRow key={broker.id}>
                 <TableCell>
                   <Link className="underline" href={`/requests/new?brokers=${broker.id}`}>
@@ -122,6 +154,13 @@ export default async function BrokersPage() {
           </TableBody>
         </Table>
       )}
+      <ListNavigation
+        path="/brokers"
+        filters={{ search: params.search, category: params.category }}
+        cursor={params.cursor}
+        nextCursor={page.nextCursor}
+        label="Broker results"
+      />
       <Button asChild>
         <Link href="/requests/new">Start new removal workflow</Link>
       </Button>

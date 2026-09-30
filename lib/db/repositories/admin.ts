@@ -5,7 +5,8 @@ import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
 import { entityIdSchema } from "@/lib/validation/ids";
 import { parseWithSchema } from "@/lib/validation/form";
-import type { JobStatus, Prisma } from "@prisma/client";
+import { JobStatus, JobType, type Prisma } from "@prisma/client";
+import { pageInputSchema, createdBeforeCursor, cursorPage } from "@/lib/pagination";
 
 import { prisma } from "@/lib/db/client";
 import { AppError } from "@/lib/core/errors";
@@ -30,32 +31,116 @@ export async function countAdminOverview(actor: ActorContext) {
   return { unverifiedBrokers, unpublishedRuleDrafts, failedJobs, pendingManualReviews };
 }
 
-export async function listAdminJobs(actor: ActorContext, status?: JobStatus) {
+const jobListSchema = pageInputSchema.extend({
+  status: z.union([z.literal("all"), z.enum(JobStatus)]).default("all"),
+  type: z.union([z.literal("all"), z.enum(JobType)]).default("all"),
+  search: z.string().trim().max(100).default(""),
+});
+export async function listAdminJobs(actor: ActorContext, raw: unknown = {}) {
   requirePermission(actor, "admin:job:read");
-  return prisma.backgroundJob.findMany({
-    where: status ? { status } : {},
-    select: {
-      id: true,
-      type: true,
-      status: true,
-      runAt: true,
-      attemptCount: true,
-      maxAttempts: true,
-      lastError: true,
-      relatedRequestId: true,
-    },
-    orderBy: { createdAt: "desc" },
-    take: 100,
-  });
+  const input = parseWithSchema(jobListSchema, raw);
+  const where: Prisma.BackgroundJobWhereInput = {
+    ...(input.status !== "all" ? { status: input.status } : {}),
+    ...(input.type !== "all" ? { type: input.type } : {}),
+    ...(input.search
+      ? {
+          OR: [
+            { id: { contains: input.search, mode: "insensitive" } },
+            { relatedRequestId: { contains: input.search, mode: "insensitive" } },
+          ],
+        }
+      : {}),
+  };
+  const [rows, total] = await Promise.all([
+    prisma.backgroundJob.findMany({
+      where: { AND: [where, createdBeforeCursor(input.cursor)] },
+      select: {
+        id: true,
+        createdAt: true,
+        type: true,
+        status: true,
+        runAt: true,
+        attemptCount: true,
+        maxAttempts: true,
+        lastError: true,
+        relatedRequestId: true,
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: input.limit + 1,
+    }),
+    prisma.backgroundJob.count({ where }),
+  ]);
+  return { ...cursorPage(rows, input.limit), total };
 }
 
-export async function listAdminAudit(actor: ActorContext, limit = 100) {
+const auditListSchema = pageInputSchema.extend({
+  search: z.string().trim().max(100).default(""),
+  outcome: z.enum(["all", "SUCCESS", "ERROR", "DENIED"]).default("all"),
+});
+function beforeAuditSequence(cursor: string | undefined): Prisma.AuditLogWhereInput {
+  if (!cursor) return {};
+  let sequence: string;
+  try {
+    sequence = z
+      .string()
+      .regex(/^[1-9]\d{0,18}$/)
+      .parse(JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")).sequence);
+  } catch {
+    throw new AppError({
+      code: "VALIDATION_FAILED",
+      message: "This audit page link is invalid. Open the first page and try again.",
+    });
+  }
+  if (BigInt(sequence) > 9223372036854775807n)
+    throw new AppError({
+      code: "VALIDATION_FAILED",
+      message: "This audit page link is invalid.",
+    });
+  return { sequence: { lt: BigInt(sequence) } };
+}
+export async function listAdminAudit(actor: ActorContext, raw: unknown = {}) {
   requirePermission(actor, "admin:audit:read");
-  parseWithSchema(z.number().int().min(1).max(250), limit);
-  return prisma.auditLog.findMany({
-    orderBy: { sequence: "desc" },
-    take: limit,
-  });
+  const input = parseWithSchema(auditListSchema, raw);
+  const where: Prisma.AuditLogWhereInput = {
+    ...(input.outcome !== "all" ? { outcome: input.outcome } : {}),
+    ...(input.search
+      ? {
+          OR: [
+            { action: { contains: input.search, mode: "insensitive" } },
+            { resourceType: { contains: input.search, mode: "insensitive" } },
+          ],
+        }
+      : {}),
+  };
+  const [rows, total] = await Promise.all([
+    prisma.auditLog.findMany({
+      where: { AND: [where, beforeAuditSequence(input.cursor)] },
+      select: {
+        id: true,
+        sequence: true,
+        createdAt: true,
+        action: true,
+        resourceType: true,
+        resourceId: true,
+        outcome: true,
+      },
+      orderBy: { sequence: "desc" },
+      take: input.limit + 1,
+    }),
+    prisma.auditLog.count({ where }),
+  ]);
+  const items = rows.slice(0, input.limit);
+  const last = items.at(-1);
+  return {
+    items,
+    total,
+    nextCursor:
+      rows.length > input.limit && last
+        ? Buffer.from(JSON.stringify({ sequence: last.sequence.toString() })).toString(
+            "base64url"
+          )
+        : null,
+  };
 }
 
 export async function createBreakGlassGrant(actor: ActorContext, raw: unknown) {

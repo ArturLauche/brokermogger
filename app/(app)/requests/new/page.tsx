@@ -10,7 +10,7 @@ import {
   listBrokersForDirectory,
   listActiveJurisdictions,
   listPublishedLegalRules,
-  getBrokersWithContacts,
+  getSelectedBrokersForChoice,
   listPublishedTemplateTypes,
 } from "@/lib/db/repositories/catalog";
 import { assertCurrentProfileConsent } from "@/lib/consent/current";
@@ -28,7 +28,7 @@ export const dynamic = "force-dynamic";
 export default async function NewRequestPage({
   searchParams,
 }: {
-  searchParams: Promise<{ brokers?: string }>;
+  searchParams: Promise<{ brokers?: string; search?: string; cursor?: string }>;
 }) {
   const actor = await requireActorOrRedirect();
   const { active } = await resolveActiveProfileForRequest(actor);
@@ -111,12 +111,14 @@ export default async function NewRequestPage({
       .slice(0, MAX_BROKERS_PER_WORKFLOW)
   );
   const [directory, selected, templated] = await Promise.all([
-    listBrokersForDirectory({}),
-    getBrokersWithContacts([...preselected]),
+    listBrokersForDirectory({ search: params.search, cursor: params.cursor }),
+    getSelectedBrokersForChoice([...preselected]),
     listPublishedTemplateTypes(resolved.jurisdiction.id),
   ]);
   const brokers = [
-    ...new Map([...directory, ...selected].map((broker) => [broker.id, broker])).values(),
+    ...new Map(
+      [...selected, ...directory.items].map((broker) => [broker.id, broker])
+    ).values(),
   ];
   const types = applicableInitialTypes(resolved.availableRequestTypes, templated);
   return (
@@ -159,6 +161,13 @@ export default async function NewRequestPage({
         </details>
       </section>
       <WorkflowForm
+        directory={{
+          total: directory.total,
+          nextCursor: directory.nextCursor,
+          cursor: params.cursor ?? "",
+          search: params.search ?? "",
+          brokerQuery: selected.map((broker) => broker.id).join(","),
+        }}
         initial={{
           profileId: profile.id,
           requestType: types[0] ?? "",

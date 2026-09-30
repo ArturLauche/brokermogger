@@ -26,9 +26,9 @@ export async function openAdminConsole(actor: ActorContext) {
   return countAdminOverview(actor);
 }
 
-export async function getAdminJobs(actor: ActorContext) {
+export async function getAdminJobs(actor: ActorContext, raw: unknown = {}) {
   requirePermission(actor, "admin:job:read");
-  return listAdminJobs(actor);
+  return listAdminJobs(actor, raw);
 }
 
 export async function retryAdminJob(actor: ActorContext, jobId: string) {
@@ -53,9 +53,9 @@ export async function cancelAdminJob(actor: ActorContext, jobId: string) {
   });
 }
 
-export async function getAdminAudit(actor: ActorContext) {
+export async function getAdminAudit(actor: ActorContext, raw: unknown = {}) {
   requirePermission(actor, "admin:audit:read");
-  return listAdminAudit(actor, 150);
+  return listAdminAudit(actor, raw);
 }
 
 export async function verifyAdminAuditChain(actor: ActorContext) {

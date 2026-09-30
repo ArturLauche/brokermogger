@@ -19,6 +19,9 @@ import {
 } from "@/lib/admin/service";
 import { requireRole } from "@/lib/auth";
 import { getDateFormatter } from "@/app/_lib/datetime";
+import { ListFilters } from "@/components/common/list-filters";
+import { ListNavigation } from "@/components/common/list-navigation";
+import { ListResultSummary } from "@/components/common/list-result-summary";
 
 import { grantBreakGlassAction, revokeBreakGlassAction } from "../actions";
 
@@ -27,16 +30,22 @@ export const metadata = { title: "Admin audit" };
 export default async function AdminAuditPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{
+    error?: string;
+    search?: string;
+    outcome?: string;
+    cursor?: string;
+  }>;
 }) {
   const actor = await requireRole("INSTANCE_ADMIN");
   const { formatStamp } = await getDateFormatter();
-  const [rows, chain, grants] = await Promise.all([
-    getAdminAudit(actor),
+  const params = await searchParams;
+  const [page, chain, grants] = await Promise.all([
+    getAdminAudit(actor, params),
     verifyAdminAuditChain(actor),
     listBreakGlass(actor),
   ]);
-  const { error } = await searchParams;
+  const { error } = params;
 
   return (
     <>
@@ -61,6 +70,37 @@ export default async function AdminAuditPage({
         </AlertDescription>
       </Alert>
 
+      <ListFilters
+        path="/admin/audit"
+        prefix="audit"
+        searchLabel="Action or resource type"
+        values={params}
+        selects={[
+          {
+            name: "outcome",
+            label: "Outcome",
+            options: [
+              { value: "all", label: "All outcomes" },
+              { value: "SUCCESS", label: "Success" },
+              { value: "DENIED", label: "Denied" },
+              { value: "ERROR", label: "Error" },
+            ],
+          },
+        ]}
+      />
+      <ListResultSummary
+        shown={page.items.length}
+        total={page.total}
+        noun="event"
+        order="Newest sequence first"
+      />
+      {!page.items.length ? (
+        <section className="space-y-2 border-t py-6">
+          <h2 className="text-lg font-semibold">No matching audit entries</h2>
+          <p className="text-sm">Change the filters to review other events.</p>
+        </section>
+      ) : null}
+
       <Table scrollLabel="Audit entries">
         <TableHeader>
           <TableRow>
@@ -71,7 +111,7 @@ export default async function AdminAuditPage({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map((row) => (
+          {page.items.map((row) => (
             <TableRow key={row.id}>
               <TableCell>{formatStamp(row.createdAt)}</TableCell>
               <TableCell className="font-mono text-xs">{row.action}</TableCell>
@@ -84,8 +124,15 @@ export default async function AdminAuditPage({
           ))}
         </TableBody>
       </Table>
+      <ListNavigation
+        path="/admin/audit"
+        filters={{ search: params.search, outcome: params.outcome }}
+        cursor={params.cursor}
+        nextCursor={page.nextCursor}
+        label="Audit results"
+      />
 
-      <section className="flex max-w-xl flex-col gap-3 rounded-xl border p-4">
+      <section className="flex max-w-[680px] flex-col gap-4 border-t pt-6">
         <h2 className="font-heading text-base font-medium">Break-glass</h2>
         <p className="text-sm text-muted-foreground">
           Decrypting identifiers and downloading evidence stay blocked even with a grant.

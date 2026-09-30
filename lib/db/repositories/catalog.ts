@@ -6,12 +6,17 @@
  * loads them. Writes from the admin console must call `invalidateCatalogCache`.
  * Directory searches are not cached: the key would be unbounded free text.
  */
-import type { BrokerCategory, RequestChannel, RequestType, Prisma } from "@prisma/client";
+import type { RequestChannel, RequestType, Prisma } from "@prisma/client";
+import { MAX_BROKERS_PER_WORKFLOW } from "@/lib/requests/fairUse";
 
-import { createKeyedTtlCache, createTtlCache } from "@/lib/cache/ttl";
+import { createTtlCache } from "@/lib/cache/ttl";
 import { prisma } from "@/lib/db/client";
 import type { JurisdictionRecord, LegalRuleSnapshot } from "@/lib/jurisdiction/types";
 import { brokerCategorySchema } from "@/lib/validation/enums";
+import { z } from "zod";
+import { pageInputSchema, createdBeforeCursor, cursorPage } from "@/lib/pagination";
+import { parseWithSchema } from "@/lib/validation/form";
+import { entityIdSchema } from "@/lib/validation/ids";
 
 const CATALOG_TTL_MS = 60_000;
 const jurisdictionsCache = createTtlCache<JurisdictionRecord[]>(CATALOG_TTL_MS);
@@ -19,16 +24,10 @@ type CatalogueLegalVersion = Prisma.LegalRuleVersionGetPayload<{
   include: { legalRule: true };
 }>;
 const legalRulesCache = createTtlCache<CatalogueLegalVersion[]>(CATALOG_TTL_MS);
-const brokerDirectoryCache = createKeyedTtlCache<
-  Awaited<ReturnType<typeof loadBrokersForDirectory>>
->(CATALOG_TTL_MS, 32);
-
-const DIRECTORY_TAKE = 500;
 
 export function invalidateCatalogCache(): void {
   jurisdictionsCache.clear();
   legalRulesCache.clear();
-  brokerDirectoryCache.clear();
 }
 
 /** Test helper. Never call this from application code. */
@@ -156,63 +155,68 @@ export async function listPublishedTemplateTypes(jurisdictionId: string) {
   return rows.map((row) => row.requestType);
 }
 
-function parseBrokerCategory(value: string | undefined): BrokerCategory | undefined {
-  if (!value) return undefined;
-  const parsed = brokerCategorySchema.safeParse(value);
-  return parsed.success ? parsed.data : undefined;
+const directoryListSchema = pageInputSchema.extend({
+  jurisdictionId: entityIdSchema.optional(),
+  category: z.union([z.literal("all"), brokerCategorySchema]).default("all"),
+  search: z.string().trim().max(100).default(""),
+});
+const DIRECTORY_SELECT = {
+  id: true,
+  createdAt: true,
+  legalName: true,
+  category: true,
+  isActive: true,
+  isDemoData: true,
+  productionSendingEnabled: true,
+  verificationStatus: true,
+  jurisdictionCoverage: {
+    where: { isActive: true },
+    select: { jurisdictionId: true, isActive: true, supportedRequestTypes: true },
+  },
+} satisfies Prisma.BrokerSelect;
+
+/** Public configuration only. Search and pages are bounded, without private fields. */
+export async function listBrokersForDirectory(raw: unknown = {}) {
+  const input = parseWithSchema(directoryListSchema, raw);
+  const where: Prisma.BrokerWhereInput = {
+    deletedAt: null,
+    ...(input.category !== "all" ? { category: input.category } : {}),
+    ...(input.search
+      ? {
+          OR: [
+            { legalName: { contains: input.search, mode: "insensitive" } },
+            { slug: { contains: input.search, mode: "insensitive" } },
+          ],
+        }
+      : {}),
+    ...(input.jurisdictionId
+      ? {
+          jurisdictionCoverage: {
+            some: { jurisdictionId: input.jurisdictionId, isActive: true },
+          },
+        }
+      : {}),
+  };
+  const [rows, total] = await Promise.all([
+    prisma.broker.findMany({
+      where: { AND: [where, createdBeforeCursor(input.cursor)] },
+      select: DIRECTORY_SELECT,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: input.limit + 1,
+    }),
+    prisma.broker.count({ where }),
+  ]);
+  return { ...cursorPage(rows, input.limit), total };
 }
 
-async function loadBrokersForDirectory(filters: {
-  jurisdictionId?: string;
-  category?: string;
-  search?: string;
-}) {
-  const category = parseBrokerCategory(filters.category);
-  const search = filters.search?.trim().slice(0, 80);
-
+/** Selected choices stay visible across search/page changes; input is bounded independently. */
+export async function getSelectedBrokersForChoice(raw: unknown) {
+  const ids = parseWithSchema(z.array(entityIdSchema).max(MAX_BROKERS_PER_WORKFLOW), raw);
+  if (!ids.length) return [];
   return prisma.broker.findMany({
-    where: {
-      deletedAt: null,
-      ...(category ? { category } : {}),
-      ...(search
-        ? {
-            OR: [
-              { legalName: { contains: search, mode: "insensitive" } },
-              { slug: { contains: search, mode: "insensitive" } },
-            ],
-          }
-        : {}),
-      ...(filters.jurisdictionId
-        ? {
-            jurisdictionCoverage: {
-              some: { jurisdictionId: filters.jurisdictionId, isActive: true },
-            },
-          }
-        : {}),
-    },
-    include: {
-      contactMethods: { where: { deletedAt: null, isActive: true } },
-      jurisdictionCoverage: { where: { isActive: true } },
-    },
-    orderBy: { legalName: "asc" },
-    take: DIRECTORY_TAKE,
+    where: { id: { in: ids }, deletedAt: null },
+    select: DIRECTORY_SELECT,
   });
-}
-
-export async function listBrokersForDirectory(filters: {
-  jurisdictionId?: string;
-  category?: string;
-  search?: string;
-}) {
-  const search = filters.search?.trim().slice(0, 80);
-  if (search) {
-    return loadBrokersForDirectory(filters);
-  }
-  const cacheKey = JSON.stringify({
-    jurisdictionId: filters.jurisdictionId ?? "",
-    category: filters.category ?? "",
-  });
-  return brokerDirectoryCache.getOrLoad(cacheKey, () => loadBrokersForDirectory(filters));
 }
 
 export async function getBrokerWithContacts(brokerId: string) {

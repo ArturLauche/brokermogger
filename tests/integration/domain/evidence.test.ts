@@ -44,11 +44,13 @@ describe("evidence privacy", () => {
       body,
     });
     expect(
-      (await listEvidence(fixture.actor, fixture.profile.id)).map((row) => row.id)
+      (await listEvidence(fixture.actor, fixture.profile.id)).items.map((row) => row.id)
     ).toContain(file.id);
-    expect(await listEvidence(testActor("another-account"), fixture.profile.id)).toEqual(
-      []
-    );
+    expect(await listEvidence(testActor("another-account"), fixture.profile.id)).toEqual({
+      items: [],
+      nextCursor: null,
+      total: 0,
+    });
   });
 
   it("rejects uploads that impersonate generated reports or account exports", async () => {
