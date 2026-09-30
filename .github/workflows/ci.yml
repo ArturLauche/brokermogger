@@ -64,6 +64,7 @@ jobs:
           NODE_ENV: development
           npm_config_engine_strict: "true"
       - run: npx prisma generate
+      - run: npm audit --audit-level=moderate
       - run: npx prisma migrate deploy
       - run: npm run check:env
       - run: npm run typecheck
@@ -97,3 +98,14 @@ jobs:
             test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+  docker-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: ".nvmrc"
+      - name: Verify separate runtimes and encrypted shared storage
+        run: bash scripts/docker-smoke.sh

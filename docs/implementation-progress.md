@@ -626,3 +626,65 @@ verification, and production key/build checks against the compiled app.
   The final production/browser coverage run will include the expanded catalogue
   after US packs, future-law corrections and sourced broker entries are complete.
   Remaining operational, pagination, benchmark and PR work stays in scope.
+
+### Platform channels, sourced broker drafts and regional timing
+
+- Legal applicability now includes the actual submission channel. California
+  DROP uses its own manual platform instructions and never borrows a letter's
+  response clock. Follow-ups use the current applicable rule while keeping the
+  original submitted message and timing policy pinned. A complete production
+  browser journey records only a synthetic local platform submission.
+- Added sourced Epsilon, LiveRamp and PeopleConnect catalogue drafts. Every
+  entry starts disabled and unverified. Repeat seeds preserve operator choices;
+  PeopleConnect suppression stays distinct from deleting a website account.
+- Corrected Brazil's access-only complete-declaration period, Australia's
+  private-organisation reasonable-period guidance and Singapore's 30-day delay
+  notification. No completion period is invented for the other rights. Seed
+  updates append versions and preserve the policy and text of historical drafts.
+- The full coverage matrix now passes 338 journeys across the 30 EU/EEA countries,
+  20 US states, unsupported-state and current India requests, the UK, Brazil,
+  Australia and Singapore. Each reaches approval, manual submission, confirmed
+  response and a complete report, with zero outbound messages. Forty related
+  generation, receipt, report and immutable-seed integration cases pass.
+- Reusing the calendar formatter within each boundary calculation removes
+  repeated ICU setup. DST, skipped-date, repeated-midnight and lower-year tests
+  pass. A legacy invalid timezone now records an explanatory missing target
+  rather than disrupting a delivery update. Reproducible measurements and their
+  limits are in `docs/performance.md`.
+
+### Complete list access and current toolchain
+
+- Requests, evidence, broker discovery, jobs and audit entries use stable pages
+  of 25 rows, with validated filters and a maximum page size of 100. Purpose-specific
+  projections omit profile ciphertext, file keys, operational payloads and audit
+  metadata. Cross-account filters cannot reveal records. Expired evidence remains
+  visible for cleanup and explains why downloading is unavailable.
+- Broker choices remain selected while searching and paging, and an evidence
+  attachment's selected request remains available beyond the current page. All 12
+  production browser journeys pass, including those interactions. Error screens can reopen
+  the current route without malformed filters.
+- Updated Next.js and its matching ESLint package to 16.3.8 after verifying the
+  new upstream ImageResponse advisory; compatible brace-expansion patches resolve
+  the remaining advisories. The complete dependency audit now reports zero
+  vulnerabilities. Removed the unused Prisma auth adapter and path-resolution
+  plugin; Vitest uses native path resolution and an ESM configuration, and Prisma
+  uses its supported configuration file. Worker entry points load local `.env`
+  explicitly; production dependencies include that loader.
+- Type checking, lint, formatting, all 443 unit/component tests and 23 related
+  list-access, evidence, operator-access and immutable-seed integration tests pass.
+  Prisma validation passes with the dedicated test database URL. Deployment
+  packaging, operational monitoring, remaining detail histories, scale benchmarks,
+  final production/browser verification and PR/CI delivery remain in progress.
+
+### Separate production runtimes
+
+- Docker has separate non-root app, worker and migration targets. The standalone
+  app excludes development tools; the worker installs production dependencies;
+  the migration target installs only its pinned CLI dependencies. Shared writable
+  volumes make locally stored encrypted objects available to both runtimes.
+- The first disposable smoke test passed migration, real background generation,
+  authenticated evidence/report/export downloads and ciphertext checks. The second
+  run also passed sensitive-export decryption/masking, runtime metadata and strict
+  production script protection checks, with no development tools in the app.
+  CI now runs this smoke test and dependency auditing. See
+  `docs/production-deployment.md` for configuration and storage requirements.

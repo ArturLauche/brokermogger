@@ -7,6 +7,7 @@
  * Handlers for sending, follow-ups, notifications, reports, deletion and
  * retention are registered here so a single worker binary covers the MVP.
  */
+import "dotenv/config";
 import { randomUUID } from "node:crypto";
 
 import { env } from "@/lib/config/env";

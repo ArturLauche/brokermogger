@@ -83,7 +83,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    command: ["npx", "prisma", "migrate", "deploy"]
+      target: migrate
     environment:
       DATABASE_URL: postgresql://brokermogger:brokermogger@postgres:5432/brokermogger?schema=public
     depends_on:
@@ -96,6 +96,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
+      target: app
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -117,6 +118,11 @@ services:
       S3_ACCESS_KEY_ID: brokermogger
       S3_SECRET_ACCESS_KEY: brokermogger-dev-secret
       S3_FORCE_PATH_STYLE: "true"
+      STORAGE_LOCAL_DIR: /data/objects
+      MOCK_EMAIL_DIR: /data/mail
+    volumes:
+      - private-storage:/data/objects
+      - mock-mail:/data/mail
     depends_on:
       postgres:
         condition: service_healthy
@@ -128,7 +134,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    command: ["npx", "tsx", "workers/worker.ts"]
+      target: worker
     restart: unless-stopped
     env_file:
       - path: .env
@@ -146,6 +152,11 @@ services:
       S3_ACCESS_KEY_ID: brokermogger
       S3_SECRET_ACCESS_KEY: brokermogger-dev-secret
       S3_FORCE_PATH_STYLE: "true"
+      STORAGE_LOCAL_DIR: /data/objects
+      MOCK_EMAIL_DIR: /data/mail
+    volumes:
+      - private-storage:/data/objects
+      - mock-mail:/data/mail
     depends_on:
       postgres:
         condition: service_healthy
@@ -155,3 +166,5 @@ services:
 volumes:
   postgres-data:
   minio-data:
+  private-storage:
+  mock-mail:

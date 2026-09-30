@@ -75,14 +75,17 @@ Important switches:
 docker compose --profile app up -d --build
 ```
 
-Production-style:
+Production uses separate app, worker and migration images with shared encrypted
+object storage. Configure real secrets, an HTTPS origin and a URL-encoded
+`DATABASE_URL` using the `postgres` service hostname in your uncommitted `.env`.
 
 ```bash
-export POSTGRES_PASSWORD=...
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-Image registry: `ghcr.io/arturlauche/brokermogger`.
+See [production configuration and disposable smoke tests](docs/production-deployment.md).
+Images: `ghcr.io/arturlauche/brokermogger`, `brokermogger-worker` and
+`brokermogger-migrate` under the same registry account.
 
 ## Continuous integration
 
