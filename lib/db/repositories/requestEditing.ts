@@ -120,6 +120,14 @@ export async function replaceRequestDraft(
       const previous = await tx.requestSnapshot.findUniqueOrThrow({
         where: { id: input.previousSnapshotId },
       });
+      const previousVariables = previous.variables;
+      const previousSendingDigest =
+        previousVariables &&
+        typeof previousVariables === "object" &&
+        !Array.isArray(previousVariables) &&
+        typeof previousVariables.sendingIdentityDigest === "string"
+          ? previousVariables.sendingIdentityDigest
+          : "";
       const draft = input.regenerated;
       const freshSnapshot = draft?.snapshot ?? input.regeneratedSnapshot;
       if (freshSnapshot)
@@ -217,6 +225,7 @@ export async function replaceRequestDraft(
           legalRuleVersionId:
             freshSnapshot?.legalRuleVersionId ?? request.legalRuleVersionId,
           variables: freshSnapshot?.variables ?? {
+            sendingIdentityDigest: previousSendingDigest,
             followUpNumber: String(request.followUpCount),
             followUpKind:
               request.templateVersion?.template.requestType === "FINAL_REMINDER"

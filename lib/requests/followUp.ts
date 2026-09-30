@@ -13,6 +13,7 @@ import { AppError } from "@/lib/core/errors";
 import { findPublishedTemplate } from "@/lib/db/repositories/catalog";
 import { getOwnedProfile } from "@/lib/db/repositories/profiles";
 import { getOwnedRequest } from "@/lib/db/repositories/requests";
+import { prepareOwnedSendingIdentity } from "@/lib/db/repositories/inboundMailboxes";
 import { countryDisplayName } from "@/lib/jurisdiction/types";
 import type { ActorContext } from "@/lib/permissions/actor";
 import type { JobLease } from "@/lib/jobs/types";
@@ -21,7 +22,12 @@ import { REQUEST_TYPE_LABELS } from "@/lib/requests/labels";
 import { decryptField, sha256Hex } from "@/lib/security/crypto";
 import { renderTemplate } from "@/lib/templates/renderer";
 
-import { deliveryVariables, formatIdentifierList, requestReference } from "./rendering";
+import {
+  deliveryVariables,
+  sendingIdentityVariables,
+  formatIdentifierList,
+  requestReference,
+} from "./rendering";
 export async function prepareFollowUp(
   actor: ActorContext,
   requestId: string,
@@ -148,6 +154,7 @@ export async function renderFollowUpSnapshot(
   }
 
   const reference = request.externalReference ?? requestReference(request.id);
+  const sendingIdentity = await prepareOwnedSendingIdentity(actor, request.userId);
   const rendered = renderTemplate(
     template.version.subjectTemplate,
     template.version.bodyTemplate,
@@ -171,7 +178,7 @@ export async function renderFollowUpSnapshot(
         profile.kind === "SELF"
           ? ""
           : `This follow up is submitted on behalf of the named individual with their documented consent (reference ${reference}).`,
-      "reply.address": contactEmail,
+      "reply.address": sendingIdentity.replyTo,
       today: new Date().toISOString().slice(0, 10),
     }
   );
@@ -183,6 +190,7 @@ export async function renderFollowUpSnapshot(
     legalRuleVersionId: request.legalRuleVersionId,
     variables: {
       ...deliveryVariables(delivery),
+      ...sendingIdentityVariables(sendingIdentity),
       "request.reference": reference,
       "broker.name": request.broker.tradingNames[0] ?? request.broker.legalName,
       followUpNumber: String(followUpNumber),

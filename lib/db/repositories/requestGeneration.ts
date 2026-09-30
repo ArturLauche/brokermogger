@@ -18,6 +18,7 @@ import { hashContextValue } from "@/lib/security/crypto";
 
 import { reserveWeightedRequestCreate } from "./rateLimit";
 import { appendRequestEventInTx, insertSnapshot, type SnapshotInput } from "./requests";
+import { assertCurrentLegalBasisInTx } from "./requestLegalEligibility";
 
 export interface PreparedDraft {
   id: string;
@@ -139,6 +140,17 @@ export async function createPreparedDrafts(
           assertBrokerRequestCompatible(broker, draft.jurisdictionId, draft.requestType);
           assertRenderedDelivery(draft.snapshot.variables, selectRequestDelivery(broker));
         }
+
+        // A catalogue change between rendering and persistence must leave no partial
+        // draft or consumed quota. Most batches share one jurisdiction and rule.
+        const legalBases = new Map(
+          drafts.map((draft) => [
+            `${draft.legalRuleVersionId}:${draft.requestType}`,
+            draft,
+          ])
+        );
+        for (const [, draft] of [...legalBases].sort(([a], [b]) => a.localeCompare(b)))
+          await assertCurrentLegalBasisInTx(tx, draft);
 
         if (env.RATE_LIMIT_ENABLED) {
           const reservation = await reserveWeightedRequestCreate(

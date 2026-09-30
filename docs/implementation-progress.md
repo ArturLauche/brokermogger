@@ -82,6 +82,20 @@ features are implemented.
   sourced broker entries, operational/performance work and full final delivery
   verification remain in scope.
 
+### Rendered reply identity and atomic legal recheck
+
+- Five failing regressions reproduced body/header reply-address mismatches,
+  configuration changes silently accepted during generation/editing, and a
+  withdrawn rule persisting a new draft. Rendering now uses the same owned
+  sending identity as the sealed envelope. Persistence checks its digest and
+  rechecks current legal eligibility before reserving request quota.
+- Receiving aliases are encrypted, account-scoped and reusable. Changed settings
+  require regeneration rather than changing the headers beneath unchanged text.
+  Historical text remains immutable; snapshot variables store no raw reply alias.
+- Typecheck, lint, formatting, all 431 unit/component tests and 25 generation,
+  editing, receiving and identity integration cases pass. Additional concurrent
+  alias and cross-account checks are included in the final targeted rerun.
+
 ### Live legal eligibility at approval and dispatch
 
 - Five failing regressions reproduced approval/sending against withdrawn rules,

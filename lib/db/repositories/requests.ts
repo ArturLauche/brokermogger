@@ -26,6 +26,7 @@ import { encryptSnapshotText, readSnapshotText } from "@/lib/requests/snapshot";
 import { assertTransition, type TransitionActor } from "@/lib/requests/stateMachine";
 import { canonicalJson, chainHash, sha256Hex } from "@/lib/security/crypto";
 import { sendingIdentityInTx } from "./inboundMailboxes";
+import { assertRenderedSendingIdentity } from "@/lib/requests/rendering";
 
 export const DEFAULT_LIST_LIMIT = 100;
 export const MAX_LIST_LIMIT = 200;
@@ -277,6 +278,8 @@ export async function insertSnapshot(
       message:
         "Profile details or selected identifiers changed while preparing this draft. Regenerate it and try again.",
     });
+  const sendingIdentity = await sendingIdentityInTx(tx, request.userId);
+  assertRenderedSendingIdentity(input.variables, sendingIdentity);
   const envelope = sealApprovalEnvelope({
     version: 1,
     requestId: request.id,
@@ -289,7 +292,7 @@ export async function insertSnapshot(
     channel: request.channel,
     destinationType: request.destinationType,
     destination: request.destinationValue,
-    ...(await sendingIdentityInTx(tx, request.userId, true)),
+    ...sendingIdentity,
     identifierIds: [...request.includedIdentifierIds].sort(),
     identifierDigest: input.identifierDigest,
     profileDigest: profileIdentityDigest(request.profile),

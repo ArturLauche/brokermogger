@@ -5,6 +5,21 @@ import { prisma, type PrismaTransaction } from "@/lib/db/client";
 import { currentSendingIdentity } from "@/lib/requests/envelope";
 import { blindIndex, decryptField, encryptField } from "@/lib/security/crypto";
 import { parseAddress } from "@/lib/security/sanitize";
+import type { ActorContext } from "@/lib/permissions/actor";
+import { requirePermission } from "@/lib/permissions/policy";
+import { lockActiveAccount } from "./access";
+
+/** Prepare the private reply identity before rendering; never spend request quota here. */
+export async function prepareOwnedSendingIdentity(
+  actor: ActorContext,
+  ownerUserId: string
+) {
+  requirePermission(actor, "request:create", { ownerUserId });
+  return prisma.$transaction(async (tx) => {
+    await lockActiveAccount(tx, ownerUserId);
+    return sendingIdentityInTx(tx, ownerUserId, true);
+  });
+}
 
 /** Called under the owner's account lock when generating or validating a snapshot. */
 export async function sendingIdentityInTx(

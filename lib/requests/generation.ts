@@ -16,6 +16,7 @@ import {
   listPublishedLegalRules,
 } from "@/lib/db/repositories/catalog";
 import { getOwnedProfile } from "@/lib/db/repositories/profiles";
+import { prepareOwnedSendingIdentity } from "@/lib/db/repositories/inboundMailboxes";
 import {
   createPreparedDrafts,
   type PreparedDraft,
@@ -48,7 +49,12 @@ import { renderTemplate } from "@/lib/templates/renderer";
 import { parseWithSchema } from "@/lib/validation/form";
 import { workflowSchema } from "./initial";
 
-import { deliveryVariables, formatIdentifierList, requestReference } from "./rendering";
+import {
+  deliveryVariables,
+  sendingIdentityVariables,
+  formatIdentifierList,
+  requestReference,
+} from "./rendering";
 
 export interface GenerateInput {
   profileId: string;
@@ -180,6 +186,7 @@ export async function prepareRequestDrafts(
     input.requestType
   );
   const templates = new Map<string, ReturnType<typeof findPublishedTemplate>>();
+  const sendingIdentity = await prepareOwnedSendingIdentity(actor, profile.ownerUserId);
 
   for (const brokerId of brokerIds) {
     const broker = brokersById.get(brokerId);
@@ -286,7 +293,7 @@ export async function prepareRequestDrafts(
           decryptedIdentifiers.map((item) => ({ type: item.type, value: item.value }))
         ),
         "consent.statement": consentStatement,
-        "reply.address": contactEmail,
+        "reply.address": sendingIdentity.replyTo,
         today: new Date().toISOString().slice(0, 10),
       }
     );
@@ -318,6 +325,7 @@ export async function prepareRequestDrafts(
         legalRuleVersionId: rule.legalRuleVersionId,
         variables: {
           ...deliveryVariables(delivery),
+          ...sendingIdentityVariables(sendingIdentity),
           "request.reference": reference,
           "broker.name": broker.tradingNames[0] ?? broker.legalName,
         },

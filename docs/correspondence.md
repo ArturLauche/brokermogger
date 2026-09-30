@@ -21,6 +21,13 @@ verification request, the corresponding current request state and explicit conse
 
 ## Optional Resend receiving
 
+Initial and follow-up letters use the reply address sealed in their encrypted
+approval envelope. The owned receiving alias is prepared before rendering and
+reused for that account; only a digest is added to snapshot variables. A changed
+sender or reply configuration between rendering and persistence rejects the draft
+without consuming quota. Text-only editing cannot silently adopt another reply
+identity: regenerate and review a new snapshot. Historical messages remain intact.
+
 Manual recording works without a receiving provider. To enable receiving:
 
 1. Configure a receiving domain in Resend according to its

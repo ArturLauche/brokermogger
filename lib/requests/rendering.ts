@@ -3,6 +3,36 @@ import type { RequestDelivery } from "@/lib/brokers/sendable";
 import { AppError } from "@/lib/core/errors";
 import { IDENTIFIER_TYPE_LABELS } from "./labels";
 
+/** Only the digest is persisted outside the encrypted message envelope. */
+export function sendingIdentityVariables(identity: {
+  fromAddress: string;
+  replyTo: string;
+}) {
+  return {
+    sendingIdentityDigest: sha256Hex(
+      JSON.stringify({
+        fromAddress: identity.fromAddress,
+        replyTo: identity.replyTo,
+      })
+    ),
+  };
+}
+
+export function assertRenderedSendingIdentity(
+  variables: Record<string, string>,
+  identity: { fromAddress: string; replyTo: string }
+) {
+  if (
+    variables.sendingIdentityDigest !==
+    sendingIdentityVariables(identity).sendingIdentityDigest
+  )
+    throw new AppError({
+      code: "CONFLICT",
+      message:
+        "The instance sending or reply address changed. Regenerate the message before reviewing it again.",
+    });
+}
+
 /** Bind freshly rendered channel instructions to the destination used at commit. */
 export function deliveryVariables(delivery: RequestDelivery) {
   return {

@@ -11,6 +11,25 @@ import { testPrisma } from "../../helpers/db";
 afterEach(() => vi.restoreAllMocks());
 
 describe("seeded generation", () => {
+  it("does not spend quota or persist a draft when its legal rule is withdrawn after rendering", async () => {
+    const fixture = await workflowFixture();
+    const { drafts, fairUse } = await prepareRequestDrafts(fixture.actor, fixture.input);
+    const version = await testPrisma.legalRuleVersion.findUniqueOrThrow({
+      where: { id: drafts[0]!.legalRuleVersionId },
+    });
+    await testPrisma.legalRule.update({
+      where: { id: version.legalRuleId },
+      data: { isActive: false },
+    });
+    await expect(
+      createPreparedDrafts(fixture.actor, drafts, fairUse)
+    ).rejects.toMatchObject({
+      code: "LEGAL_RULE_UNAVAILABLE",
+    });
+    expect(await testPrisma.removalRequest.count()).toBe(0);
+    expect(await testPrisma.rateLimitBucket.count()).toBe(0);
+  });
+
   it("requires completed setup before generation, including the transactional recheck", async () => {
     const fixture = await workflowFixture();
     const { drafts, fairUse } = await prepareRequestDrafts(fixture.actor, fixture.input);
