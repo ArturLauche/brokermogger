@@ -14,11 +14,19 @@ export default async function EditProfilePage({
   params: Promise<{ id: string }>;
 }) {
   const actor = await requireActorOrRedirect();
-  const profile = await getOwnedProfile(actor, (await params).id).catch((error) => {
-    if (isAppError(error) && ["NOT_FOUND", "FORBIDDEN"].includes(error.code)) notFound();
-    throw error;
-  });
-  requirePermission(actor, "profile:update", { ownerUserId: profile.ownerUserId });
+  const profile = await getOwnedProfile(actor, (await params).id)
+    .then((row) => {
+      requirePermission(actor, "profile:update", { ownerUserId: row.ownerUserId });
+      return row;
+    })
+    .catch((error) => {
+      if (
+        isAppError(error) &&
+        ["NOT_FOUND", "FORBIDDEN", "VALIDATION_FAILED"].includes(error.code)
+      )
+        notFound();
+      throw error;
+    });
   const read = (column: "legalNameEnc" | "contactEmailEnc") =>
     profile[column]
       ? decryptField(profile[column], {

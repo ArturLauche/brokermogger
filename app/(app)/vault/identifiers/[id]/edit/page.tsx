@@ -13,7 +13,11 @@ export default async function EditIdentifierPage({
 }) {
   const actor = await requireActorOrRedirect();
   const row = await revealOwnedIdentifier(actor, (await params).id).catch((error) => {
-    if (isAppError(error) && ["NOT_FOUND", "FORBIDDEN"].includes(error.code)) notFound();
+    if (
+      isAppError(error) &&
+      ["NOT_FOUND", "FORBIDDEN", "VALIDATION_FAILED"].includes(error.code)
+    )
+      notFound();
     throw error;
   });
   if (row.isPrimary && ["FULL_NAME", "EMAIL"].includes(row.type))

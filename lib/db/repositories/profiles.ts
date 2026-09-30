@@ -25,6 +25,7 @@ import type { ActorContext } from "@/lib/permissions/actor";
 import { recordAudit, recordAuditOrThrow } from "@/lib/audit/service";
 import { decryptField } from "@/lib/security/crypto";
 import { eraseProfileContent } from "./profileErasure";
+import { entityIdSchema } from "@/lib/validation/ids";
 
 export async function listProfilesForActor(actor: ActorContext) {
   requirePermission(actor, "profile:read", { ownerUserId: actor.userId });
@@ -35,8 +36,67 @@ export async function listProfilesForActor(actor: ActorContext) {
 }
 
 export async function getOwnedProfile(actor: ActorContext, profileId: string) {
+  const id = parseWithSchema(entityIdSchema, profileId);
+  const available = {
+    id,
+    deletedAt: null,
+    owner: { status: "ACTIVE" as const, deletionRequestedAt: null },
+  };
+  const ref = await prisma.userProfile.findFirst({
+    where: available,
+    select: { id: true, ownerUserId: true },
+  });
+  if (!ref) throw new NotFoundError("This profile does not exist.");
+  requirePermission(actor, "profile:read", {
+    ownerUserId: ref.ownerUserId,
+    scope: `user:${ref.ownerUserId}`,
+  });
+  const owned = { ...available, ownerUserId: ref.ownerUserId };
+  if (isCrossAccountAccess(actor, { ownerUserId: ref.ownerUserId })) {
+    await recordAuditOrThrow({
+      actor,
+      action: "admin.user_data_viewed",
+      resourceType: "profile",
+      resourceId: ref.id,
+      targetUserId: ref.ownerUserId,
+    });
+    const summary = await prisma.userProfile.findFirst({
+      where: owned,
+      select: {
+        id: true,
+        ownerUserId: true,
+        kind: true,
+        status: true,
+        countryCode: true,
+        region: true,
+        residencyConfirmed: true,
+        consentStatus: true,
+        isPrimary: true,
+        onboardingCompletedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    if (!summary) throw new NotFoundError("This profile does not exist.");
+    return {
+      ...summary,
+      displayName: "Private profile",
+      legalNameEnc: null,
+      legalNameBi: null,
+      contactEmailEnc: null,
+      contactEmailBi: null,
+      contactEmailMasked: null,
+      notes: null,
+      residencyNote: null,
+      deletedAt: null,
+      createdById: null,
+      updatedById: null,
+      identifiers: [],
+      householdMember: null,
+    };
+  }
   const profile = await prisma.userProfile.findFirst({
-    where: { id: profileId, deletedAt: null },
+    where: owned,
     include: {
       identifiers: { where: { deletedAt: null }, orderBy: { createdAt: "asc" } },
       householdMember: {
@@ -44,41 +104,7 @@ export async function getOwnedProfile(actor: ActorContext, profileId: string) {
       },
     },
   });
-
-  if (!profile) {
-    throw new NotFoundError("This profile does not exist.");
-  }
-
-  requirePermission(actor, "profile:read", {
-    ownerUserId: profile.ownerUserId,
-    scope: `user:${profile.ownerUserId}`,
-  });
-
-  if (isCrossAccountAccess(actor, { ownerUserId: profile.ownerUserId })) {
-    await recordAuditOrThrow({
-      actor,
-      action: "admin.user_data_viewed",
-      resourceType: "profile",
-      resourceId: profile.id,
-      targetUserId: profile.ownerUserId,
-    });
-    return {
-      ...profile,
-      displayName: "Private profile",
-      legalNameEnc: null,
-      legalNameBi: null,
-      contactEmailEnc: null,
-      contactEmailBi: null,
-      identifiers: profile.identifiers.map((identifier) => ({
-        ...identifier,
-        valueEnc: "",
-        valueBi: "",
-        label: null,
-      })),
-      householdMember: null,
-    };
-  }
-
+  if (!profile) throw new NotFoundError("This profile does not exist.");
   return profile;
 }
 
@@ -258,26 +284,48 @@ export async function updateOwnedProfile(
 }
 
 export async function revealOwnedIdentifier(actor: ActorContext, identifierId: string) {
-  const identifier = await prisma.profileIdentifier.findFirst({
-    where: { id: identifierId, deletedAt: null },
-    include: { profile: true },
+  const id = parseWithSchema(entityIdSchema, identifierId);
+  const available = {
+    id,
+    deletedAt: null,
+    profile: {
+      deletedAt: null,
+      owner: { status: "ACTIVE" as const, deletionRequestedAt: null },
+    },
+  };
+  const ref = await prisma.profileIdentifier.findFirst({
+    where: available,
+    select: { id: true, profile: { select: { ownerUserId: true } } },
   });
-  if (!identifier) {
-    throw new NotFoundError("This identifier does not exist.");
-  }
+  if (!ref) throw new NotFoundError("This identifier does not exist.");
   requirePermission(actor, "identifier:reveal", {
-    ownerUserId: identifier.profile.ownerUserId,
+    ownerUserId: ref.profile.ownerUserId,
+  });
+  const identifier = await prisma.profileIdentifier.findFirst({
+    where: {
+      ...available,
+      profile: { ...available.profile, ownerUserId: ref.profile.ownerUserId },
+    },
+    select: {
+      id: true,
+      profileId: true,
+      isPrimary: true,
+      type: true,
+      valueEnc: true,
+      label: true,
+    },
+  });
+  if (!identifier) throw new NotFoundError("This identifier does not exist.");
+  await recordAuditOrThrow({
+    actor,
+    action: "identifier.revealed",
+    resourceType: "identifier",
+    resourceId: identifier.id,
   });
   const value = decryptField(identifier.valueEnc, {
     table: "ProfileIdentifier",
     column: "valueEnc",
     recordId: identifier.id,
-  });
-  await recordAudit({
-    actor,
-    action: "identifier.revealed",
-    resourceType: "identifier",
-    resourceId: identifier.id,
   });
   return {
     id: identifier.id,
