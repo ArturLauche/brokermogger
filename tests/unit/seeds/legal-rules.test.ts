@@ -11,6 +11,7 @@ import { isKnownClause } from "@/prisma/seeds/data/clauses";
 import { JURISDICTIONS } from "@/prisma/seeds/data/jurisdictions";
 import { LEGAL_RULES, type LegalRuleVersionSeed } from "@/prisma/seeds/data/legal-rules";
 import { deadlinePolicySchema } from "@/lib/jurisdiction/deadlines";
+import { FUTURE_US_PRIVACY_PACKS } from "@/lib/jurisdiction/futureUs";
 import {
   GDPR_COUNTRIES,
   EDPB_AUTHORITY_DIRECTORY,
@@ -57,12 +58,18 @@ describe("legal rule seed data", () => {
     }
   });
 
-  it("publishes version 1 for every rule", () => {
+  it("publishes current rules and keeps new future statutory packs as drafts", () => {
+    const futureCodes = FUTURE_US_PRIVACY_PACKS.map((pack) => `US-${pack.region}`);
     for (const rule of LEGAL_RULES) {
       expect(rule.versions.length).toBeGreaterThan(0);
       for (const version of rule.versions) {
         expect(version.version).toBeGreaterThanOrEqual(1);
-        expect(version.status).toBe("PUBLISHED");
+        expect(version.status).toBe(
+          futureCodes.includes(rule.jurisdictionCode) &&
+            rule.key.endsWith("consumer-privacy-rights")
+            ? "DRAFT"
+            : "PUBLISHED"
+        );
         expect(version.supportedRequestTypes.length).toBeGreaterThan(0);
       }
     }
@@ -87,7 +94,7 @@ describe("legal rule seed data", () => {
       ).toBeGreaterThan(5);
       expect(Number.isNaN(Date.parse(version.lastReviewedAt))).toBe(false);
       expect(Date.parse(version.lastReviewedAt)).toBeLessThanOrEqual(
-        Date.parse("2026-09-30T00:00:00Z")
+        Date.parse("2026-10-01T00:00:00Z")
       );
       expect(Number.isNaN(Date.parse(version.effectiveFrom))).toBe(false);
       expect(version.reviewedBy).toBe("Brokermogger maintainers, unreviewed by counsel");

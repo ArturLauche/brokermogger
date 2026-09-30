@@ -245,7 +245,13 @@ describe("seed writers", () => {
     const published = await testPrisma.legalRuleVersion.count({
       where: { status: "PUBLISHED" },
     });
-    expect(published).toBe(EXPECTED.legalRuleVersions);
+    const publishedSources = LEGAL_RULES.flatMap((rule) => rule.versions).filter(
+      (version) => version.status === "PUBLISHED"
+    );
+    expect(published).toBe(publishedSources.length);
+    expect(await testPrisma.legalRuleVersion.count({ where: { status: "DRAFT" } })).toBe(
+      EXPECTED.legalRuleVersions - publishedSources.length
+    );
   });
 
   it("creates demo users only when SEED_DEMO_USERS is true", async () => {

@@ -20,6 +20,7 @@ import {
   usPackName,
   type UsInitialRequestType,
 } from "@/lib/jurisdiction/us";
+import { FUTURE_US_PRIVACY_PACKS } from "@/lib/jurisdiction/futureUs";
 
 export interface RequestTemplateVersionSeed {
   version: number;
@@ -195,7 +196,7 @@ ${footer()}`
         "2026-09-30: respect summary access, staged DPDP commencement, explicit voluntary basis and separate grievance timing.",
     },
   })),
-  ...US_PRIVACY_PACKS.flatMap((pack) =>
+  ...[...US_PRIVACY_PACKS, ...FUTURE_US_PRIVACY_PACKS].flatMap((pack) =>
     (Object.entries(pack.requests) as [UsInitialRequestType, string][]).map(
       ([requestType, instructions]) => ({
         key: `us-${pack.region.toLowerCase()}.${requestType.toLowerCase().replaceAll("_", "-")}`,
@@ -229,8 +230,12 @@ If representation needs additional legal authority, please explain the required 
 
 ${footer()}`
           ),
-          changeNotes:
-            "2026-09-30: state-specific adult consumer instructions; narrower Iowa, Indiana and Utah scopes are preserved, with no universal sharing or deletion claim.",
+          status: FUTURE_US_PRIVACY_PACKS.includes(pack)
+            ? ("DRAFT" as const)
+            : ("PUBLISHED" as const),
+          changeNotes: FUTURE_US_PRIVACY_PACKS.includes(pack)
+            ? "2026-10-01: future-law draft. Review enacted source, eligibility and effective date before publication. Never activated automatically."
+            : "2026-09-30: state-specific adult consumer instructions; narrower Iowa, Indiana and Utah scopes are preserved, with no universal sharing or deletion claim.",
         },
       })
     )

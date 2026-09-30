@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { deadlinePolicySchema } from "@/lib/jurisdiction/deadlines";
 import { LEGAL_RULES } from "@/prisma/seeds/data/legal-rules";
 import { JURISDICTIONS } from "@/prisma/seeds/data/jurisdictions";
+import { FUTURE_US_PRIVACY_PACKS } from "@/lib/jurisdiction/futureUs";
+import { REQUEST_TEMPLATES } from "@/prisma/seeds/data/templates";
 
 const STATES = [
   "CA",
@@ -34,7 +36,9 @@ describe("sourced US state coverage", () => {
     const regions = JURISDICTIONS.filter(
       (row) => row.countryCode === "US" && row.region
     ).map((row) => row.region);
-    expect(regions.sort()).toEqual([...STATES].sort());
+    expect(regions.sort()).toEqual(
+      [...STATES, ...FUTURE_US_PRIVACY_PACKS.map((pack) => pack.region)].sort()
+    );
     for (const region of STATES) expect(currentVersion(region)).toBeDefined();
   });
 
@@ -96,4 +100,47 @@ describe("sourced US state coverage", () => {
       ).toBe(true);
     }
   });
+
+  it.each(FUTURE_US_PRIVACY_PACKS)(
+    "keeps enacted $region law and letters unpublished while preserving voluntary requests",
+    (pack) => {
+      const rules = LEGAL_RULES.filter(
+        (rule) => rule.jurisdictionCode === `US-${pack.region}`
+      );
+      const statutory = rules.find((rule) =>
+        rule.key.endsWith("consumer-privacy-rights")
+      );
+      expect(statutory?.versions).toHaveLength(1);
+      expect(statutory?.versions[0]).toMatchObject({
+        status: "DRAFT",
+        sourceUrl: pack.sourceUrl,
+        effectiveFrom: pack.effectiveFrom,
+        lastReviewedAt: "2026-10-01T00:00:00.000Z",
+        requiresLegalReview: true,
+        confidence: "LOW",
+      });
+      expect(
+        deadlinePolicySchema.parse(statutory?.versions[0]?.deadlineRule.policy)
+      ).toMatchObject({ period: 45, unit: "CALENDAR_DAYS", startsFrom: "RECEIPT" });
+      const published = rules.flatMap((rule) =>
+        rule.versions.filter((version) => version.status === "PUBLISHED")
+      );
+      expect(published).toHaveLength(1);
+      expect(published[0]?.supportedRequestTypes).toEqual([
+        "OPT_OUT",
+        "SUPPRESSION",
+        "FOLLOW_UP",
+        "FINAL_REMINDER",
+      ]);
+      expect(published[0]?.deadlineDays).toBeNull();
+      expect(published[0]?.legalBasisText).toMatch(/voluntary/i);
+      const templates = REQUEST_TEMPLATES.filter(
+        (template) => template.jurisdictionCode === `US-${pack.region}`
+      );
+      expect(templates).toHaveLength(4);
+      expect(templates.every((template) => template.version.status === "DRAFT")).toBe(
+        true
+      );
+    }
+  );
 });

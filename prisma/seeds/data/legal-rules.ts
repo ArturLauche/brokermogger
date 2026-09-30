@@ -21,6 +21,7 @@ import type {
 import type { DeadlinePolicy } from "@/lib/jurisdiction/deadlines";
 import { createGdprPacks } from "./gdpr-packs";
 import { createUsPrivacyPacks } from "./us-packs";
+import { createFutureUsPacks } from "./future-us-packs";
 import { createIndiaPacks } from "./india-packs";
 import { createUsVoluntarySuppressionPacks } from "./voluntary-us-packs";
 import { reviewRegionalTiming } from "./regional-timing";
@@ -749,7 +750,7 @@ const BASE_LEGAL_RULES: readonly LegalRuleSeed[] = [
           "household-consent-statement",
         ],
         riskNotes:
-          "Exemptions in the Data Protection Act 2018 can limit access and erasure, and a controller may refuse manifestly unfounded or excessive requests. Whether the recipient is a controller for the data in question has to be assessed per case. Not reviewed by counsel.",
+          "Exemptions in the Data Protection Act 2018 can limit access and erasure, and a controller may refuse manifestly unfounded or excessive requests. Access requires a reasonable and proportionate search, not a guarantee of every possible record. A controller cannot force the requester to narrow the scope; justified subject-access clarification affects timing only after explicit review. Whether the recipient is a controller for the data in question has to be assessed per case. Not reviewed by counsel.",
         requiresLegalReview: true,
         confidence: "MEDIUM",
         sourceUrl:
@@ -760,12 +761,24 @@ const BASE_LEGAL_RULES: readonly LegalRuleSeed[] = [
             title: "Data Protection Act 2018",
             url: "https://www.legislation.gov.uk/ukpga/2018/12/contents",
           },
+          {
+            title: "ICO, guide to subject access, updated 16 July 2026",
+            url: "https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/subject-access-requests/a-guide-to-subject-access/",
+          },
+          {
+            title: "Data (Use and Access) Act 2025, time limits and reasonable searches",
+            url: "https://www.legislation.gov.uk/ukpga/2025/18/contents",
+          },
+          {
+            title: "SI 2026/82, commencement and time-limit transitional provisions",
+            url: "https://www.legislation.gov.uk/uksi/2026/82/contents/made",
+          },
         ],
-        lastReviewedAt: "2026-09-30T00:00:00.000Z",
+        lastReviewedAt: "2026-10-01T00:00:00.000Z",
         reviewedBy: REVIEWED_BY,
         effectiveFrom: "2021-01-01T00:00:00.000Z",
         changeNotes:
-          "Source timing review on 2026-09-30. Versioned receipt-based response policy; dispatch and unverified holiday calendars remain estimates.",
+          "2026-10-01: reviewed current ICO access guidance and DUAA timing transitions. Reasonable and proportionate search and access-only clarification remain explicit caveats. Historical snapshots and their timing policies stay pinned.",
       },
     ],
   },
@@ -851,12 +864,20 @@ const BASE_LEGAL_RULES: readonly LegalRuleSeed[] = [
             title: "Information Commissioner's Office, make a complaint",
             url: "https://ico.org.uk/make-a-complaint/",
           },
+          {
+            title: "Data (Use and Access) Act 2025, time limits for rights requests",
+            url: "https://www.legislation.gov.uk/ukpga/2025/18/section/76",
+          },
+          {
+            title: "SI 2026/82, commencement and time-limit transitional provisions",
+            url: "https://www.legislation.gov.uk/uksi/2026/82/contents/made",
+          },
         ],
-        lastReviewedAt: "2026-09-30T00:00:00.000Z",
+        lastReviewedAt: "2026-10-01T00:00:00.000Z",
         reviewedBy: REVIEWED_BY,
         effectiveFrom: "2021-01-01T00:00:00.000Z",
         changeNotes:
-          "Source timing review on 2026-09-30. Versioned receipt-based response policy; dispatch and unverified holiday calendars remain estimates.",
+          "2026-10-01: verified DUAA time-limit commencement and transitional provisions. Subject-access clarification is not applied automatically to objection or restriction; holiday coverage still requires review.",
       },
     ],
   },
@@ -1490,6 +1511,9 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
   ),
   ...createGdprPacks(BASE_LEGAL_RULES.filter((rule) => rule.jurisdictionCode === "DE")),
   ...createUsPrivacyPacks(),
+  ...createFutureUsPacks(
+    BASE_LEGAL_RULES.find((rule) => rule.key === "us-broker-voluntary-opt-out")!
+  ),
   ...createIndiaPacks(
     BASE_LEGAL_RULES.find((rule) => rule.key === "dpdp-data-principal-rights")!
   ),

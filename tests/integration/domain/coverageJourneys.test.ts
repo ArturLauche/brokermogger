@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GDPR_COUNTRIES } from "@/lib/jurisdiction/eea";
 import { US_PRIVACY_PACKS } from "@/lib/jurisdiction/us";
+import { FUTURE_US_PRIVACY_PACKS } from "@/lib/jurisdiction/futureUs";
 import { LEGAL_RULES } from "@/prisma/seeds/data/legal-rules";
 import { updateOwnedProfile } from "@/lib/db/repositories/profiles";
 import { getOwnedRequest } from "@/lib/db/repositories/requests";
@@ -62,9 +63,36 @@ describe("sourced coverage journeys", () => {
       total: 24,
       estimated: true,
     },
+    {
+      title: "Alabama, Louisiana and Oklahoma current voluntary requests",
+      locations: FUTURE_US_PRIVACY_PACKS.map((pack) => ({
+        code: `US-${pack.region}`,
+        countryCode: "US",
+        region: pack.region,
+      })),
+      total: 6,
+      estimated: true,
+    },
+    {
+      title:
+        "Alabama, Louisiana and Oklahoma voluntary requests after future commencement with statutory packs unpublished",
+      locations: FUTURE_US_PRIVACY_PACKS.map((pack) => ({
+        code: `US-${pack.region}`,
+        countryCode: "US",
+        region: pack.region,
+      })),
+      total: 6,
+      estimated: true,
+      futureClock: "2027-06-01T12:00:00Z",
+    },
   ])(
     "completes $title through approval, submission, confirmed response and report",
-    async ({ locations, total, estimated }) => {
+    async (scenario) => {
+      const { locations, total, estimated } = scenario;
+      const futureCodes = FUTURE_US_PRIVACY_PACKS.map((pack) => `US-${pack.region}`);
+      if ("futureClock" in scenario)
+        // Even after every effective date, unpublished statutory drafts stay unavailable.
+        vi.setSystemTime(new Date(scenario.futureClock));
       const f = await workflowFixture();
       await testPrisma.userQuota.upsert({
         where: { userId: f.user.id },
@@ -127,7 +155,7 @@ describe("sourced coverage journeys", () => {
           } = await generateRequests(f.actor, { ...f.input, requestType });
           const request = await getOwnedRequest(f.actor, id!);
           expect(request.jurisdictionId).toBe(jurisdictionIds.get(location.code));
-          if (location.code === "IN")
+          if (location.code === "IN" || futureCodes.includes(location.code))
             expect(request.legalBasisText).toContain("voluntary");
           expect(request.deadlineAt).toBeNull();
           await approveRequest(f.actor, {
@@ -174,7 +202,7 @@ describe("sourced coverage journeys", () => {
                 ? true
                 : estimated
           );
-          if (["US-OTHER", "IN"].includes(location.code))
+          if (["US-OTHER", "IN", ...futureCodes].includes(location.code))
             expect(result.deadlineAt).toBeNull();
           if (["BR", "AU", "SG"].includes(location.code)) {
             expect(result.deadlineAt !== null).toBe(

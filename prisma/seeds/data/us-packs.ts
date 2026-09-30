@@ -3,7 +3,11 @@ import type { RequestType } from "@prisma/client";
 import type { DeadlinePolicy } from "@/lib/jurisdiction/deadlines";
 import type { LegalRuleSeed, LegalRuleVersionSeed } from "./legal-rules";
 
-function ruleVersion(pack: UsPrivacyPack, index: number): LegalRuleVersionSeed {
+function ruleVersion(
+  pack: UsPrivacyPack,
+  index: number,
+  publication: { status: "PUBLISHED" | "DRAFT"; reviewedAt: string }
+): LegalRuleVersionSeed {
   const future = index > 0 ? pack.future?.[index - 1] : undefined;
   const sourceUrl = future?.sourceUrl ?? pack.sourceUrl;
   const days = pack.responseDays ?? 45;
@@ -34,7 +38,7 @@ function ruleVersion(pack: UsPrivacyPack, index: number): LegalRuleVersionSeed {
   };
   return {
     version: index + 1,
-    status: future?.status ?? "PUBLISHED",
+    status: future?.status ?? publication.status,
     supportedRequestTypes: [
       ...(Object.keys(requests) as RequestType[]),
       "FOLLOW_UP",
@@ -96,7 +100,7 @@ function ruleVersion(pack: UsPrivacyPack, index: number): LegalRuleVersionSeed {
         ? [{ title: "Current rights and response procedure", url: pack.sourceUrl }]
         : []),
     ],
-    lastReviewedAt: "2026-09-30T00:00:00.000Z",
+    lastReviewedAt: publication.reviewedAt,
     reviewedBy: "Brokermogger maintainers, unreviewed by counsel",
     effectiveFrom: future?.effectiveFrom ?? pack.effectiveFrom,
     // A source ambiguity must not silently keep an older statutory pack alive.
@@ -104,13 +108,19 @@ function ruleVersion(pack: UsPrivacyPack, index: number): LegalRuleVersionSeed {
       ? { effectiveUntil: pack.future[0].effectiveFrom }
       : {}),
     changeNotes: future
-      ? `2026-09-30: separately reviewed future provisions. ${future.note}`
-      : "2026-09-30: primary-source state scope, initial request types and receipt-based response policy. Exemptions and representation require individual review.",
+      ? `${publication.reviewedAt.slice(0, 10)}: separately reviewed future provisions. ${future.note}`
+      : `${publication.reviewedAt.slice(0, 10)}: primary-source state scope, initial request types and receipt-based response policy. Exemptions and representation require individual review.${publication.status === "DRAFT" ? " Enacted future law; publication requires operator review and does not occur automatically." : ""}`,
   };
 }
 
-export function createUsPrivacyPacks(): LegalRuleSeed[] {
-  return US_PRIVACY_PACKS.map((pack) => ({
+export function createUsPrivacyPacks(
+  packs: readonly UsPrivacyPack[] = US_PRIVACY_PACKS,
+  publication: { status: "PUBLISHED" | "DRAFT"; reviewedAt: string } = {
+    status: "PUBLISHED",
+    reviewedAt: "2026-09-30T00:00:00.000Z",
+  }
+): LegalRuleSeed[] {
+  return packs.map((pack) => ({
     jurisdictionCode: `US-${pack.region}`,
     key: `${pack.region.toLowerCase()}-consumer-privacy-rights`,
     lawName: pack.lawName,
@@ -118,8 +128,8 @@ export function createUsPrivacyPacks(): LegalRuleSeed[] {
     description: `${pack.lawName}. ${pack.scope} Initial response: ${pack.responseDays ?? 45} calendar days from receipt, with a conditional extension.`,
     isActive: true,
     versions: [
-      ruleVersion(pack, 0),
-      ...(pack.future ?? []).map((_, index) => ruleVersion(pack, index + 1)),
+      ruleVersion(pack, 0, publication),
+      ...(pack.future ?? []).map((_, index) => ruleVersion(pack, index + 1, publication)),
     ],
   }));
 }

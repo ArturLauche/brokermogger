@@ -7,6 +7,7 @@
 
 import { GDPR_COUNTRIES } from "@/lib/jurisdiction/eea";
 import { US_PRIVACY_PACKS, usPackName } from "@/lib/jurisdiction/us";
+import { FUTURE_US_PRIVACY_PACKS } from "@/lib/jurisdiction/futureUs";
 
 export interface JurisdictionSeed {
   /** Stable machine key referenced by legal rules, templates and brokers. */
@@ -49,6 +50,15 @@ export const JURISDICTIONS: readonly JurisdictionSeed[] = [
     description: `${pack.lawName}. ${pack.scope}`,
     isActive: true,
     sortOrder: 200 + index,
+  })),
+  ...FUTURE_US_PRIVACY_PACKS.map((pack, index) => ({
+    code: `US-${pack.region}`,
+    name: usPackName(pack),
+    countryCode: "US",
+    region: pack.region,
+    description: `${pack.lawName} is enacted for a future date and remains an unpublished draft. Current requests use clearly labelled voluntary broker policies. ${pack.scope}`,
+    isActive: true,
+    sortOrder: 250 + index,
   })),
   ...GDPR_COUNTRIES.map((country, index) => ({
     code: country.code,

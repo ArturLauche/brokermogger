@@ -34,10 +34,11 @@ export const UK_GDPR_RESPONSE_POLICY: DeadlinePolicy = {
   conditions: [
     "The baseline is one calendar month from receipt. Identity or authority information can affect the start, and justified clarification can pause a subject access request.",
     "Use the corresponding date in the next month or its last day, then move a weekend or public holiday to the next working day.",
+    "For subject access only, reasonably required clarification about the requested information pauses the clock on the day clarification is requested and resumes it the day after the reply. Same-day clarification still pauses one day; asking about the response format does not pause the clock.",
     "An extension for complexity or multiple requests needs timely notice. Pauses and extensions require an explicit review and are not applied automatically.",
   ],
   notes:
-    "ICO response-timing guidance, including the Data (Use and Access) Act changes. Bank-holiday coverage varies within the UK and is not inferred from the account timezone.",
+    "ICO response-timing guidance, reviewed on 2026-10-01, including Data (Use and Access) Act 2025 section 76 and the transitional provisions in SI 2026/82. The new timing provisions apply to requests received from 2026-02-05; earlier requests require separate review. Bank-holiday coverage varies within the UK and is not inferred from the account timezone.",
 };
 
 export const CCPA_RESPONSE_POLICY: DeadlinePolicy = {

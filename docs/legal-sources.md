@@ -108,6 +108,25 @@ is read alongside the future compiled code: unchanged correction/deletion
 clauses are not treated as repealed merely because that compiled presentation
 omits them. These details and primary sources remain in each version's notes.
 
+Alabama, Louisiana and Oklahoma have separate **unpublished future-law drafts**,
+reviewed on **2026-10-01**, in
+[`futureUs.ts`](../lib/jurisdiction/futureUs.ts). Their rules and matching letters
+are `DRAFT`; the passage of time alone never publishes them. Each jurisdiction
+retains clearly labelled voluntary opt-out/suppression with no asserted statutory
+deadline, including after commencement until an operator reviews and publishes
+the statutory material.
+
+| State | Enacted source                                                                                                                                                                                                                             | Commencement    | Scope distinctions requiring review                                                                                                                                                             |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AL    | [Act 2026-552, HB 351 enrolled](https://alison.legislature.state.al.us/files/pdf/SearchableInstruments/2026RS/HB351-enr.pdf), sections 3–5 and 12; [compiled scope](https://alison.legislature.state.al.us/code-of-alabama?section=8-44-3) | May 1, 2027     | More than 25,000 consumers excluding payment-only processing, or more than 25% sale revenue regardless of count; small non-selling business/nonprofit exemptions.                               |
+| LA    | [Act 502, SB 386 enrolled](https://www.legis.la.gov/Legis/ViewDocument.aspx?d=1480202), R.S. 51:1780.2–.3 and section 2; [signed status](https://www.legis.la.gov/legis/BillInfo.aspx?i=250945)                                            | January 1, 2027 | Business in the state and revenue above $25 million, at least 75,000 consumers/households/devices in the specified commercial processing, or at least 50% sale revenue; entity/data exemptions. |
+| OK    | [SB 546 enrolled](https://www.oklegislature.gov/cf_pdf/2025-26%20ENR/SB/SB546%20ENR.PDF), sections 2–3, 15 and 22; [House enactment notice](https://www.okhouse.gov/posts/news-20260323_2)                                                 | January 1, 2027 | At least 100,000 consumers, or at least 25,000 and more than 50% sale revenue; entity/data exemptions.                                                                                          |
+
+The draft response policies use 45 calendar days from receipt with a conditional
+45-day extension. Authentication, exceptions and permitted alternative deletion
+measures remain explicit. These are adult-consumer drafts, not agent-authority
+determinations, present legal guarantees or permission to contact a broker.
+
 ### Other United States (`US-OTHER`)
 
 | Rule                          | Rights claimed                              | Deadline | Confidence |
@@ -182,6 +201,20 @@ which expects the individual to raise the matter with the organisation first.
 Restriction is modelled as a suppression request: the organisation may keep the
 data but must stop using it while the objection is assessed. Exemptions in the
 Data Protection Act 2018 can limit access and erasure.
+
+Reviewed again on **2026-10-01** against the
+[current ICO subject-access guide](https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/subject-access-requests/a-guide-to-subject-access/),
+[detailed timing guidance](https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/individual-rights/right-of-access/what-should-we-consider-when-responding-to-a-request/),
+[Data (Use and Access) Act 2025](https://www.legislation.gov.uk/ukpga/2025/18/contents)
+and [SI 2026/82](https://www.legislation.gov.uk/uksi/2026/82/contents/made).
+Access searches must be reasonable and proportionate. A justified clarification
+of the requested information pauses a subject-access clock from the request day
+through the reply day, including one day when both occur on the same date.
+Clarifying the response format does not pause it. Brokermogger records these
+conditions and never infers a pause or forces a narrower request. Section 76's
+timing changes apply to requests received from 2026-02-05; earlier requests need
+individual review under the transitional provisions. These source updates append
+versions and do not rewrite the policy pinned to an existing request.
 
 ### Brazil (`BR`)
 

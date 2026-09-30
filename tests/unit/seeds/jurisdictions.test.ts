@@ -62,6 +62,9 @@ const STATE_CODES = [
 ];
 const EXPECTED_CODES = [
   ...STATE_CODES.map((region) => `US-${region}`),
+  "US-AL",
+  "US-LA",
+  "US-OK",
   "US-OTHER",
   ...GDPR_CODES,
   "GB",

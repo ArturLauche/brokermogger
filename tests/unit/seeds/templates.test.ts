@@ -18,6 +18,7 @@ import { templateChecksum } from "@/prisma/seeds/checksum";
 import { isKnownClause, TEMPLATE_CLAUSE_KEYS } from "@/prisma/seeds/data/clauses";
 import { JURISDICTIONS } from "@/prisma/seeds/data/jurisdictions";
 import { REQUEST_TEMPLATES } from "@/prisma/seeds/data/templates";
+import { FUTURE_US_PRIVACY_PACKS } from "@/lib/jurisdiction/futureUs";
 
 const ALL_REQUEST_TYPES = [
   "DELETION",
@@ -180,10 +181,15 @@ describe("request template seed data", () => {
     }
   });
 
-  it("publishes version 1 with an English locale", () => {
+  it("uses English version 1 and keeps new future state letters as drafts", () => {
+    const futureCodes = FUTURE_US_PRIVACY_PACKS.map((pack) => `US-${pack.region}`);
     for (const template of REQUEST_TEMPLATES) {
       expect(template.version.version).toBe(1);
-      expect(template.version.status).toBe("PUBLISHED");
+      expect(template.version.status).toBe(
+        template.jurisdictionCode && futureCodes.includes(template.jurisdictionCode)
+          ? "DRAFT"
+          : "PUBLISHED"
+      );
       expect(template.version.locale).toBe("en");
       expect(["EMAIL", "DROP"]).toContain(template.channel);
       expect(template.isActive).toBe(true);
