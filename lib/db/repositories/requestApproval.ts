@@ -19,6 +19,7 @@ import { appendConsentRecordInTx } from "./consent";
 import { sendingIdentityInTx } from "./inboundMailboxes";
 import { assertCurrentProfileConsent, loadRequestForDecision } from "./requestDecision";
 import { appendRequestEventInTx, applyRequestStatusInTx } from "./requests";
+import { assertCurrentLegalBasisInTx } from "./requestLegalEligibility";
 
 const STATEMENT =
   "I have reviewed the profile, consent status, destination, channel, reply address, legal basis, selected identifiers and final request text. I approve this exact message.";
@@ -60,6 +61,7 @@ export async function commitRequestApproval(actor: ActorContext, input: Approval
         await sendingIdentityInTx(tx, request.userId)
       );
       const consent = assertCurrentProfileConsent(request.profile);
+      await assertCurrentLegalBasisInTx(tx, request);
       assertBrokerRequestCompatible(
         request.broker,
         request.jurisdictionId,

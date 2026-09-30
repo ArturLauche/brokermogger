@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Prisma } from "@prisma/client";
 
 import { markAccountDeletionRequested } from "@/lib/db/repositories/account";
 import { claimDueJobs, markJobCompleted } from "@/lib/db/repositories/jobs";
@@ -245,6 +246,117 @@ describe("atomic message approval and dispatch", () => {
       )
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(getMockOutbox()).toHaveLength(0);
+  });
+
+  it("refuses approval after its legal basis is withdrawn without creating work", async () => {
+    const fixture = await draft();
+    await testPrisma.legalRuleVersion.update({
+      where: { id: fixture.request.legalRuleVersionId! },
+      data: { status: "ARCHIVED" },
+    });
+    await expect(approveRequest(fixture.actor, fixture.command)).rejects.toMatchObject({
+      code: "LEGAL_RULE_UNAVAILABLE",
+    });
+    expect(await testPrisma.outboundEmail.count()).toBe(0);
+    expect(
+      await testPrisma.backgroundJob.count({ where: { type: "SEND_REQUEST" } })
+    ).toBe(0);
+    expect(
+      await testPrisma.consentRecord.count({ where: { purpose: "REQUEST_SUBMISSION" } })
+    ).toBe(0);
+  });
+
+  it.each(["rule", "jurisdiction", "withdrawn", "replacement"] as const)(
+    "stops queued dispatch when the legal %s changes, even with a warm catalogue cache",
+    async (change) => {
+      const fixture = await approveAndClaim();
+      const version = await testPrisma.legalRuleVersion.findUniqueOrThrow({
+        where: { id: fixture.request.legalRuleVersionId! },
+      });
+      if (change === "rule") {
+        await testPrisma.legalRule.update({
+          where: { id: version.legalRuleId },
+          data: { isActive: false },
+        });
+      } else if (change === "jurisdiction") {
+        await testPrisma.jurisdiction.update({
+          where: { id: fixture.request.jurisdictionId },
+          data: { isActive: false },
+        });
+      } else if (change === "withdrawn") {
+        await testPrisma.legalRuleVersion.update({
+          where: { id: version.id },
+          data: { status: "ARCHIVED" },
+        });
+      } else {
+        const {
+          id: _id,
+          createdAt: _createdAt,
+          updatedAt: _updatedAt,
+          ...content
+        } = version;
+        await testPrisma.legalRuleVersion.create({
+          data: {
+            ...content,
+            deadlineRule: content.deadlineRule ?? Prisma.JsonNull,
+            verificationRequirements: content.verificationRequirements ?? Prisma.JsonNull,
+            templateClauses: content.templateClauses ?? Prisma.JsonNull,
+            additionalSources: content.additionalSources ?? Prisma.JsonNull,
+            version: version.version + 1,
+            effectiveFrom: new Date(Date.now() - 1_000),
+          },
+        });
+      }
+      const result = await sendApprovedRequest(
+        systemActor(fixture.job.id),
+        fixture.request.id,
+        fixture.payload.attempt,
+        fixture.payload.snapshotId,
+        fixture.job
+      );
+      expect(result.message).toMatch(/legal basis.*fresh draft/i);
+      expect(getMockOutbox()).toHaveLength(0);
+      expect((await getOwnedRequest(fixture.actor, fixture.request.id)).status).toBe(
+        "NEEDS_USER_ACTION"
+      );
+      expect((await testPrisma.outboundEmail.findFirstOrThrow()).dispatchState).toBe(
+        "CANCELLED"
+      );
+      expect(
+        (
+          await testPrisma.backgroundJob.findUniqueOrThrow({
+            where: { id: fixture.job.id },
+          })
+        ).status
+      ).toBe("CANCELLED");
+    }
+  );
+
+  it("does not activate a scheduled replacement before its effective instant", async () => {
+    const fixture = await approveAndClaim();
+    const version = await testPrisma.legalRuleVersion.findUniqueOrThrow({
+      where: { id: fixture.request.legalRuleVersionId! },
+    });
+    const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...content } = version;
+    await testPrisma.legalRuleVersion.create({
+      data: {
+        ...content,
+        deadlineRule: content.deadlineRule ?? Prisma.JsonNull,
+        verificationRequirements: content.verificationRequirements ?? Prisma.JsonNull,
+        templateClauses: content.templateClauses ?? Prisma.JsonNull,
+        additionalSources: content.additionalSources ?? Prisma.JsonNull,
+        version: version.version + 1,
+        effectiveFrom: new Date(Date.now() + 86_400_000),
+      },
+    });
+    await sendApprovedRequest(
+      systemActor(fixture.job.id),
+      fixture.request.id,
+      fixture.payload.attempt,
+      fixture.payload.snapshotId,
+      fixture.job
+    );
+    expect(getMockOutbox()).toHaveLength(1);
   });
 
   it("blocks a verified household approval after consent revocation", async () => {

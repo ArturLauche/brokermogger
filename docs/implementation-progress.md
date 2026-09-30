@@ -58,6 +58,18 @@ Recreate the baseline from the base commit in an isolated checkout for the final
 visual comparison. This checklist is a work log, not a claim that unchecked
 features are implemented.
 
+### Live legal eligibility at approval and dispatch
+
+- Five failing regressions reproduced approval/sending against withdrawn rules,
+  inactive jurisdictions and replaced versions, including with a warm catalogue
+  cache. Approval and each dispatch gate now read the applicable legal version
+  directly under the parent locks. Changed legal content requires a fresh draft;
+  immutable historical messages remain available for review.
+- A blocked queued attempt cancels its job and unused outbound intent atomically,
+  withdraws approval authority and creates an actionable notification. A scheduled
+  replacement does not invalidate the current rule before its effective instant.
+- All 19 approval/dispatch integration tests passed using local mock delivery.
+
 ### Foundation pass
 
 - Corrected declared template variable limits and deterministic newline rejection.

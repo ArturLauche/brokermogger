@@ -18,6 +18,7 @@ import { calculateResponseTargetInTx } from "./responseTargets";
 import { readApprovedMessageInTx } from "./requestApprovedMessage";
 import { loadRequestForDecision } from "./requestDecision";
 import { applyRequestStatusInTx } from "./requests";
+import { assertCurrentLegalBasisInTx } from "./requestLegalEligibility";
 
 async function leaseInTx(tx: PrismaTransaction, job: JobLease, requestId: string) {
   const rows = await tx.$queryRaw<{ payloadJson: unknown }[]>`
@@ -52,6 +53,8 @@ const HOLD_REASONS: Partial<Record<AppErrorCode, string>> = {
     "Profile or approval consent is no longer valid. Renew it, then regenerate and review the message.",
   BROKER_NOT_SENDABLE:
     "The approved broker contact is no longer eligible. Check the broker’s contact details before regenerating the message.",
+  LEGAL_RULE_UNAVAILABLE:
+    "The legal basis was withdrawn, expired or replaced. Prepare and review a fresh draft using the current rules.",
   EXTERNAL_SENDING_DISABLED:
     "The operator has switched off broker sending. Once sending is available, review a fresh draft before queuing it again.",
   MANUAL_REVIEW_REQUIRED: "The message needs a fresh review before it can be sent.",
@@ -157,6 +160,7 @@ export async function beginApprovedDispatch(
         request,
         input.snapshotId
       );
+      await assertCurrentLegalBasisInTx(tx, request);
       const purpose = envelope.followUpNumber > 0 ? "BROKER_FOLLOW_UP" : "BROKER_REQUEST";
       const ledger = await tx.outboundEmail.findUnique({
         where: {
