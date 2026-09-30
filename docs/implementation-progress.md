@@ -524,3 +524,26 @@ verification, and production key/build checks against the compiled app.
   passed. See `docs/interface-verification.md` and `docs/operator-catalogue.md`.
 - Sourced country/state coverage, remaining pagination, operational hardening,
   scale benchmarks, full delivery verification and the PR/CI remain in progress.
+
+### Explicit EU/EEA coverage
+
+- Added distinct packs for all 27 EU countries and Iceland, Liechtenstein and
+  Norway, generated from the shared reviewed GDPR definitions with each country's
+  authority information. German keys and historical versions stay intact. EEA
+  EFTA commencement uses 2018-07-20; the EU baseline uses 2018-05-25. National
+  exceptions and holiday calendars remain explicit review requirements.
+- Resolution now prefers exact country/state records and never borrows Germany's
+  authority for missing packs. Regressions first reproduced that fallback and
+  the US resolver ignoring an existing state pack. Unsupported US locations are
+  labelled voluntary; state-specific content follows in the next coverage batch.
+- All 425 unit/component tests pass, including every applicable seeded
+  rule/template rendering combination. The 24 seed/history/generation integration
+  checks pass. A separate complete-workflow matrix passes 210 journeys: all seven
+  initial GDPR request types in all 30 countries, through approval, manual
+  submission, user-confirmed correspondence and a complete downloadable report.
+  It records no outbound email. Its initial fixture used a null sender where the
+  boundary requires a string; the corrected matrix passes.
+- Typecheck, lint and formatting pass. No new route or migration is introduced.
+  The final production/browser coverage run will include the expanded catalogue
+  after US packs, future-law corrections and sourced broker entries are complete.
+  Remaining operational, pagination, benchmark and PR work stays in scope.

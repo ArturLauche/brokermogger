@@ -5,12 +5,9 @@
  * jurisdictions and published legal rule versions, then pass them in.
  *
  * Matching order:
- *  1. Exact country + region (California).
- *  2. Country with a null region (Germany, UK, Brazil, India, Australia,
- *     Singapore).
- *  3. United States without a California region -> US-OTHER.
- *  4. Other EU/EEA countries -> the Germany GDPR representative pack, with a
- *     note that the competent authority may differ.
+ *  1. Exact country + region.
+ *  2. Country with a null region; unsupported US states use the voluntary pack.
+ * Missing country packs never borrow another country's authority.
  *
  * Unknown countries return null so the UI can ask the user to confirm rather
  * than inventing a right.
@@ -18,7 +15,6 @@
 import { AppError } from "@/lib/core/errors";
 
 import {
-  GDPR_REPRESENTATIVE_COUNTRIES,
   lowestConfidence,
   type JurisdictionRecord,
   type LegalRuleSnapshot,
@@ -41,16 +37,18 @@ function pickJurisdiction(
   const active = jurisdictions.filter((item) => item.isActive);
   const notes: string[] = [];
 
-  if (country === "US" && region === "CA") {
-    const match = active.find((item) => item.code === "US-CA");
-    return match ? { record: match, notes } : null;
+  if (region) {
+    const exactRegion = active.find(
+      (item) => item.countryCode === country && item.region === region
+    );
+    if (exactRegion) return { record: exactRegion, notes };
   }
 
   if (country === "US") {
     const match = active.find((item) => item.code === "US-OTHER");
     if (match) {
       notes.push(
-        "No uniform federal deletion right is assumed. Applicable state law must be confirmed before sending."
+        "No uniform federal deletion right is assumed. This pack offers voluntary requests only; an unsupported state is not assigned another state's rights."
       );
       return { record: match, notes };
     }
@@ -58,21 +56,10 @@ function pickJurisdiction(
   }
 
   const exact = active.find(
-    (item) =>
-      item.countryCode === country && (item.region === null || item.region === region)
+    (item) => item.countryCode === country && item.region === null
   );
   if (exact) {
     return { record: exact, notes };
-  }
-
-  if (GDPR_REPRESENTATIVE_COUNTRIES.has(country)) {
-    const germany = active.find((item) => item.code === "DE");
-    if (germany) {
-      notes.push(
-        "This country is treated under the GDPR pack represented by Germany. The competent supervisory authority may be a different national authority."
-      );
-      return { record: germany, notes };
-    }
   }
 
   return null;

@@ -14,6 +14,7 @@
  */
 import type { LegalConfidence, PublicationStatus, RequestType } from "@prisma/client";
 import type { DeadlinePolicy } from "@/lib/jurisdiction/deadlines";
+import { createGdprPacks } from "./gdpr-packs";
 import {
   GDPR_RESPONSE_POLICY,
   UK_GDPR_RESPONSE_POLICY,
@@ -109,7 +110,7 @@ const INITIAL_CHANGE_NOTES = "Initial demo rule shipped with the seed data set."
 const NO_IDENTITY_DOCUMENT_NOTE =
   "Ask for the least intrusive verification that identifies the record. Government identity documents, dates of birth and financial data are not provided by default.";
 
-export const LEGAL_RULES: readonly LegalRuleSeed[] = [
+const BASE_LEGAL_RULES: readonly LegalRuleSeed[] = [
   // -------------------------------------------------------------------------
   // California
   // -------------------------------------------------------------------------
@@ -1528,4 +1529,10 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
       },
     ],
   },
+];
+
+/** Country packs share the reviewed GDPR definitions; historical German keys stay stable. */
+export const LEGAL_RULES: readonly LegalRuleSeed[] = [
+  ...BASE_LEGAL_RULES.filter((rule) => rule.jurisdictionCode !== "DE"),
+  ...createGdprPacks(BASE_LEGAL_RULES.filter((rule) => rule.jurisdictionCode === "DE")),
 ];

@@ -11,6 +11,11 @@ import { isKnownClause } from "@/prisma/seeds/data/clauses";
 import { JURISDICTIONS } from "@/prisma/seeds/data/jurisdictions";
 import { LEGAL_RULES, type LegalRuleVersionSeed } from "@/prisma/seeds/data/legal-rules";
 import { deadlinePolicySchema } from "@/lib/jurisdiction/deadlines";
+import {
+  GDPR_COUNTRIES,
+  EDPB_AUTHORITY_DIRECTORY,
+  EEA_GDPR_COMMENCEMENT_SOURCE,
+} from "@/lib/jurisdiction/eea";
 
 const ALL_VERSIONS: {
   ruleKey: string;
@@ -94,9 +99,10 @@ describe("legal rule seed data", () => {
     for (const { jurisdiction, ruleKey, version } of ALL_VERSIONS) {
       expect(version.confidence, `${ruleKey} claims HIGH confidence`).not.toBe("HIGH");
       if (version.confidence === "MEDIUM") {
-        expect(["DE", "GB"], `${ruleKey} claims MEDIUM outside GDPR`).toContain(
-          jurisdiction
-        );
+        expect(
+          [...GDPR_COUNTRIES.map((country) => country.code), "GB"],
+          `${ruleKey} claims MEDIUM outside GDPR`
+        ).toContain(jurisdiction);
       }
       expect(version.requiresLegalReview).toBe(true);
     }
@@ -180,7 +186,7 @@ describe("legal rule seed data", () => {
   });
 
   it("gives GDPR jurisdictions a one month deadline with an extension", () => {
-    for (const jurisdiction of ["DE", "GB"]) {
+    for (const jurisdiction of [...GDPR_COUNTRIES.map((country) => country.code), "GB"]) {
       for (const version of versionsFor(jurisdiction)) {
         expect(version.deadlineDays).toBeNull();
         expect(version.deadlineRule.extension.possible).toBe(true);
@@ -194,5 +200,31 @@ describe("legal rule seed data", () => {
         expect(version.escalationAuthority).toBeDefined();
       }
     }
+  });
+
+  it("pins country authorities and the distinct EEA EFTA commencement without inventing local holidays", () => {
+    for (const country of GDPR_COUNTRIES) {
+      const versions = versionsFor(country.code);
+      expect(versions).toHaveLength(2);
+      for (const version of versions) {
+        expect(version.escalationAuthority).toBe(country.authority);
+        expect(version.escalationUrl).toBe(country.authorityUrl);
+        expect(version.escalationPath).toContain(country.name);
+        expect(version.riskNotes).toMatch(/national derogation/i);
+        expect(version.additionalSources.map((source) => source.url)).toContain(
+          EDPB_AUTHORITY_DIRECTORY
+        );
+        expect(version.deadlineRule.policy?.calendar).toBeNull();
+        expect(version.lastReviewedAt).toBe("2026-09-30T00:00:00.000Z");
+        expect(version.effectiveFrom).toBe(
+          country.eeaEfta ? "2018-07-20T00:00:00.000Z" : "2018-05-25T00:00:00.000Z"
+        );
+        if (country.eeaEfta)
+          expect(version.additionalSources.map((source) => source.url)).toContain(
+            EEA_GDPR_COMMENCEMENT_SOURCE
+          );
+      }
+    }
+    expect(versionsFor("DE")[0]?.escalationPath).toMatch(/state and federal/);
   });
 });

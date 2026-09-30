@@ -78,18 +78,33 @@ that a refusal is lawful. Escalation is described honestly: there is no
 guaranteed regulator route, and the state attorney general is the only realistic
 address.
 
-### Germany, representing the EU (`DE`)
+### EU/EEA country packs
 
 | Rule                                    | Rights claimed                                                             | Deadline                                            | Confidence |
 | --------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------- | ---------- |
 | `gdpr-access-rectification-erasure`     | access (Art. 15), rectification (Art. 16), erasure (Art. 17)               | one month, plus two further months under Art. 12(3) | MEDIUM     |
 | `gdpr-objection-and-consent-withdrawal` | objection (Art. 21), restriction (Art. 18), consent withdrawal (Art. 7(3)) | one month, same extension                           | MEDIUM     |
 
-Source:
-[EUR-Lex, Regulation (EU) 2016/679](https://eur-lex.europa.eu/eli/reg/2016/679/oj).
+All 27 EU countries and Iceland, Liechtenstein and Norway have their own
+jurisdiction record and both rules above. The rules share one GDPR definition;
+country codes, authority names and routes are explicit in
+[`eea.ts`](../lib/jurisdiction/eea.ts). Germany's original rule keys and historical
+version references remain intact. A missing pack never borrows Germany's authority.
+
+Reviewed on **2026-09-30** against the
+[EDPB individual-rights guide](https://www.edpb.europa.eu/sme/be-compliant/respect-individuals-rights_en),
+[GDPR text](https://eur-lex.europa.eu/eli/reg/2016/679/oj) and the
+[EDPB authority directory](https://www.edpb.europa.eu/about-edpb/our-members_en).
+The shared EU baseline applies from 2018-05-25; the EEA EFTA baseline applies from
+2018-07-20, as recorded by [EFTA](https://www.efta.int/media-resources/news/general-data-protection-regulation-gdpr-entered-force-eea).
+
 Escalation is a complaint to the competent supervisory authority under
-Article 77; the list of national authorities is published by the
-[European Data Protection Board](https://www.edpb.europa.eu/about-edpb/our-members_en).
+Article 77. Each pack points to its country's authority or competence directory.
+Germany has divided state/federal supervision; BfDI is not automatically the
+supervisor of a private broker. Austria also has special parliamentary competence.
+Cross-border cases can involve another lead authority. The directory, rather than
+an assumed complaint endpoint, is the source where an authority site could not be
+retrieved. Brokermogger never files the complaint.
 
 The response policy uses one calendar month from receipt, with month-end and
 non-working-day handling. Public-holiday coverage requires separate review;
@@ -97,6 +112,9 @@ dispatch-based dates remain estimates. Erasure has
 exceptions under Article 17(3), a controller may refuse manifestly unfounded or
 excessive requests under Article 12(5), and whether the recipient is a
 controller for the data in question has to be assessed per case.
+These packs cover the common GDPR baseline, not every national derogation or
+sector law. Suppression limits a use such as marketing and does not establish
+erasure. No country holiday calendar is invented, and legal review stays required.
 
 ### United Kingdom (`GB`)
 
@@ -204,5 +222,8 @@ Legal content is versioned, not edited. To change a rule:
 3. Keep `requiresLegalReview` true unless a qualified reviewer has actually
    signed off on the content, and only then consider raising the confidence.
 
-The seed only owns version 1 of the rules it ships. It refreshes that version on
-every run and never touches versions added by a maintainer.
+Seeds append changed content as new versions and preserve immutable history.
+Operator-managed rules receive draft updates. Use the legal-rule editor to save,
+preview and publish a reviewed correction; future-effective versions wait for
+their recorded effective instant. See [catalogue-versions.md](catalogue-versions.md)
+and [operator-catalogue.md](operator-catalogue.md).

@@ -30,7 +30,7 @@ interface has to render. It is not a broker directory.
 ## What the data set contains
 
 - 44 brokers spread over all eight categories, at least four per category.
-- Coverage rows for all eight jurisdictions, including at least ten brokers each
+- Fictional coverage rows for the original eight example jurisdictions, including at least ten brokers each
   for California and Germany and at least five each for Brazil, India, Australia
   and Singapore.
 - Every verification status from `UNVERIFIED` to `RESPONSE_BEHAVIOR_VERIFIED`,

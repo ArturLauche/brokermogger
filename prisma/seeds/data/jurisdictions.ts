@@ -5,6 +5,8 @@
  * `prisma/seeds/jurisdictions.ts` turns these records into rows.
  */
 
+import { GDPR_COUNTRIES } from "@/lib/jurisdiction/eea";
+
 export interface JurisdictionSeed {
   /** Stable machine key referenced by legal rules, templates and brokers. */
   code: string;
@@ -38,15 +40,14 @@ export const JURISDICTIONS: readonly JurisdictionSeed[] = [
     isActive: true,
     sortOrder: 20,
   },
-  {
-    code: "DE",
-    name: "Germany",
-    countryCode: "DE",
-    description:
-      "Germany, used as the representative jurisdiction for the EU General Data Protection Regulation. Escalation goes to the competent supervisory authority.",
+  ...GDPR_COUNTRIES.map((country, index) => ({
+    code: country.code,
+    name: country.name,
+    countryCode: country.code,
+    description: `Shared GDPR rights in ${country.name}, with country-specific authority information. National exceptions, territorial applicability and public holidays require review.`,
     isActive: true,
-    sortOrder: 30,
-  },
+    sortOrder: country.code === "DE" ? 30 : 100 + index,
+  })),
   {
     code: "GB",
     name: "United Kingdom",

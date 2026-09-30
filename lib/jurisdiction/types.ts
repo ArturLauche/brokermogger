@@ -98,37 +98,6 @@ export const COUNTRY_NAMES: Record<string, string> = {
   NO: "Norway",
 };
 
-/** EU/EEA members that, in this MVP, reuse the Germany GDPR representative pack. */
-export const GDPR_REPRESENTATIVE_COUNTRIES = new Set([
-  "AT",
-  "BE",
-  "BG",
-  "CY",
-  "CZ",
-  "DE",
-  "DK",
-  "EE",
-  "ES",
-  "FI",
-  "FR",
-  "GR",
-  "HR",
-  "HU",
-  "IE",
-  "IT",
-  "LT",
-  "LU",
-  "LV",
-  "MT",
-  "NL",
-  "PL",
-  "PT",
-  "RO",
-  "SE",
-  "SI",
-  "SK",
-]);
-
 export function countryDisplayName(countryCode: string): string {
   return COUNTRY_NAMES[countryCode] ?? countryCode;
 }
