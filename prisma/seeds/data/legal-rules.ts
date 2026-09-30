@@ -23,6 +23,7 @@ import { createGdprPacks } from "./gdpr-packs";
 import { createUsPrivacyPacks } from "./us-packs";
 import { createIndiaPacks } from "./india-packs";
 import { createUsVoluntarySuppressionPacks } from "./voluntary-us-packs";
+import { reviewRegionalTiming } from "./regional-timing";
 import {
   GDPR_RESPONSE_POLICY,
   UK_GDPR_RESPONSE_POLICY,
@@ -905,7 +906,7 @@ const BASE_LEGAL_RULES: readonly LegalRuleSeed[] = [
           ],
           verified: true,
           notes:
-            "15 days follows Article 19(II) for the complete declaration. Applying it to every request type is a product simplification.",
+            "Legacy access-specific declaration period. reviewRegionalTiming separates access from the other rights before publication.",
         },
         verificationRequirements: {
           identityVerificationExpected: true,
@@ -1341,12 +1342,12 @@ const BASE_LEGAL_RULES: readonly LegalRuleSeed[] = [
             ],
           },
           conditions: [
-            "The Act requires a response as soon as reasonably possible; 30 days comes from the regulator's guidance rather than an explicit statutory period.",
+            "Access is due as soon as reasonably possible and correction as soon as practicable. Regulation 5's 30-day duty concerns notification of a response timeframe, not universal completion.",
             "Access can be refused or limited under the exceptions in the Fifth Schedule.",
           ],
           verified: false,
           notes:
-            "The 30 day figure reflects published guidance from the Personal Data Protection Commission and should be re-checked against the current guidelines.",
+            "Legacy notification period. reviewRegionalTiming prevents it becoming a universal completion clock.",
         },
         verificationRequirements: {
           identityVerificationExpected: true,
@@ -1484,7 +1485,9 @@ const BASE_LEGAL_RULES: readonly LegalRuleSeed[] = [
 
 /** Country packs share the reviewed GDPR definitions; historical German keys stay stable. */
 export const LEGAL_RULES: readonly LegalRuleSeed[] = [
-  ...BASE_LEGAL_RULES.filter((rule) => !["DE", "IN"].includes(rule.jurisdictionCode)),
+  ...reviewRegionalTiming(
+    BASE_LEGAL_RULES.filter((rule) => !["DE", "IN"].includes(rule.jurisdictionCode))
+  ),
   ...createGdprPacks(BASE_LEGAL_RULES.filter((rule) => rule.jurisdictionCode === "DE")),
   ...createUsPrivacyPacks(),
   ...createIndiaPacks(

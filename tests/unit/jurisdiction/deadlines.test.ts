@@ -20,6 +20,21 @@ const calendar = {
   verified: true,
 };
 describe("receipt-based response targets", () => {
+  it.each(["recorded receipt", "provider delivery"])(
+    "does not roll back accepted delivery for an invalid legacy timezone (%s)",
+    (basis) => {
+      const result = responseTarget({
+        policy: CCPA_RESPONSE_POLICY,
+        ...(basis === "recorded receipt"
+          ? { receiptOn: "2026-09-30" }
+          : { providerDeliveredAt: new Date("2026-09-30T12:00:00Z") }),
+        timeZone: "Invented/Zone",
+      });
+      expect(result.deadlineAt).toBeNull();
+      expect(result.deadlineOn).toBeNull();
+      expect(result.deadlineNote).toMatch(/timezone.*review|review.*timezone/i);
+    }
+  );
   it("uses the corresponding calendar date, clamped to the last day of a shorter month", () => {
     expect(calendarMonthsFrom("2024-01-31", 1)).toBe("2024-02-29");
     expect(calendarMonthsFrom("2025-01-31", 1)).toBe("2025-02-28");

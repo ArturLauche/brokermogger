@@ -7,6 +7,14 @@ import {
 import { randomUUID } from "node:crypto";
 
 describe("account-local report calendar dates", () => {
+  it("compares padded calendar years at the lower boundary and chooses the first repeated midnight", () => {
+    expect(startOfCalendarDay("1000-01-01", "UTC").toISOString()).toBe(
+      "1000-01-01T00:00:00.000Z"
+    );
+    expect(startOfCalendarDay("2020-11-01", "America/Havana").toISOString()).toBe(
+      "2020-11-01T04:00:00.000Z"
+    );
+  });
   it("includes the entire final day and handles 23- and 25-hour days", () => {
     const spring = reportDateRange("2026-03-29", "2026-03-29", "Europe/Berlin");
     expect(spring.rangeStartAt.toISOString()).toBe("2026-03-28T23:00:00.000Z");

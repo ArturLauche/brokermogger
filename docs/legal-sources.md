@@ -185,10 +185,11 @@ Data Protection Act 2018 can limit access and erasure.
 
 ### Brazil (`BR`)
 
-| Rule                       | Rights claimed                                                                    | Deadline                             | Confidence |
-| -------------------------- | --------------------------------------------------------------------------------- | ------------------------------------ | ---------- |
-| `lgpd-data-subject-rights` | confirmation of processing, access, correction, anonymisation, blocking, deletion | 15 days for the complete declaration | LOW        |
-| `lgpd-consent-withdrawal`  | withdrawal of consent, marketing opt out                                          | none stated in the law               | LOW        |
+| Rule                       | Rights claimed                                                          | Deadline                                                                   | Confidence |
+| -------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------- | ---------- |
+| `lgpd-access-declaration`  | confirmation and access                                                 | 15 days for the complete declaration, subject to controller-specific rules | LOW        |
+| `lgpd-data-subject-rights` | correction, anonymisation, blocking, conditional deletion and objection | no universal fixed period                                                  | LOW        |
+| `lgpd-consent-withdrawal`  | withdrawal of consent, marketing opt out                                | none stated in the law                                                     | LOW        |
 
 Sources:
 [Lei 13.709/2018 (LGPD)](https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709.htm),
@@ -196,11 +197,12 @@ Sources:
 
 Deletion under Article 18(IV) is limited to data that is unnecessary, excessive
 or unlawfully processed, and Article 16 allows retention for legal obligations
-and other listed purposes, so a full deletion cannot be promised. The 15 day
-period comes from Article 19(II) and strictly speaking covers the complete
-declaration about the processing; applying it to every request type is a
-product simplification. The Portuguese text of the law prevails over any English
-summary in this repository.
+and other listed purposes, so a full deletion cannot be promised. The separate
+Article 19(II) access declaration has a 15-day baseline. Qualifying small controllers
+can receive doubled time under [ANPD Resolution 2/2022, Articles 14–15](https://www.gov.br/anpd/pt-br/acesso-a-informacao/institucional/atos-normativos/regulamentacoes_anpd/resolucao-cd-anpd-no-2-de-27-de-janeiro-de-2022).
+That qualification and any sector/public-body rules require review; no extension
+is automatic. Other Article 18 rights do not inherit the access period. Reviewed
+against these primary sources on **2026-09-30**. The Portuguese text prevails.
 
 ### India (`IN`)
 
@@ -228,10 +230,10 @@ the applicable process and the individual's own action.
 
 ### Australia (`AU`)
 
-| Rule                                   | Rights claimed                                         | Deadline                         | Confidence |
-| -------------------------------------- | ------------------------------------------------------ | -------------------------------- | ---------- |
-| `privacy-act-access-correction`        | access (APP 12), correction (APP 13)                   | 30 days, from regulator guidance | LOW        |
-| `privacy-act-direct-marketing-opt-out` | direct marketing opt out and source disclosure (APP 7) | none, "a reasonable period"      | LOW        |
+| Rule                                   | Rights claimed                                         | Deadline                                         | Confidence |
+| -------------------------------------- | ------------------------------------------------------ | ------------------------------------------------ | ---------- |
+| `privacy-act-access-correction`        | access (APP 12), correction (APP 13)                   | reasonable period, no fixed private-broker clock | LOW        |
+| `privacy-act-direct-marketing-opt-out` | direct marketing opt out and source disclosure (APP 7) | none, "a reasonable period"                      | LOW        |
 
 Sources:
 [OAIC, Australian Privacy Principles quick reference](https://www.oaic.gov.au/privacy/australian-privacy-principles/australian-privacy-principles-quick-reference),
@@ -241,13 +243,18 @@ Sources:
 rule or template in this repository asks for deletion, and the unit tests fail
 if one is added. Small business operators and several other categories fall
 outside the Act, and APP 12.3 lists grounds for refusing access.
+The [APP 12](https://www.oaic.gov.au/privacy/australian-privacy-principles/australian-privacy-principles-guidelines/chapter-12-app-12-access-to-personal-information)
+and [APP 13 guidance](https://www.oaic.gov.au/privacy/australian-privacy-principles/australian-privacy-principles-guidelines/chapter-13-app-13-correction-of-personal-information)
+were reviewed on **2026-09-30**. Their general 30-day guide for organisations is
+distinct from the fixed government-agency period. No universal 30-day statutory
+completion date is calculated for a private broker.
 
 ### Singapore (`SG`)
 
-| Rule                     | Rights claimed                                   | Deadline                                    | Confidence |
-| ------------------------ | ------------------------------------------------ | ------------------------------------------- | ---------- |
-| `pdpa-access-correction` | access (s. 21), correction (s. 22)               | 30 days from regulator guidance, unverified | LOW        |
-| `pdpa-withdraw-consent`  | withdrawal of consent (s. 16), marketing opt out | none, "reasonable notice"                   | LOW        |
+| Rule                     | Rights claimed                                   | Deadline                                                  | Confidence |
+| ------------------------ | ------------------------------------------------ | --------------------------------------------------------- | ---------- |
+| `pdpa-access-correction` | access (s. 21), correction (s. 22)               | no universal completion period; 30-day delay notification | LOW        |
+| `pdpa-withdraw-consent`  | withdrawal of consent (s. 16), marketing opt out | none, "reasonable notice"                                 | LOW        |
 
 Sources:
 [PDPC, the Personal Data Protection Act](https://www.pdpc.gov.sg/overview-of-pdpa/the-legislation/personal-data-protection-act),
@@ -255,8 +262,11 @@ Sources:
 
 **The PDPA does not provide a general right to be forgotten.** No Singapore rule
 or template asks for erasure. The Act requires a response as soon as reasonably
-possible; the 30 day figure comes from published regulator guidance and is
-marked as unverified in `deadlineRule`. Access has statutory exceptions in the
+possible (access) or practicable (correction). [Regulation 5](https://sso.agc.gov.sg/SL/PDPA2012-S63-2021?ProvIds=pr5-),
+reviewed on **2026-09-30**, requires written notification within 30 days when the
+organisation cannot comply in that period, including its response timeframe.
+That notice is not completion. Record and review the announced response separately;
+no universal full-completion clock is invented. Access has statutory exceptions in the
 Fifth Schedule, and business contact information is largely outside the Act.
 
 ## Identity verification and data minimisation

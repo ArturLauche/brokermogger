@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ValidationError } from "@/lib/core/errors";
-import { dateInTimeZone } from "./datetime";
+import { createCalendarDateFormatter } from "./datetime";
 
 export const calendarDateSchema = z.iso
   .date()
@@ -14,15 +14,16 @@ export function startOfCalendarDay(day: string, timeZone: string): Date {
   if (!calendarDateSchema.safeParse(day).success)
     throw new ValidationError("Enter a valid calendar date.");
   const utc = Date.parse(`${day}T00:00:00Z`);
+  const formatDate = createCalendarDateFormatter(timeZone);
   let low = utc - 2 * 86_400_000;
   let high = utc + 2 * 86_400_000;
   while (low < high) {
     const middle = Math.floor((low + high) / 2);
-    if (dateInTimeZone(new Date(middle), timeZone) < day) low = middle + 1;
+    if (formatDate(new Date(middle)) < day) low = middle + 1;
     else high = middle;
   }
   const result = new Date(low);
-  if (dateInTimeZone(result, timeZone) !== day)
+  if (formatDate(result) !== day)
     throw new ValidationError(
       "This calendar date does not exist in the account timezone."
     );

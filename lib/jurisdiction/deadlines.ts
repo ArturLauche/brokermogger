@@ -142,10 +142,16 @@ export function responseTarget(input: {
         ? "PROVIDER_DELIVERY_ESTIMATE"
         : "DISPATCH_ESTIMATE";
   const instant = input.providerDeliveredAt ?? input.dispatchedAt;
-  const anchor =
-    input.receiptOn ??
-    input.submittedOn ??
-    (instant ? dateInTimeZone(instant, input.timeZone) : null);
+  let anchor = input.receiptOn ?? input.submittedOn ?? null;
+  let invalidTimezone = false;
+  if (!anchor && instant) {
+    try {
+      anchor = dateInTimeZone(instant, input.timeZone);
+    } catch (error) {
+      if (!(error instanceof RangeError)) throw error;
+      invalidTimezone = true;
+    }
+  }
   if (anchor && !calendarDateSchema.safeParse(anchor).success)
     throw new ValidationError("Enter a valid submission or receipt date.");
   const empty = {
@@ -157,9 +163,17 @@ export function responseTarget(input: {
     deadlineTimezone: input.timeZone,
     deadlinePolicyVersion: policy ? 1 : null,
     deadlineNote: policy
-      ? "No fixed statutory response period is recorded."
+      ? ["No fixed completion period is recorded.", policy.notes]
+          .filter(Boolean)
+          .join(" ")
       : "This legacy or invalid timing policy requires review. No response date was invented.",
   };
+  if (invalidTimezone)
+    return {
+      ...empty,
+      deadlineNote:
+        "The recorded timezone is invalid. Review the response timing manually; no date was invented.",
+    };
   if (!policy || policy.unit === "NONE") return empty;
   if (!anchor)
     return {
@@ -223,7 +237,8 @@ export function responseTarget(input: {
     };
   } catch (error) {
     // A bad legacy date must not roll back an already accepted email or invent a date.
-    if (!(error instanceof ValidationError)) throw error;
+    if (!(error instanceof ValidationError) && !(error instanceof RangeError))
+      throw error;
     return {
       ...empty,
       deadlineNote:

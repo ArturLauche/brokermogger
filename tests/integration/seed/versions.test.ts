@@ -10,8 +10,77 @@ import {
   listPublishedLegalRules,
 } from "@/lib/db/repositories/catalog";
 import { testPrisma } from "../../helpers/db";
+import { workflowFixture } from "../../helpers/workflow";
+import { updateOwnedProfile } from "@/lib/db/repositories/profiles";
+import { generateRequests } from "@/lib/requests/lifecycle";
+import { getOwnedRequest } from "@/lib/db/repositories/requests";
 
 describe("immutable catalogue versions", () => {
+  it("supersedes the old Brazil deletion clock without rewriting a historical draft or its legal version", async () => {
+    const rule = LEGAL_RULES.find((row) => row.key === "lgpd-data-subject-rights")!;
+    const reviewed = rule.versions[0]!;
+    const { policy: _policy, ...olderTiming } = reviewed.deadlineRule;
+    const legacyTiming = { ...olderTiming, baseDays: 15, verified: false };
+    let historicalId: string;
+    let requestId: string;
+    let actor: Awaited<ReturnType<typeof workflowFixture>>["actor"];
+    try {
+      rule.versions[0] = {
+        ...reviewed,
+        deadlineDays: 15,
+        deadlineRule: legacyTiming,
+        changeNotes: "Synthetic legacy universal 15-day clock",
+      };
+      const f = await workflowFixture();
+      actor = f.actor;
+      await updateOwnedProfile(actor, f.profile.id, {
+        displayName: "My profile",
+        legalName: "Alex Sample",
+        contactEmail: "alex@example.org",
+        countryCode: "BR",
+        region: null,
+        residencyConfirmed: true,
+      });
+      const brazil = await testPrisma.jurisdiction.findUniqueOrThrow({
+        where: { code: "BR" },
+      });
+      await testPrisma.brokerJurisdictionCoverage.create({
+        data: {
+          brokerId: f.brokers[0]!.id,
+          jurisdictionId: brazil.id,
+        },
+      });
+      const generated = await generateRequests(actor, {
+        ...f.input,
+        requestType: "DELETION",
+      });
+      requestId = generated.requestIds[0]!;
+      historicalId = (await getOwnedRequest(actor, requestId)).legalRuleVersionId!;
+    } finally {
+      rule.versions[0] = reviewed;
+    }
+    await seedLegalRules(testPrisma);
+    const versions = await testPrisma.legalRuleVersion.findMany({
+      where: { legalRule: { key: rule.key } },
+      orderBy: { version: "asc" },
+    });
+    expect(versions).toHaveLength(2);
+    expect(versions[0]).toMatchObject({
+      id: historicalId,
+      deadlineDays: 15,
+      status: "SUPERSEDED",
+    });
+    expect(versions[0]!.deadlineRule).toEqual(legacyTiming);
+    expect(versions[1]).toMatchObject({ deadlineDays: null, status: "PUBLISHED" });
+    expect(versions[1]!.deadlineRule).toMatchObject({ policy: { unit: "NONE" } });
+    const history = await getOwnedRequest(actor!, requestId!);
+    expect(history.legalRuleVersionId).toBe(historicalId!);
+    expect(history.snapshots[0]!.legalRuleVersionId).toBe(historicalId!);
+    await seedLegalRules(testPrisma);
+    expect(
+      await testPrisma.legalRuleVersion.count({ where: { legalRule: { key: rule.key } } })
+    ).toBe(2);
+  });
   it("retires premature India and generic US defaults without rewriting history or reactivating them", async () => {
     await seedJurisdictions(testPrisma);
     await seedLegalRules(testPrisma);

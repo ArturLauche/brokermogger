@@ -52,6 +52,16 @@ describe("sourced coverage journeys", () => {
       total: 104,
       estimated: false,
     },
+    {
+      title: "the UK, Brazil, Australia and Singapore",
+      locations: ["GB", "BR", "AU", "SG"].map((code) => ({
+        code,
+        countryCode: code,
+        region: null,
+      })),
+      total: 24,
+      estimated: true,
+    },
   ])(
     "completes $title through approval, submission, confirmed response and report",
     async ({ locations, total, estimated }) => {
@@ -156,14 +166,23 @@ describe("sourced coverage journeys", () => {
           expect(result.deadlinePolicyVersion).toBe(1);
           expect(result.deadlineSnapshotId).toBe(request.currentSnapshotId);
           expect(result.deadlineIsEstimate, location.code).toBe(
-            ["US-OTHER", "IN"].includes(location.code) ||
-              requestType === "SUPPRESSION" ||
-              (location.code === "US-CA" && requestType === "OPT_OUT")
-              ? true
-              : estimated
+            location.code === "BR" && requestType === "ACCESS"
+              ? false
+              : ["US-OTHER", "IN"].includes(location.code) ||
+                  requestType === "SUPPRESSION" ||
+                  (location.code === "US-CA" && requestType === "OPT_OUT")
+                ? true
+                : estimated
           );
           if (["US-OTHER", "IN"].includes(location.code))
             expect(result.deadlineAt).toBeNull();
+          if (["BR", "AU", "SG"].includes(location.code)) {
+            expect(result.deadlineAt !== null).toBe(
+              location.code === "BR" && requestType === "ACCESS"
+            );
+            if (location.code === "SG" && ["ACCESS", "CORRECTION"].includes(requestType))
+              expect(result.deadlineNote).toMatch(/notif.*30|30.*notif/i);
+          }
           completed.push(id!);
         }
       }
