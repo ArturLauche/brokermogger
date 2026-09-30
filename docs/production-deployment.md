@@ -22,6 +22,11 @@ broker methods and consent separately; starting the instance does not authorize
 broker contact. Use the [private-storage upgrade procedure](upgrade-private-storage.md)
 when migrating an existing instance.
 
+Set `SECURITY_CONTACT_EMAIL` to a monitored operator address. Until configured,
+`/.well-known/security.txt` returns 404 and no placeholder contact appears on the
+sign-in error screen. Configured disclosure files use RFC 3339 expiry dates and
+the runtime HTTPS canonical, following [RFC 9116](https://www.rfc-editor.org/rfc/rfc9116.html#section-2.5.5).
+
 ```sh
 docker compose -f docker-compose.prod.yml up -d --build
 docker compose -f docker-compose.prod.yml logs --tail=100 migrate app worker

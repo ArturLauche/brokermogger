@@ -20,6 +20,7 @@ import {
 import { anonymousAuditActor, recordAudit } from "@/lib/audit/service";
 import { readRequestContext } from "@/lib/auth/requestContext";
 import { env } from "@/lib/config/env";
+import { isPlaceholderSecurityContact } from "@/lib/config/site";
 import { consumePolicy, loginErrorPerIp } from "@/lib/rateLimit";
 
 export const metadata: Metadata = {
@@ -55,7 +56,9 @@ function explain(code: string | undefined): ErrorExplanation {
         title: "This account cannot be used to sign in",
         detail:
           "The account is suspended or scheduled for deletion, so no new session can be created for it.",
-        next: `If you think this is a mistake, contact the operator of this instance at ${env.SECURITY_CONTACT_EMAIL}.`,
+        next: isPlaceholderSecurityContact(env.SECURITY_CONTACT_EMAIL)
+          ? "If you think this is a mistake, contact the operator of this instance."
+          : `If you think this is a mistake, contact the operator of this instance at ${env.SECURITY_CONTACT_EMAIL}.`,
       };
     case "Configuration":
       return {
