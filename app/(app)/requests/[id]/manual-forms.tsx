@@ -88,12 +88,14 @@ export function ManualSubmissionForm({
   approvedOn,
   timeZone,
   files,
+  instructionsOnly = false,
 }: {
   initial: SubmissionFields;
   today: string;
   approvedOn: string;
   timeZone: string;
   files: { id: string; label: string }[];
+  instructionsOnly?: boolean;
 }) {
   const [state, action, pending] = useActionState(
     submitManuallyAction,
@@ -178,7 +180,9 @@ export function ManualSubmissionForm({
           required
         />
         <span>
-          I submitted this exact approved message myself, and these dates are accurate.
+          {instructionsOnly
+            ? "I followed these approved instructions and personally submitted the platform request for this broker. These dates are accurate."
+            : "I submitted this exact approved message myself, and these dates are accurate."}
         </span>
       </label>
       <Button className="self-start" disabled={pending}>

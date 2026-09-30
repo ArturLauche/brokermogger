@@ -1,5 +1,12 @@
 # Manual submission and uncertain delivery
 
+California DROP is a distinct manual workflow. Its approved text records the
+intended broker scope and steps; it is not an email or a platform submission.
+Users complete required fields directly on the official state site, retain the
+private tracking ID outside the instance, and redact evidence. An existing status
+check is recorded as correspondence rather than as another submission. Platform
+processing/status cycles do not become an ordinary letter deadline.
+
 Portal, postal and other manual channels never submit anything automatically.
 After reviewing and approving a message, open **Submit manually** on the request.
 Download or reveal the approved text, complete the broker's published steps and

@@ -163,16 +163,18 @@ describe("legal rule seed data", () => {
     expect(voluntary?.versions[0]?.deadlineDays).toBeNull();
   });
 
-  it("keeps the California deletion platform rule explicitly unverified", () => {
+  it("keeps DROP manual and subject to legal review without an ordinary letter deadline", () => {
     const rule = LEGAL_RULES.find((entry) => entry.key === "ca-delete-act-drop");
     const version = rule?.versions[0];
 
     expect(rule?.jurisdictionCode).toBe("US-CA");
     expect(version?.confidence).toBe("LOW");
     expect(version?.requiresLegalReview).toBe(true);
-    expect(version?.deadlineRule.verified).toBe(false);
-    expect(version?.riskNotes).toMatch(/verified against current California Privacy/i);
-    expect(version?.riskNotes).toMatch(/timing, eligibility, broker coverage/i);
+    expect(version?.deadlineRule.policy?.unit).toBe("NONE");
+    expect(version?.deadlineDays).toBeNull();
+    expect(version?.verificationRequirements.allowedChannels).toEqual(["DROP"]);
+    expect(version?.supportedRequestTypes).not.toContain("SUPPRESSION");
+    expect(version?.riskNotes).toMatch(/direct email is not a DROP submission/i);
   });
 
   it("keeps India's statutory rights scheduled and offers an explicitly voluntary current pack", () => {

@@ -20,6 +20,11 @@ import {
   readDeadlinePolicy,
   responseTarget,
 } from "./deadlines";
+import {
+  legalChannelsSchema,
+  legalRuleChannels,
+  ORDINARY_LEGAL_CHANNELS,
+} from "./channels";
 
 export const legalSourceUrlSchema = z
   .url()
@@ -53,6 +58,7 @@ export const legalVerificationSchema = z
     authorisedAgentSupported: z.boolean().nullable(),
     notarisationExpected: z.boolean(),
     dataMinimisationNote: z.string().trim().min(10).max(2000),
+    allowedChannels: legalChannelsSchema.optional(),
   })
   .strict();
 export const legalAdditionalSourcesSchema = z
@@ -100,6 +106,7 @@ const clausesSchema = z
 
 const sourceFields = z.object({
   supportedRequestTypes: z.string().max(400),
+  allowedChannels: z.string().max(150).default(ORDINARY_LEGAL_CHANNELS.join(",")),
   legalBasisText: z
     .string()
     .trim()
@@ -259,6 +266,11 @@ function buildContent(source: LegalSource) {
         : source.authorisedAgentSupported === "true",
     notarisationExpected: selected.includes("notarisationExpected"),
     dataMinimisationNote: source.dataMinimisationNote,
+    allowedChannels: field(
+      legalChannelsSchema,
+      "allowedChannels",
+      split(source.allowedChannels)
+    ).sort(),
   });
   return {
     supportedRequestTypes: field(
@@ -388,6 +400,7 @@ export function legalSourceFromVersion(version: {
   );
   return {
     supportedRequestTypes: version.supportedRequestTypes.join(","),
+    allowedChannels: legalRuleChannels(version.verificationRequirements).join(","),
     legalBasisText: version.legalBasisText,
     deadlineUnit: policy?.unit ?? "NONE",
     deadlinePeriod: policy?.period ? String(policy.period) : "",
@@ -433,6 +446,7 @@ export function legalSourceFromVersion(version: {
 }
 export const DEFAULT_LEGAL_SOURCE: LegalSource = {
   supportedRequestTypes: "DELETION",
+  allowedChannels: ORDINARY_LEGAL_CHANNELS.join(","),
   legalBasisText: "",
   deadlineUnit: "NONE",
   deadlinePeriod: "",

@@ -12,11 +12,17 @@
  *  * LOW confidence always implies `requiresLegalReview`. The database enforces
  *    this too (`legal_rule_version_low_confidence_requires_review`).
  */
-import type { LegalConfidence, PublicationStatus, RequestType } from "@prisma/client";
+import type {
+  LegalConfidence,
+  PublicationStatus,
+  RequestType,
+  RequestChannel,
+} from "@prisma/client";
 import type { DeadlinePolicy } from "@/lib/jurisdiction/deadlines";
 import { createGdprPacks } from "./gdpr-packs";
 import { createUsPrivacyPacks } from "./us-packs";
 import { createIndiaPacks } from "./india-packs";
+import { createUsVoluntarySuppressionPacks } from "./voluntary-us-packs";
 import {
   GDPR_RESPONSE_POLICY,
   UK_GDPR_RESPONSE_POLICY,
@@ -59,6 +65,7 @@ export type LegalVerificationRequirementsSeed = {
   authorisedAgentSupported: boolean | null;
   notarisationExpected: boolean;
   dataMinimisationNote: string;
+  allowedChannels?: RequestChannel[];
 };
 
 export type AdditionalSourceSeed = {
@@ -304,21 +311,31 @@ const BASE_LEGAL_RULES: readonly LegalRuleSeed[] = [
       {
         version: 1,
         status: "PUBLISHED",
-        supportedRequestTypes: [
-          "DELETION",
-          "SUPPRESSION",
-          "FOLLOW_UP",
-          "FINAL_REMINDER",
-          "ESCALATION",
-        ],
+        supportedRequestTypes: ["DELETION", "FOLLOW_UP", "FINAL_REMINDER", "ESCALATION"],
         legalBasisText:
-          "the California Delete Act (California Civil Code sections 1798.99.80 and following), under which registered data brokers must process deletion requests received through the deletion request platform operated by the California Privacy Protection Agency",
-        deadlineDays: 45,
+          "the California Delete Act (Civil Code sections 1798.99.80 and following), solely for a user-performed submission or status check through the official DROP platform, subject to California residency, broker coverage and exceptions",
+        deadlineDays: null,
         deadlineRule: {
-          baseDays: 45,
+          policy: {
+            version: 1,
+            unit: "NONE",
+            period: null,
+            startsFrom: "RECEIPT",
+            sourceUrl: "https://privacy.ca.gov/drop/how-drop-works/",
+            verified: true,
+            rollForward: "NONE",
+            calendar: null,
+            extension: null,
+            conditions: [
+              "DROP uses recurring broker processing and platform status reporting, not an ordinary 45-day direct-letter response clock.",
+            ],
+            notes:
+              "Processing began August 1, 2026. CalPrivacy describes up to 90 days for initial status reporting and rechecks at least every 45 days. No universal per-request response date is calculated here.",
+          },
+          baseDays: null,
           dayType: "CALENDAR",
           startsFrom:
-            "the point at which a registered broker is required to access the platform, which the maintainers did not verify",
+            "the platform's broker-processing cycle; no ordinary letter deadline",
           extension: {
             possible: false,
             additionalDays: null,
@@ -328,20 +345,21 @@ const BASE_LEGAL_RULES: readonly LegalRuleSeed[] = [
           },
           conditions: [
             "Only data brokers that are registered in California are in scope.",
-            "The obligation and its start date depend on the current status of the platform and of the implementing regulations.",
+            "The individual must complete California residency verification and submit directly through the official platform. Preparation here is not submission.",
           ],
-          verified: false,
+          verified: true,
           notes:
-            "The 45 day figure reflects the maintainers' reading of the statute and is explicitly unverified. Check the current CPPA guidance before using this rule in production.",
+            "Initial status reporting can take up to 90 days; recurring processing is at least every 45 days. These are not an unconditional promise of deletion or a receipt-based 45-day email deadline.",
         },
         verificationRequirements: {
           identityVerificationExpected: true,
           governmentIdExpected: false,
-          accountRequired: true,
+          accountRequired: false,
           authorisedAgentSupported: null,
           notarisationExpected: false,
           dataMinimisationNote:
-            "Requests run through the state platform, so the platform decides which identifiers are handed over. Brokermogger does not submit to the platform automatically.",
+            "Complete the platform's residency and required identity fields directly on its official site. Brokermogger does not collect the platform's additional identity fields, authenticate there or store the private DROP ID. Redact confirmations before uploading a receipt.",
+          allowedChannels: ["DROP"],
         },
         escalationPath:
           "Non-compliance by a registered broker can be reported to the California Privacy Protection Agency. The individual decides whether to escalate, and submission through the state platform is a step the individual performs.",
@@ -359,22 +377,22 @@ const BASE_LEGAL_RULES: readonly LegalRuleSeed[] = [
           "household-consent-statement",
         ],
         riskNotes:
-          "Timing, eligibility, broker coverage and the behaviour of the official platform must be verified against current California Privacy Protection Agency sources before production use. Brokermogger does not operate, integrate with or speak for the state platform, and a broker that is not registered in California is very likely out of scope.",
+          "Only eligible California residents and covered registered brokers use this platform workflow. Select the intended broker scope directly in DROP; its default can include additional current and future brokers. A direct email is not a DROP submission. Exemptions, first-party data and nonmatching records can limit results. Brokermogger does not integrate with DROP, collect the platform's additional required identity fields or store its private tracking ID. Do not share that ID in a reply or evidence file.",
         requiresLegalReview: true,
         confidence: "LOW",
-        sourceUrl: "https://cppa.ca.gov/data_broker_registry/",
-        sourceTitle: "California Privacy Protection Agency, data broker registry",
+        sourceUrl: "https://privacy.ca.gov/drop/how-drop-works/",
+        sourceTitle: "CalPrivacy, how DROP works and platform status reporting",
         additionalSources: [
           {
-            title: "California Attorney General, data broker information",
-            url: "https://oag.ca.gov/data-brokers",
+            title: "CalPrivacy, broker processing obligations",
+            url: "https://privacy.ca.gov/drop-for-data-brokers/process-drop-requests/",
           },
         ],
-        lastReviewedAt: LAST_REVIEWED_AT,
+        lastReviewedAt: "2026-09-30T00:00:00.000Z",
         reviewedBy: REVIEWED_BY,
-        effectiveFrom: "2024-01-01T00:00:00.000Z",
+        effectiveFrom: "2026-08-01T07:00:00.000Z",
         changeNotes:
-          "Initial demo rule. Deliberately conservative: unverified timing and unverified platform behaviour.",
+          "2026-09-30: verified platform processing/status guidance, limited this basis to DROP, separated voluntary broker suppression, and removed the unsupported 45-day direct-response clock.",
       },
     ],
   },
@@ -1471,6 +1489,9 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
   ...createUsPrivacyPacks(),
   ...createIndiaPacks(
     BASE_LEGAL_RULES.find((rule) => rule.key === "dpdp-data-principal-rights")!
+  ),
+  ...createUsVoluntarySuppressionPacks(
+    BASE_LEGAL_RULES.find((rule) => rule.key === "us-broker-voluntary-opt-out")!
   ),
 ];
 

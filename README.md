@@ -2,7 +2,7 @@
 
 Brokermogger is a free, open source privacy request desk. You prepare, review, approve, send and track privacy requests to data brokers. Nothing leaves the instance until you have read the exact text and confirmed it.
 
-It is not a law firm. It does not guarantee removal. The shipped broker directory is fictional demo data until an operator verifies it.
+It is not a law firm. It does not guarantee removal. The shipped catalogue contains fictional examples and three inactive, sourced broker drafts. Real methods and coverage require operator verification; sending is disabled by default.
 
 ## What it does
 

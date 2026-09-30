@@ -12,6 +12,7 @@ import { canTransition } from "@/lib/requests/stateMachine";
 import type { PreparedDraft } from "./requestGeneration";
 import { assertCurrentProfileConsent, loadRequestForDecision } from "./requestDecision";
 import { applyRequestStatusInTx, insertSnapshot, type SnapshotInput } from "./requests";
+import { assertCurrentLegalBasisInTx } from "./requestLegalEligibility";
 
 async function assertCurrentMessageNotSubmitted(
   tx: PrismaTransaction,
@@ -130,6 +131,13 @@ export async function replaceRequestDraft(
           : "";
       const draft = input.regenerated;
       const freshSnapshot = draft?.snapshot ?? input.regeneratedSnapshot;
+      const legal = await assertCurrentLegalBasisInTx(tx, {
+        ...request,
+        ...(draft ??
+          (input.regeneratedSnapshot ? selectRequestDelivery(request.broker) : {})),
+        legalRuleVersionId:
+          freshSnapshot?.legalRuleVersionId ?? request.legalRuleVersionId,
+      });
       if (freshSnapshot)
         assertRenderedDelivery(
           freshSnapshot.variables,
@@ -198,14 +206,17 @@ export async function replaceRequestDraft(
             includedIdentifiers: draft.includedIdentifiers,
           },
         });
-      if (input.regeneratedSnapshot)
+      if (input.regeneratedSnapshot) {
         await tx.removalRequest.update({
           where: { id: request.id },
           data: {
             templateVersionId: input.regeneratedSnapshot.templateVersionId,
+            legalRuleVersionId: input.regeneratedSnapshot.legalRuleVersionId,
+            ...legal,
             ...selectRequestDelivery(request.broker),
           },
         });
+      }
       if (
         freshSnapshot &&
         freshSnapshot.identifierDigest !== identifierDigest(identifiers)

@@ -185,7 +185,7 @@ describe("request template seed data", () => {
       expect(template.version.version).toBe(1);
       expect(template.version.status).toBe("PUBLISHED");
       expect(template.version.locale).toBe("en");
-      expect(template.channel).toBe("EMAIL");
+      expect(["EMAIL", "DROP"]).toContain(template.channel);
       expect(template.isActive).toBe(true);
     }
   });

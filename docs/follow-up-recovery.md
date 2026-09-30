@@ -73,3 +73,10 @@ claim between the check and the confirmation.
 
 Check provider records before confirming acceptance or non-acceptance. Accepted
 email cannot be recalled. Provider acceptance does not prove delivery or removal.
+
+New follow-up messages select the currently applicable rule for the request's
+jurisdiction, type and actual channel. Publication is rechecked under its parent
+lock before the snapshot commits. A replaced rule therefore has a recovery path:
+review and approve the new message, while the original approved letter and its
+response clock remain pinned to their original snapshot. Unavailable rules cannot
+silently lend a different channel or statutory right to the reminder.

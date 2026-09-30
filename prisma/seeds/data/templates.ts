@@ -109,6 +109,44 @@ Date of this request: {{today}}
 }
 
 export const REQUEST_TEMPLATES: RequestTemplateSeed[] = [
+  ...(["DELETION", "FOLLOW_UP", "FINAL_REMINDER"] as const).map((requestType) => ({
+    key: `ca.drop.${requestType.toLowerCase().replaceAll("_", "-")}`,
+    name: `California DROP ${requestType.toLowerCase().replaceAll("_", " ")} instructions`,
+    description:
+      "A private plan for the individual's action on the official DROP platform. No email, platform login or submission is automated.",
+    requestType,
+    channel: "DROP" as const,
+    jurisdictionCode: "US-CA",
+    isActive: true,
+    clauses: [...CLAUSES_BASE, "delete-act-platform-reference", "scope-limitation"],
+    version: {
+      ...version(
+        "California DROP {{request.type}} preparation — {{request.reference}}",
+        `Private DROP preparation for {{profile.fullName}}, resident in {{profile.country}}.
+
+Intended action: {{request.type}} concerning {{broker.name}}, under {{request.legalBasis}}.
+
+This instance has not submitted a request or checked your DROP status. Complete California residency verification and any required identity fields directly on the official platform. Brokermogger does not collect its additional identity fields or log in on your behalf.
+
+Approved matching details for your own review:
+{{identifiers.list}}
+
+{{consent.statement}}
+
+Open https://consumer.drop.privacy.ca.gov/ yourself. Review the broker list and select the intended scope, including {{broker.name}}. The platform's default can include other current and future brokers; review those choices before submitting. For a follow-up, check your existing request's status rather than assuming another submission is required.
+
+Keep your private DROP ID outside this instance. Do not share it in correspondence or upload an unredacted confirmation. Record only the submission date and relevant broker outcome here.
+
+CalPrivacy describes initial status reporting of up to 90 days and ongoing broker rechecks at least every 45 days. These are different from a universal 45-day response deadline. Exceptions and nonmatching records can limit the outcome; no result is promised.
+
+Your instance reply address is {{reply.address}}; it is not a destination for submitting to DROP. Record the actual platform outcome yourself.
+
+${footer()}`
+      ),
+      changeNotes:
+        "2026-09-30: separate official manual DROP actions from direct broker letters and from an invented ordinary response deadline.",
+    },
+  })),
   ...(
     [
       [

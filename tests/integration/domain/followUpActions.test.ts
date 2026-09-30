@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { Prisma } from "@prisma/client";
+import { resetCatalogCacheForTests } from "@/lib/db/repositories/catalog";
 import { resetRuntimeSettingsCacheForTests } from "@/lib/config/runtimeSettings";
 import { enqueueJob } from "@/lib/jobs/queue";
 import { claimDueJobs, markJobCompleted } from "@/lib/db/repositories/jobs";
@@ -55,6 +57,46 @@ async function prepare(f: Awaited<ReturnType<typeof sent>>) {
 }
 
 describe("contextual follow-up actions", () => {
+  it("uses a fresh legal version for a new follow-up without rewriting the original message or clock", async () => {
+    const f = await sent();
+    const original = f.request.snapshots[0]!;
+    const version = await testPrisma.legalRuleVersion.findUniqueOrThrow({
+      where: { id: f.request.legalRuleVersionId! },
+    });
+    const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...content } = version;
+    const replacement = await testPrisma.legalRuleVersion.create({
+      data: {
+        ...content,
+        deadlineRule: content.deadlineRule ?? Prisma.JsonNull,
+        verificationRequirements: content.verificationRequirements ?? Prisma.JsonNull,
+        templateClauses: content.templateClauses ?? Prisma.JsonNull,
+        additionalSources: content.additionalSources ?? Prisma.JsonNull,
+        version: version.version + 1,
+        effectiveFrom: new Date(Date.now() - 1000),
+        legalBasisText:
+          "the reviewed current GDPR rule, subject to applicability and retention exceptions",
+      },
+    });
+    resetCatalogCacheForTests();
+    const followUp = await prepare(f);
+    expect(followUp.legalRuleVersionId).toBe(replacement.id);
+    expect(followUp.snapshots[0]!.body).toContain(replacement.legalBasisText);
+    expect(readApprovalEnvelope(followUp.snapshots[0]!).legalRuleVersionId).toBe(
+      replacement.id
+    );
+    expect(followUp.deadlineSnapshotId).toBe(f.request.deadlineSnapshotId);
+    expect(followUp.deadlineAt).toEqual(f.request.deadlineAt);
+    expect(
+      (await testPrisma.requestSnapshot.findUniqueOrThrow({ where: { id: original.id } }))
+        .contentHash
+    ).toBe(original.contentHash);
+    await approveRequest(f.actor, {
+      requestId: followUp.id,
+      envelopeHash: followUp.snapshots[0]!.envelopeHash,
+      confirmationAccepted: true,
+    });
+  });
+
   it("prepares an owner-only escalation summary, cancels pending reminders atomically and labels simulations", async () => {
     const f = await sent();
     await expect(prepareEscalation(f.actor, f.request.id)).rejects.toMatchObject({

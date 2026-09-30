@@ -96,6 +96,35 @@ features are implemented.
   editing, receiving and identity integration cases pass. Additional concurrent
   alias and cross-account checks are included in the final targeted rerun.
 
+### Submission channels and sourced broker drafts
+
+- Legal applicability now includes explicit submission channels. Legacy ordinary
+  rules cannot authorize DROP; malformed channel restrictions fail closed. DROP
+  has dedicated preparation templates, official manual steps and no invented
+  direct-letter response deadline. Checking an existing platform status is a
+  correspondence action, not another submission. Operators can author and review
+  the channel restrictions without rewriting published history.
+- Follow-ups and regeneration use the current applicable legal version, with a
+  transactional eligibility recheck. The original submitted snapshot and response
+  clock stay pinned. Voluntary broker suppression remains available in all 20
+  supported US states without borrowing a statutory deletion right.
+- Added Epsilon, LiveRamp and PeopleConnect as sourced, inactive manual drafts.
+  Contacts and coverage remain unverified; sending is disabled. PeopleConnect
+  public-search suppression is separate from website-user-data deletion, which
+  can remove existing suppressions. Repeated or competing seeds preserve operator
+  edits and do not reactivate entries.
+- All 437 unit/component tests and 42 related integration checks pass, including
+  failure-first channel and replacement-law regressions. The complete coverage
+  matrix passes 314 journeys through approval, manual submission, confirmed
+  response and a complete report. Its fixed legal-review clock initially differed
+  from PostgreSQL creation timestamps; the synthetic dates now agree. Three
+  channel checks and two broker-seed preservation/concurrency checks pass.
+- Typecheck, lint, formatting and a fresh production build pass. The production
+  browser journeys pass DROP preparation/submission and operator channel editing,
+  with no console, hydration or CSP errors. Initial browser assertions raced the
+  navigation and expected unsorted channel values; corrected assertions pass.
+  The remaining final interface, operations, benchmark and PR/CI work is ongoing.
+
 ### Live legal eligibility at approval and dispatch
 
 - Five failing regressions reproduced approval/sending against withdrawn rules,

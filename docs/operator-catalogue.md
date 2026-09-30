@@ -86,8 +86,14 @@ with a draft for review. Publication and seeds serialize their scope changes.
 Maintainers and administrators can create, search, filter and paginate rules at
 `/admin/legal-rules`. A new rule starts inactive with a draft. The stable key and
 jurisdiction remain fixed. The editor records supported types, a safe legal-basis
-line, applicability and exceptions, confidence, review flags, verification,
+line, applicable submission channels, applicability and exceptions, confidence, review flags, verification,
 escalation, primary sources, actual review date and effective UTC instants.
+
+DROP is a separate government-platform workflow. Select it explicitly only when
+the sources support that platform action. Ordinary letter rules without a channel
+restriction cover email, broker web forms, postal and manual API instructions;
+they do not imply DROP submission. Invalid explicit restrictions authorize no
+channel. Request review and persistence use the selected delivery channel.
 
 Timing uses explicit calendar days, calendar months, business days or no fixed
 period. A primary timing source is required; an unverified period requires legal

@@ -255,6 +255,10 @@ test("sources, repairs, publishes and schedules legal versions while preserving 
   await page.getByLabel("Short name", { exact: true }).fill(name);
   await page.getByLabel("Stable key", { exact: true }).fill(key);
   await page.getByLabel("Jurisdiction", { exact: true }).selectOption(jurisdictionId);
+  await expect(
+    page.getByRole("checkbox", { name: "California DROP", exact: true })
+  ).not.toBeChecked();
+  await page.getByRole("checkbox", { name: "Postal", exact: true }).uncheck();
   await page
     .getByLabel("Legal basis in letters", { exact: true })
     .fill("Article 17 of Regulation (EU) 2016/679 where its scope and conditions apply");
@@ -403,6 +407,10 @@ test("sources, repairs, publishes and schedules legal versions while preserving 
       "Article 17 of Regulation (EU) 2016/679 where its scope and conditions apply"
     );
     expect(row.versions[2]!.effectiveFrom.toISOString()).toBe(future);
+    for (const version of row.versions)
+      expect(version.verificationRequirements).toMatchObject({
+        allowedChannels: ["API", "EMAIL", "WEB_FORM"],
+      });
   } finally {
     await verify.$disconnect();
   }

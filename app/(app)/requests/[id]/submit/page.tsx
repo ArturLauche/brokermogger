@@ -33,7 +33,11 @@ export default async function ManualSubmissionPage({
   return (
     <div className="flex max-w-3xl flex-col gap-6">
       <PageHeader
-        title="Submit your approved request"
+        title={
+          request.channel === "DROP"
+            ? "Complete your approved DROP steps"
+            : "Submit your approved request"
+        }
         description={request.broker.legalName}
       />
       {!ready ? (
@@ -58,13 +62,16 @@ export default async function ManualSubmissionPage({
                 and create a new draft before submitting.
               </li>
               <li>
-                {request.channel === "POSTAL"
-                  ? "Print the approved message and post it to the address below. Keep a copy and any postal receipt."
-                  : "Open the broker’s official portal or published instructions. Complete the required steps yourself using the approved text. This instance does not bypass logins or CAPTCHAs."}
+                {request.channel === "DROP"
+                  ? "Open the official California DROP platform. Verify residency and complete its required fields there. Review the broker scope before submitting or checking an existing request. No platform login, tracking ID or additional identity field is stored here."
+                  : request.channel === "POSTAL"
+                    ? "Print the approved message and post it to the address below. Keep a copy and any postal receipt."
+                    : "Open the broker’s official portal or published instructions. Complete the required steps yourself using the approved text. This instance does not bypass logins or CAPTCHAs."}
               </li>
               <li>
-                Keep the confirmation page or receipt, then record the submission date.
-                Add the receipt date only when known.
+                {request.channel === "DROP"
+                  ? "Keep your DROP ID privately outside this instance. Redact it and other unnecessary personal details from any uploaded confirmation. Record the submission date and each broker's actual outcome."
+                  : "Keep the confirmation page or receipt, then record the submission date. Add the receipt date only when known."}
               </li>
             </ol>
             <Link
@@ -93,6 +100,15 @@ export default async function ManualSubmissionPage({
               submitted anything. Share only what the broker needs; do not send identity
               documents by default.
             </p>
+            {request.channel === "DROP" ? (
+              <p className="text-sm leading-6">
+                Checking an existing status is not a new submission.{" "}
+                <Link href={`/requests/${id}/responses/new`} className="underline">
+                  Record the platform outcome as a response
+                </Link>{" "}
+                instead of recording another submission date.
+              </p>
+            ) : null}
             <div className="flex flex-wrap gap-3">
               <Button asChild variant="outline">
                 <a href={`/api/requests/${id}/download`}>Download approved text</a>
@@ -138,6 +154,7 @@ export default async function ManualSubmissionPage({
                     file.filenameMasked ??
                     `${file.kind.toLowerCase()} · ${file.id.slice(0, 8)}`,
                 }))}
+              instructionsOnly={request.channel === "DROP"}
             />
           </section>
         </>

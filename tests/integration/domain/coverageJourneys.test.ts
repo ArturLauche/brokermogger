@@ -38,8 +38,9 @@ describe("sourced coverage journeys", () => {
     },
     {
       title:
-        "all 19 additional US states, unsupported-state voluntary requests and current India requests",
+        "all 20 US states, voluntary suppression, unsupported-state requests and current India requests",
       locations: [
+        { code: "US-CA", countryCode: "US", region: "CA" },
         ...US_PRIVACY_PACKS.map((pack) => ({
           code: `US-${pack.region}`,
           countryCode: "US",
@@ -48,7 +49,7 @@ describe("sourced coverage journeys", () => {
         { code: "US-OTHER", countryCode: "US", region: "DC" },
         { code: "IN", countryCode: "IN", region: null },
       ],
-      total: 80,
+      total: 104,
       estimated: false,
     },
   ])(
@@ -155,7 +156,11 @@ describe("sourced coverage journeys", () => {
           expect(result.deadlinePolicyVersion).toBe(1);
           expect(result.deadlineSnapshotId).toBe(request.currentSnapshotId);
           expect(result.deadlineIsEstimate, location.code).toBe(
-            ["US-OTHER", "IN"].includes(location.code) ? true : estimated
+            ["US-OTHER", "IN"].includes(location.code) ||
+              requestType === "SUPPRESSION" ||
+              (location.code === "US-CA" && requestType === "OPT_OUT")
+              ? true
+              : estimated
           );
           if (["US-OTHER", "IN"].includes(location.code))
             expect(result.deadlineAt).toBeNull();
@@ -163,6 +168,12 @@ describe("sourced coverage journeys", () => {
         }
       }
       expect(completed).toHaveLength(total);
+      // PostgreSQL's now() is independent of Vitest's fixed legal-review clock.
+      // Put these synthetic requests inside the same report day and cutoff.
+      await testPrisma.removalRequest.updateMany({
+        where: { id: { in: completed }, userId: f.user.id },
+        data: { createdAt: new Date() },
+      });
       const report = await requestReport(f.actor, {
         profileId: f.profile.id,
         dateFrom: today,

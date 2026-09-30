@@ -14,6 +14,8 @@
  */
 import { AppError } from "@/lib/core/errors";
 import { normalizeUsState } from "./locations";
+import type { RequestChannel } from "@prisma/client";
+import { legalRuleAllowsChannel, legalRuleChannels } from "./channels";
 
 import {
   lowestConfidence,
@@ -116,15 +118,21 @@ export function ruleSupportsRequestType(
 }
 
 export function primaryRuleForType(
-  resolved: ResolvedJurisdiction,
-  requestType: LegalRuleSnapshot["supportedRequestTypes"][number]
+  resolved: Pick<ResolvedJurisdiction, "rules">,
+  requestType: LegalRuleSnapshot["supportedRequestTypes"][number],
+  channel: RequestChannel = "EMAIL"
 ): LegalRuleSnapshot | null {
-  const matches = resolved.rules.filter((rule) =>
-    rule.supportedRequestTypes.includes(requestType)
-  );
-  if (matches.length === 0) return null;
-  const withoutDrop = matches.find(
-    (rule) => !rule.legalRuleKey.toLowerCase().includes("drop")
-  );
-  return withoutDrop ?? matches[0] ?? null;
+  const matches = resolved.rules
+    .filter(
+      (rule) =>
+        rule.supportedRequestTypes.includes(requestType) &&
+        legalRuleAllowsChannel(rule.verificationRequirements, channel)
+    )
+    .sort(
+      (a, b) =>
+        legalRuleChannels(a.verificationRequirements).length -
+          legalRuleChannels(b.verificationRequirements).length ||
+        a.legalRuleKey.localeCompare(b.legalRuleKey)
+    );
+  return matches[0] ?? null;
 }

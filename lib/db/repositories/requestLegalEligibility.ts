@@ -1,4 +1,5 @@
-import type { RequestType } from "@prisma/client";
+import type { RequestType, RequestChannel } from "@prisma/client";
+import { legalRuleAllowsChannel } from "@/lib/jurisdiction/channels";
 
 import { AppError } from "@/lib/core/errors";
 import type { PrismaTransaction } from "@/lib/db/client";
@@ -14,8 +15,9 @@ export async function assertCurrentLegalBasisInTx(
     jurisdictionId: string;
     legalRuleVersionId: string | null;
     requestType: RequestType;
+    channel: RequestChannel;
   }
-): Promise<void> {
+): Promise<{ legalBasisText: string; deadlineDays: number | null }> {
   const unavailable = () =>
     new AppError({
       code: "LEGAL_RULE_UNAVAILABLE",
@@ -47,7 +49,15 @@ export async function assertCurrentLegalBasisInTx(
       },
     },
     orderBy: [{ effectiveFrom: "desc" }, { version: "desc" }],
-    select: { id: true, status: true, effectiveUntil: true, supportedRequestTypes: true },
+    select: {
+      id: true,
+      status: true,
+      effectiveUntil: true,
+      supportedRequestTypes: true,
+      verificationRequirements: true,
+      legalBasisText: true,
+      deadlineDays: true,
+    },
   });
   // Include withdrawn versions when picking the latest: their predecessors must
   // not silently become eligible again. A future replacement stays inactive.
@@ -56,7 +66,9 @@ export async function assertCurrentLegalBasisInTx(
     current.id !== request.legalRuleVersionId ||
     current.status !== "PUBLISHED" ||
     (current.effectiveUntil && current.effectiveUntil <= now) ||
-    !current.supportedRequestTypes.includes(request.requestType)
+    !current.supportedRequestTypes.includes(request.requestType) ||
+    !legalRuleAllowsChannel(current.verificationRequirements, request.channel)
   )
     throw unavailable();
+  return { legalBasisText: current.legalBasisText, deadlineDays: current.deadlineDays };
 }

@@ -1,12 +1,35 @@
 # Broker seed data
 
-Every broker record that ships with Brokermogger is **fictional demo data**.
-There are no real company names, no real domains and no real contact addresses
-in `prisma/seeds/data/brokers.ts`. Every domain ends in `.example` or
-`.invalid`, both of which are reserved and cannot be registered, so a
-misconfigured instance cannot accidentally contact anyone.
+The catalogue contains **44 fictional examples** and **three inactive real-company
+drafts**. `prisma/seeds/data/brokers.ts` retains only reserved example domains.
+The separate `real-brokers.ts` data module supplies primary-source manual-method
+drafts for operator review. Neither collection enables real sending.
 
-## Why the shipped data is invented
+## Sourced drafts
+
+Reviewed on **2026-09-30** from the companies' own published pages:
+
+| Draft         | Primary source                                                                                                                                               | Manual requirements and limits                                                                                                                                                                                                               |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Epsilon       | [Consumer Privacy Rights](https://legal.epsilon.com/dsr)                                                                                                     | Use its country/request form yourself. Agent requests require additional written authority. The employee address is a different purpose.                                                                                                     |
+| LiveRamp      | [Your Privacy Choices — USA](https://liveramp.com/privacy/my-privacy-choices)                                                                                | Choose the appropriate opt-out or rights portal. Residence and identity verification can be required. A device/cookie opt-out has narrower scope; access before deletion can preserve the ability to inspect a report.                       |
+| PeopleConnect | [Suppression Center Privacy Center](https://suppression.peopleconnect.us/privacy-center), [website privacy policy](https://peopleconnect.us/privacy-policy/) | Public-search suppression differs from deleting website user data. Website deletion can delete associated suppressions. Email verification and identity settings are completed on its own site; no extra identity fields are collected here. |
+
+These entries start `isActive=false`, `isDemoData=false`, `SOURCE_FOUND`, with
+unverified contact methods, `UNKNOWN`/`LOW` compatibility rows and
+`productionSendingEnabled=false`. Listed types describe preparation compatibility,
+not proven statutory coverage or acceptance. No response behavior was observed.
+No login, submission, scraping or contact verification was performed. Operators
+must check the entity, jurisdiction, exact method and minimum fields before
+activation. PeopleConnect's draft supports suppression only, so its website
+account-deletion action cannot silently replace public-search suppression.
+
+`seedRealBrokerDrafts` creates each draft once. Later runs preserve every existing
+entry and its children, including inactive or archived choices. Competing first
+installs serialize on the same broker lock as the demo writer. There are no
+real-company email destinations in these drafts.
+
+## Why the demonstration data is invented
 
 1. **No scraping.** Brokermogger does not crawl broker sites, does not bypass
    CAPTCHAs or logins and does not violate terms of service. A seed built from
@@ -23,11 +46,11 @@ misconfigured instance cannot accidentally contact anyone.
    `npm run db:seed`. If the seed contained real addresses, an experiment would
    turn into unsolicited mail to real privacy teams.
 
-The demo data therefore exists to show the product: the categories, the
+The fictional data exists to show the product: the categories, the
 verification ladder, the coverage model, the hard cases and the states the user
 interface has to render. It is not a broker directory.
 
-## What the data set contains
+## What the fictional data set contains
 
 - 44 brokers spread over all eight categories, at least four per category.
 - Fictional coverage rows for the original eight example jurisdictions, including at least ten brokers each

@@ -10,7 +10,11 @@ import { recordAudit } from "@/lib/audit/service";
 import { selectRequestDelivery } from "@/lib/brokers/sendable";
 import { getSetting } from "@/lib/config/runtimeSettings";
 import { AppError } from "@/lib/core/errors";
-import { findPublishedTemplate } from "@/lib/db/repositories/catalog";
+import {
+  findPublishedTemplate,
+  listPublishedLegalRules,
+} from "@/lib/db/repositories/catalog";
+import { primaryRuleForType } from "@/lib/jurisdiction/resolve";
 import { getOwnedProfile } from "@/lib/db/repositories/profiles";
 import { getOwnedRequest } from "@/lib/db/repositories/requests";
 import { prepareOwnedSendingIdentity } from "@/lib/db/repositories/inboundMailboxes";
@@ -141,6 +145,21 @@ export async function renderFollowUpSnapshot(
   }));
 
   const delivery = selectRequestDelivery(request.broker);
+  const rule = primaryRuleForType(
+    {
+      rules: (await listPublishedLegalRules()).filter(
+        (row) => row.jurisdictionId === request.jurisdictionId
+      ),
+    },
+    request.requestType,
+    delivery.channel
+  );
+  if (!rule || !rule.supportedRequestTypes.includes(kind))
+    throw new AppError({
+      code: "LEGAL_RULE_UNAVAILABLE",
+      message:
+        "No current legal rule supports this reminder and channel. Review the current sources or record the outcome before preparing another message.",
+    });
   const template = await findPublishedTemplate({
     requestType: kind,
     jurisdictionId: request.jurisdictionId,
@@ -164,7 +183,7 @@ export async function renderFollowUpSnapshot(
       "profile.region": profile.region ?? "",
       "profile.country": countryDisplayName(profile.countryCode),
       "request.type": REQUEST_TYPE_LABELS[request.requestType],
-      "request.legalBasis": request.legalBasisText,
+      "request.legalBasis": rule.legalBasisText,
       "request.deadlineDate": request.deadlineOn
         ? `${request.deadlineOn.toISOString().slice(0, 10)}${request.deadlineIsEstimate ? " (estimate)" : ""}`
         : "",
@@ -187,7 +206,7 @@ export async function renderFollowUpSnapshot(
     subject: rendered.subject,
     body: rendered.body,
     templateVersionId: template.version.id,
-    legalRuleVersionId: request.legalRuleVersionId,
+    legalRuleVersionId: rule.legalRuleVersionId,
     variables: {
       ...deliveryVariables(delivery),
       ...sendingIdentityVariables(sendingIdentity),

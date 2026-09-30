@@ -35,11 +35,12 @@ Two more conventions matter when reading the rules:
 
 ### California (`US-CA`)
 
-| Rule                        | Rights claimed                                  | Deadline                                           | Confidence |
-| --------------------------- | ----------------------------------------------- | -------------------------------------------------- | ---------- |
-| `ccpa-consumer-rights`      | deletion, access, correction                    | 45 calendar days, one 45 day extension with notice | LOW        |
-| `ccpa-opt-out-sale-sharing` | opt out of sale and sharing                     | 15 business days                                   | LOW        |
-| `ca-delete-act-drop`        | deletion and suppression for registered brokers | 45 days, **unverified**                            | LOW        |
+| Rule                              | Rights claimed                                  | Deadline                                           | Confidence |
+| --------------------------------- | ----------------------------------------------- | -------------------------------------------------- | ---------- |
+| `ccpa-consumer-rights`            | deletion, access, correction                    | 45 calendar days, one 45 day extension with notice | LOW        |
+| `ccpa-opt-out-sale-sharing`       | opt out of sale and sharing                     | 15 business days                                   | LOW        |
+| `ca-delete-act-drop`              | manual official DROP deletion/status workflow   | platform cycles; no ordinary letter deadline       | LOW        |
+| `us-voluntary-broker-suppression` | direct suppression under the recipient's policy | no fixed period                                    | LOW        |
 
 Sources: [California Attorney General, CCPA](https://oag.ca.gov/privacy/ccpa),
 [California Privacy Protection Agency](https://cppa.ca.gov/),
@@ -49,12 +50,22 @@ Sources: [California Attorney General, CCPA](https://oag.ca.gov/privacy/ccpa),
 Escalation goes to the California Privacy Protection Agency or the California
 Attorney General, and only if the individual decides to escalate.
 
-The Delete Act rule is deliberately conservative. Its risk notes state that
-timing, eligibility, broker coverage and the behaviour of the official platform
-must be verified against current California Privacy Protection Agency sources
-before production use. Brokermogger does not operate, integrate with or speak
-for the state platform, and a broker that is not registered in California is
-very likely out of scope.
+The DROP workflow was reviewed on **2026-09-30** against
+[CalPrivacy's consumer instructions](https://privacy.ca.gov/drop/how-drop-works/)
+and [broker-processing guidance](https://privacy.ca.gov/drop-for-data-brokers/process-drop-requests/).
+It is restricted to the `DROP` channel and never applied to a direct email or
+ordinary broker form. Its approved text is a private action plan; the individual
+performs residency verification, chooses the broker scope and submits on the
+official platform. Brokermogger does not collect additional platform identity
+fields, log in, store the private DROP ID or submit on the person's behalf.
+
+Broker processing began August 1, 2026, with recurring access at least every
+45 days. Consumer guidance describes up to 90 days for initial status reporting.
+These are separate platform requirements; no universal 45-day response deadline
+is attached to a letter. Exceptions and nonmatching records can limit results.
+Checking an existing status is recorded as correspondence, not another submission.
+Voluntary direct suppression remains separate from erasure and CCPA sale/sharing
+opt-out. Operator-authored rules can explicitly limit their applicable channels.
 
 ### US state packs
 
@@ -65,6 +76,10 @@ official attorney-general guidance, states its adult-consumer applicability
 conditions, records the actual review date **2026-09-30**, and remains `LOW`
 confidence with legal review required. All state/DC choices remain available;
 unsupported locations resolve to an explicitly voluntary pack.
+
+Every supported state also retains a separate voluntary suppression option. A
+state pack does not remove the option to use a broker's published display/use
+restriction policy, and this option does not borrow a statutory erasure claim.
 
 The initial response policies use receipt-based calendar days, with conditional
 extensions requiring notice. They do not automatically apply a pause, extension,

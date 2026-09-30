@@ -13,6 +13,7 @@ import { lockJobLeaseInTx } from "./jobLease";
 import { createNotificationInTx } from "./notifications";
 import { assertCurrentProfileConsent, loadRequestForDecision } from "./requestDecision";
 import { applyRequestStatusInTx, insertSnapshot, type SnapshotInput } from "./requests";
+import { assertCurrentLegalBasisInTx } from "./requestLegalEligibility";
 
 type Decision = Awaited<ReturnType<typeof loadRequestForDecision>>;
 const scheduleSchema = z.object({
@@ -343,9 +344,18 @@ export async function commitFollowUpDraft(
       });
     const delivery = selectRequestDelivery(request.broker);
     assertRenderedDelivery(input.snapshot.variables, delivery);
+    const legal = await assertCurrentLegalBasisInTx(tx, {
+      ...request,
+      ...delivery,
+      legalRuleVersionId: input.snapshot.legalRuleVersionId,
+    });
     await tx.removalRequest.update({
       where: { id: request.id },
-      data: delivery,
+      data: {
+        ...delivery,
+        ...legal,
+        legalRuleVersionId: input.snapshot.legalRuleVersionId,
+      },
     });
     const snapshot = await insertSnapshot(
       {

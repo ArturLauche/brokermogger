@@ -21,10 +21,24 @@ export const legalMetadataFields: EditorField[] = [
 ];
 export const legalSourceFields: EditorField[] = [
   {
+    name: "allowedChannels",
+    label: "Applicable submission channels",
+    kind: "checkboxes",
+    section: "Scope and applicability",
+    options: [
+      { value: "EMAIL", label: "Email" },
+      { value: "WEB_FORM", label: "Broker portal or web form" },
+      { value: "POSTAL", label: "Postal" },
+      { value: "API", label: "Manual API instructions" },
+      { value: "DROP", label: "California DROP" },
+    ],
+    description:
+      "Select only channels the rule supports. DROP is a separate government workflow; an ordinary email does not submit to it.",
+  },
+  {
     name: "supportedRequestTypes",
     label: "Supported request types",
     kind: "checkboxes",
-    section: "Scope and applicability",
     options: Object.values(RequestType).map((value) => ({
       value,
       label: REQUEST_TYPE_LABELS[value],

@@ -145,7 +145,7 @@ export async function createPreparedDrafts(
         // draft or consumed quota. Most batches share one jurisdiction and rule.
         const legalBases = new Map(
           drafts.map((draft) => [
-            `${draft.legalRuleVersionId}:${draft.requestType}`,
+            `${draft.legalRuleVersionId}:${draft.requestType}:${draft.channel}`,
             draft,
           ])
         );

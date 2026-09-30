@@ -111,14 +111,6 @@ export async function prepareRequestDrafts(
     });
   }
 
-  const rule = primaryRuleForType(resolved, input.requestType);
-  if (!rule) {
-    throw new AppError({
-      code: "VALIDATION_FAILED",
-      message: "No published legal rule covers this request type.",
-    });
-  }
-
   const selectedIdentifiers = profile.identifiers.filter((identifier) =>
     input.identifierIds.includes(identifier.id)
   );
@@ -219,6 +211,13 @@ export async function prepareRequestDrafts(
     });
 
     const delivery = selectRequestDelivery(broker);
+    const rule = primaryRuleForType(resolved, input.requestType, delivery.channel);
+    if (!rule)
+      throw new AppError({
+        code: "VALIDATION_FAILED",
+        message:
+          "No published legal rule covers this request type through the selected broker's channel. Choose a compatible method or ask the operator to review its instructions.",
+      });
     let selection = templates.get(delivery.channel);
     if (!selection) {
       selection = findPublishedTemplate({
