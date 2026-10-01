@@ -55,7 +55,7 @@ and open work at their respective checkpoints.
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Static checks            | Type checking, ESLint, Prettier and the 40-check environment catalogue                                                                                                            |
 | Unit/component tests     | 466 cases across 71 files                                                                                                                                                         |
-| Integration tests        | 283 cases across 47 files, including 350 complete sourced-catalogue journeys in five matrix cases                                                                                 |
+| Integration tests        | 287 cases across 47 files, including 350 complete sourced-catalogue journeys in five matrix cases                                                                                 |
 | Production browser tests | 15 Chromium journeys under strict CSP, including actual magic-link authentication and account erasure                                                                             |
 | Complete interface       | 48 routes at 320, 375, 768, 1024 and 1440px: 240 captures with no overflow, heading/label defects, unexpected console/CSP errors or axe AA findings                               |
 | Keyboard and zoom        | 101 passing navigation, dialog, focus and layout checks; zoom is an automation approximation                                                                                      |
@@ -88,10 +88,13 @@ See [interface comparisons](interface-verification.md),
 [deployment](production-deployment.md) and [backup recovery](backup-and-recovery.md).
 External broker sending remains disabled throughout development and verification.
 
-The final review pass verified six automated findings, added failure-first coverage
+The final review pass verified the automated findings, added failure-first coverage
 and corrected deletion proof/retry recovery, privileged consent selection, quota
 rollback and unfinished purge batching. Onboarding now bounds raw text before
-splitting while preserving its permitted input. Browser CI uses an isolated schema
+splitting while preserving its permitted input. Both erasure phases recheck current
+intent under a lock, settings commit their audit atomically, and export purges can
+recover a terminal job without stealing a lease. Receiving and onboarding also
+defend their repository boundaries against oversized direct calls. Browser CI uses an isolated schema
 so worker fixtures cannot claim leftover integration jobs. See the
 [review dispositions and regression evidence](delivery-review.md).
 
