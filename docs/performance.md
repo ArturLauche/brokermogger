@@ -148,6 +148,6 @@ counts for generation and shared-host measurements limit extrapolation.
 ## Public JavaScript
 
 The completed public-interface pass reduced encoded JavaScript transfer from
-190,430 to 156,202 bytes over three cold Chromium runs. All public content and
+190,430 to 156,299 bytes over three cold Chromium runs. All public content and
 FAQ behavior remain available. The method and raw totals are documented in
 [interface verification](interface-verification.md#measured-javascript-transfer).

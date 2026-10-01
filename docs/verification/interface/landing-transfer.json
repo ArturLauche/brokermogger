@@ -19,10 +19,22 @@
   ],
   "after": [
     {
-      "encodedBytes": 156202,
-      "transferBytes": 158902,
+      "encodedBytes": 156299,
+      "transferBytes": 158999,
       "files": 9
     },
+    {
+      "encodedBytes": 156299,
+      "transferBytes": 158999,
+      "files": 9
+    },
+    {
+      "encodedBytes": 156299,
+      "transferBytes": 158999,
+      "files": 9
+    }
+  ],
+  "earlierAfter": [
     {
       "encodedBytes": 156202,
       "transferBytes": 158902,
@@ -32,6 +44,38 @@
       "encodedBytes": 156202,
       "transferBytes": 158902,
       "files": 9
+    },
+    {
+      "encodedBytes": 156202,
+      "transferBytes": 158902,
+      "files": 9
+    }
+  ],
+  "finalProductionChecks": [
+    {
+      "path": "/favicon.ico",
+      "status": 200
+    },
+    {
+      "path": "/sitemap.xml",
+      "status": 200
+    },
+    {
+      "path": "/robots.txt",
+      "status": 200
+    },
+    {
+      "path": "/llms.txt",
+      "status": 200
+    },
+    {
+      "path": "/.well-known/security.txt",
+      "status": 404
+    },
+    {
+      "privateRedirect": 307,
+      "privateNoindex": true,
+      "publicMaps": 0
     }
   ]
 }

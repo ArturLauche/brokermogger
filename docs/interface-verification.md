@@ -1,10 +1,11 @@
-# Interface verification — 2026-09-30
+# Interface verification — 2026-10-01
 
 This batch retains the existing blue/slate identity and system typography. It
 repairs the shared mobile shell, simplifies repeated surfaces, establishes a
 small spacing/radius vocabulary, makes request review readable, and completes
 upload feedback and keyboard paths. It does not replace the product's navigation
-or remove public sections, metrics or workflows.
+or remove public sections, metrics or workflows. Earlier paragraphs record each
+iteration; the final production pass below describes the delivery revision.
 
 ## Visual comparisons
 
@@ -119,6 +120,19 @@ available-file list scrolls; selected files and unfinished text survive searchin
 and paging. Comparisons are [375px](verification/interface/attachment-dialog-375.png)
 and [desktop](verification/interface/attachment-dialog-1440.png).
 
+The delivery build passes all 15 production browser journeys, all 240 captures
+across 48 routes and all 101 keyboard/zoom-approximation checks. The final journey
+deletes an account through the actual interface, verifies an old session cannot
+access private routes, and runs the leased purge to prove private fields and a
+stored object are removed. Pending destructive actions cannot be submitted twice
+or dismissed; a failed action preserves its confirmation and explains how to
+retry. Opening a new confirmation starts with an empty phrase.
+
+The final public-output checks also verify deployment-correct canonical and
+Open Graph origins, private redirect noindex headers, real missing-route status,
+favicon, sitemap, robots and llms.txt. Example security contact configuration
+does not publish a misleading security.txt. No source maps are served publicly.
+
 To reproduce on the dedicated mock browser schema, run
 `node --import tsx tests/helpers/interface-capture.ts final`, then
 `node --import tsx tests/helpers/interface-keyboard.ts final` with that test
@@ -132,8 +146,8 @@ resources after the public page settled. Each run returned the same byte totals:
 
 | Measure                                      |  Before |   After | Change |
 | -------------------------------------------- | ------: | ------: | -----: |
-| Encoded JavaScript bytes                     | 190,430 | 156,202 | −18.0% |
-| JavaScript transfer bytes, including headers | 194,330 | 158,902 | −18.2% |
+| Encoded JavaScript bytes                     | 190,430 | 156,299 | −18.0% |
+| JavaScript transfer bytes, including headers | 194,330 | 158,999 | −18.2% |
 | JavaScript files                             |      13 |       9 |     −4 |
 
 [Raw totals and method](verification/interface/landing-transfer.json) are kept

@@ -17,30 +17,76 @@ checks did not establish complete user journeys.
 
 ## Delivery checklist
 
-- [ ] Regression coverage, seeded rendering, sign-out, public invitations,
+- [x] Regression coverage, seeded rendering, sign-out, public invitations,
       dependency advisories.
-- [ ] Versioned encryption, encrypted authentication lookup, strict key
+- [x] Versioned encryption, encrypted authentication lookup, strict key
       validation, safe uploads/downloads, recoverable object deletion.
-- [ ] Immediate account access blocking and resumable erasure; equivalent
+- [x] Immediate account access blocking and resumable erasure; equivalent
       profile/identifier deletion; minimal audit/consent proof retention.
-- [ ] Focused request services, ownership boundaries, atomic generation/quota
+- [x] Focused request services, ownership boundaries, atomic generation/quota
       and approval/outbox, complete approval envelopes, dispatch revalidation.
-- [ ] Fenced job leases, heartbeats, cancellation and ambiguous-send recovery.
-- [ ] Resumable onboarding and profile editing; complete household consent.
-- [ ] Draft editing, contextual follow-ups, manual submissions, responses,
+- [x] Fenced job leases, heartbeats, cancellation and ambiguous-send recovery.
+- [x] Resumable onboarding and profile editing; complete household consent.
+- [x] Draft editing, contextual follow-ups, manual submissions, responses,
       verification, closure and recovery actions.
-- [ ] Notifications/preferences, reports and masked/sensitive exports.
-- [ ] Operator catalogue and immutable legal/template publication, settings.
-- [ ] Sourced EU/EEA and US state packs, correct deadlines, disabled real
+- [x] Notifications/preferences, reports and masked/sensitive exports.
+- [x] Operator catalogue and immutable legal/template publication, settings.
+- [x] Sourced EU/EEA and US state packs, correct deadlines, disabled real
       broker drafts and inactive future law versions.
-- [ ] Shared UI tokens, responsive shell, readable review, useful dashboard,
+- [x] Shared UI tokens, responsive shell, readable review, useful dashboard,
       accessible paginated tables and complete interaction states.
-- [ ] Runtime metadata, strict CSP, Docker roles/storage, operational health,
+- [x] Runtime metadata, strict CSP, Docker roles/storage, operational health,
       backup/restore and upgrade documentation.
-- [ ] Measured performance comparisons; retain only demonstrated safe wins.
-- [ ] Migration/recovery rehearsals, ownership/concurrency/encryption tests,
+- [x] Measured performance comparisons; retain only demonstrated safe wins.
+- [x] Migration/recovery rehearsals, ownership/concurrency/encryption tests,
       real browser journeys, all screen sizes, accessibility and production QA.
-- [ ] Coherent commits, reviewable PR, T3 registration and passing CI.
+
+PR creation, T3 registration and the final revision's CI results are recorded in
+the delivery PR. They are delivery steps rather than application features.
+
+## Final verification coverage — 2026-10-01
+
+The seven implementation areas are complete. The delivery PR is the authoritative
+record of the final whole-suite run and matching-revision CI status. The following
+coverage is implemented and exercised; historical entries below retain the counts
+and open work at their respective checkpoints.
+
+| Check                    | Coverage                                                                                                                                                                          |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Static checks            | Type checking, ESLint, Prettier and the 40-check environment catalogue                                                                                                            |
+| Unit/component tests     | 461 cases across 70 files                                                                                                                                                         |
+| Integration tests        | 275 cases across 46 files, including 350 complete sourced-catalogue journeys in five matrix cases                                                                                 |
+| Production browser tests | 15 Chromium journeys under strict CSP, including actual magic-link authentication and account erasure                                                                             |
+| Complete interface       | 48 routes at 320, 375, 768, 1024 and 1440px: 240 captures with no overflow, heading/label defects, unexpected console/CSP errors or axe AA findings                               |
+| Keyboard and zoom        | 101 passing navigation, dialog, focus and layout checks; zoom is an automation approximation                                                                                      |
+| Production output        | Runtime canonical/Open Graph origins, one H1, language, private noindex redirects, actual 404 status, sitemap, robots, favicon and llms.txt; no public source maps                |
+| Dependency audit         | Zero reported vulnerabilities across production and development dependencies                                                                                                      |
+| Migration and recovery   | 17 migrations; isolated historical/backfill/deadline rehearsals; separate non-root Docker roles, encrypted shared storage, database/object backup restoration and resumed erasure |
+| Performance              | Repeated 100/1,000/10,000-request fixtures, raw query/size/latency/memory/worker measurements and three cold public-page contexts                                                 |
+
+The final browser pass and all 240/101 interface checks pass on the standalone
+production build. Destructive confirmation remains visible through pending work,
+retains the entered phrase after an error and requires a fresh phrase when reopened.
+The deletion journey proves immediate session/access blocking and successful
+leased removal of identifiers, private ciphertext and a stored object.
+
+Final catalogue testing exposed two fixtures that installed seeds using the wall
+clock and then attempted to test the preceding legal version. Their installation
+clock is now explicit and precedes commencement; separate boundary tests still
+verify activation with a warm cache. All 18 seed/version checks pass after the
+correction. Outstanding seed writers are drained before fixture cleanup.
+
+The measured public JavaScript transfer falls from 190,430 to 156,299 encoded
+bytes (18.0%). Complete masked exports at 10,000 requests fall from 10.1 to
+5.1 seconds with identical record counts and output size. Slower report/audit
+measurements, memory limitations and rejected speculative optimizations remain
+documented in [performance verification](performance.md).
+
+See [interface comparisons](interface-verification.md),
+[private-storage upgrade](upgrade-private-storage.md),
+[deadline/index migration notes](response-targets.md),
+[deployment](production-deployment.md) and [backup recovery](backup-and-recovery.md).
+External broker sending remains disabled throughout development and verification.
 
 ## Migration commitments
 
@@ -54,9 +100,10 @@ requirements, maintenance and rollback boundaries in the upgrade guide.
 
 New validation results are recorded here as the corresponding work is completed.
 The original audit screenshots were lost when the temporary environment reset.
-Recreate the baseline from the base commit in an isolated checkout for the final
-visual comparison. This checklist is a work log, not a claim that unchecked
-features are implemented.
+The baseline was recreated from the base commit in an isolated checkout for the
+final visual comparison. Earlier log entries preserve the status and test counts
+at that time. The checklist and final verification record above describe the
+current result.
 
 ### US state coverage and future commencement
 
@@ -576,6 +623,57 @@ verification, and production key/build checks against the compiled app.
   production browser journeys passed, including original receipt recording.
   Legal authoring, sourced coverage, remaining pagination, operational hardening,
   scale benchmarks and final PR/CI delivery remain in progress.
+
+### Complete private histories and recoverable actions
+
+- Request events, manual submissions and attachment choices now use complete,
+  ownership-scoped pages. Search and selection preserve entered correspondence;
+  expired and ineligible files cannot become attachments. Audited privileged
+  reads receive only a minimized operational summary, never private content.
+- Invalid list filters display a local explanation and a reset link. Foreign
+  private routes return an actual HTTP 404, one meaningful heading and one main
+  landmark. Navigation keeps a visible pending state without committing streaming
+  headers before ownership checks. Browser validation exposed Zod's optional JIT
+  probe under strict CSP; browser schemas now use its supported non-JIT mode.
+- Damaged reminder jobs require an explicit preparation choice. The deadline
+  watcher checkpoints its bounded scan under the current lease, so large backlogs
+  and failed records cannot prevent later records from receiving attention.
+  Correcting receipt cancels obsolete proven automatic work and preserves manual
+  choices and approved history. Migration backfills require conservative proof
+  and do not infer a corrected clock from an older system event.
+- The complete suites passed 456 unit/component tests, 271 integration tests and
+  14 production browser journeys before the final scale/source additions. All
+  240 route/viewport captures passed alignment, overflow, labels, headings,
+  accessibility, CSP and browser-error checks. Additional final verification is
+  underway for the bounded export/index changes and future-law drafts.
+- Security contact output now uses RFC 3339 expiry and refuses to publish an
+  example address. UK timing notes cite the current ICO guidance and enacted
+  commencement/transitional provisions. Alabama, Louisiana and Oklahoma future
+  statutory rules and letters remain unpublished drafts; voluntary workflows
+  stay available without an invented statutory deadline.
+
+### Measured scale and final privacy review
+
+- The isolated 100/1,000/10,000-request benchmarks verify complete reports and
+  masked exports, response sizes, query counts, p50/p95 latency, memory and
+  fenced worker throughput. At 10,000 requests, bounded history returns roughly
+  12 kB rather than 5 MB. Masked export generation keeps identical output and
+  falls from 10.1 to 5.1 seconds, with 2,335→1,014 queries. Larger internal batches
+  and omission of unused private fields preserve every record and confirmed
+  sensitive exports. The ownership/time/id index and exact cursor upper bound
+  improve all three large-page comparison rounds. See `docs/performance.md` for
+  raw evidence, slower results and measurement limits.
+- A second report index did not show a consistent benefit and is not added.
+  Stable paged audit verification and explicit private authorization cost extra
+  queries; those correctness guarantees are retained. Existing multiple-worker
+  operation is measured; no speculative intra-worker concurrency is introduced.
+- New failure-first regressions reproduced operator summaries retaining legacy
+  profile notes and stale actors revealing identifiers after deletion scheduling.
+  Reads now check active ownership before fetching private fields, operator
+  summaries select only operational metadata, and identifier reveal requires
+  successful audit recording. Pending erasure blocks these reads immediately.
+- Final delivery checks, Docker restore validation and the reviewable PR with
+  registered thread linkage and verified CI remain underway.
 
 ### Legal-rule authoring and current operator authority
 
