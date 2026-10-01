@@ -195,27 +195,56 @@ export async function deleteOwnedAccountExport(actor: ActorContext, rawId: unkno
       where: { id },
       data: { deletedAt: new Date(), generationLeaseToken: null },
     });
+    let needsFilePurge = false;
     if (data.evidenceFileId)
-      await tx.evidenceFile.updateMany({
-        where: { id: data.evidenceFileId, storageState: { not: "PURGED" } },
-        data: {
-          storageState: "PURGE_PENDING",
-          purgeRequestedAt: new Date(),
-          deletedAt: new Date(),
-        },
-      });
-    await tx.backgroundJob.upsert({
+      needsFilePurge =
+        (
+          await tx.evidenceFile.updateMany({
+            where: { id: data.evidenceFileId, storageState: { not: "PURGED" } },
+            data: {
+              storageState: "PURGE_PENDING",
+              purgeRequestedAt: new Date(),
+              deletedAt: new Date(),
+            },
+          })
+        ).count > 0;
+    const purgePayload = parseJobPayload("PURGE_EVIDENCE", {
+      olderThanIso: new Date().toISOString(),
+    });
+    const purgeJob = await tx.backgroundJob.upsert({
       where: { idempotencyKey: `export-purge:${id}` },
       create: {
         type: "PURGE_EVIDENCE",
-        payloadJson: parseJobPayload("PURGE_EVIDENCE", {
-          olderThanIso: new Date().toISOString(),
-        }),
+        payloadJson: purgePayload,
         relatedUserId: ref.userId,
         idempotencyKey: `export-purge:${id}`,
       },
       update: {},
+      select: { id: true },
     });
+    if (needsFilePurge) {
+      await tx.backgroundJob.updateMany({
+        where: {
+          id: purgeJob.id,
+          type: "PURGE_EVIDENCE",
+          relatedUserId: ref.userId,
+          status: { in: ["FAILED", "CANCELLED", "COMPLETED"] },
+        },
+        data: {
+          status: "PENDING",
+          runAt: new Date(),
+          attemptCount: 0,
+          payloadJson: purgePayload,
+          lastError: null,
+          cancelledAt: null,
+          completedAt: null,
+          lockedAt: null,
+          lockedBy: null,
+          lockExpiresAt: null,
+          leaseToken: null,
+        },
+      });
+    }
   });
 }
 

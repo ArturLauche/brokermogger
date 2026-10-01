@@ -6,7 +6,7 @@ import { timezoneSchema } from "@/lib/profiles/validation";
 import { parseWithSchema } from "@/lib/validation/form";
 import { lockActiveAccount } from "./access";
 import { NotFoundError, ValidationError } from "@/lib/core/errors";
-import { prisma, withAppendOnlyDeletes } from "@/lib/db/client";
+import { prisma, withAppendOnlyDeletes, type PrismaTransaction } from "@/lib/db/client";
 import { parseJobPayload } from "@/lib/jobs/payloads";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
@@ -151,6 +151,21 @@ export async function findAccountCreatedAt(userId: string): Promise<Date | null>
   return row?.createdAt ?? null;
 }
 
+/** Recheck the deletion intent under the same lock as each destructive phase. */
+async function lockPendingAccountErasure(tx: PrismaTransaction, userId: string) {
+  await tx.$executeRaw`SELECT 1 FROM "User" WHERE "id" = ${userId} FOR UPDATE`;
+  const account = await tx.user.findUnique({
+    where: { id: userId },
+    select: { status: true, deletionRequestedAt: true, anonymizedAt: true },
+  });
+  if (!account) throw new NotFoundError("This account does not exist.");
+  if (account.anonymizedAt) return false;
+  if (account.status !== "PENDING_DELETION" || !account.deletionRequestedAt) {
+    throw new ValidationError("Account deletion is not pending.");
+  }
+  return true;
+}
+
 /**
  * Erase personal database content after the owner requested deletion.
  * Requires an authorized actor (the worker passes `systemActor`) and only
@@ -164,21 +179,8 @@ export async function anonymiseDeletedAccount(
 ): Promise<void> {
   requirePermission(actor, "account:delete", { ownerUserId: userId });
 
-  const account = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { deletionRequestedAt: true, anonymizedAt: true },
-  });
-  if (!account) {
-    throw new NotFoundError("This account does not exist.");
-  }
-  if (!account.deletionRequestedAt) {
-    throw new ValidationError("Account deletion has not been requested.");
-  }
-  if (account.anonymizedAt) {
-    return;
-  }
-
   await withAppendOnlyDeletes(async (tx) => {
+    if (!(await lockPendingAccountErasure(tx, userId))) return;
     await tx.profileIdentifier.deleteMany({
       where: { profile: { ownerUserId: userId } },
     });
@@ -308,7 +310,7 @@ export async function finishAccountErasure(
 ): Promise<void> {
   requirePermission(actor, "account:delete", { ownerUserId: userId });
   await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT 1 FROM "User" WHERE "id" = ${userId} FOR UPDATE`;
+    if (!(await lockPendingAccountErasure(tx, userId))) return;
     if (
       await tx.evidenceFile.count({ where: { userId, storageState: { not: "PURGED" } } })
     ) {

@@ -14,6 +14,7 @@ import { getStorage, setStorageForTests } from "@/lib/storage";
 import { purgePrivateFile } from "@/lib/storage/privateFiles";
 import { workflowFixture } from "../../helpers/workflow";
 import { testPrisma } from "../../helpers/db";
+import { testActor } from "../../helpers/actor";
 import {
   addIdentifier,
   softDeleteIdentifier,
@@ -26,6 +27,47 @@ afterEach(() => {
 });
 
 describe("account erasure", () => {
+  it("requires pending deletion under the account lock before erasing content or removing recovery metadata", async () => {
+    const user = await testPrisma.user.create({
+      data: { email: "active-erasure@example.org" },
+    });
+    const actor = testActor(user.id);
+    await testPrisma.userQuota.create({ data: { userId: user.id } });
+    await testPrisma.evidenceFile.create({
+      data: {
+        userId: user.id,
+        kind: "OTHER",
+        storageBackend: "memory",
+        storageKey: "synthetic-purged-tombstone",
+        storageState: "PURGED",
+        contentType: "application/pdf",
+        byteSize: 0,
+        checksumSha256: "synthetic-checksum",
+      },
+    });
+    await expect(finishAccountErasure(actor, user.id)).rejects.toMatchObject({
+      code: "VALIDATION_FAILED",
+    });
+    expect(await testPrisma.userQuota.count()).toBe(1);
+    expect(await testPrisma.evidenceFile.count()).toBe(1);
+    // A stale flag is insufficient when the current account state is no longer pending.
+    await testPrisma.user.update({
+      where: { id: user.id },
+      data: { deletionRequestedAt: new Date() },
+    });
+    await expect(anonymiseDeletedAccount(actor, user.id)).rejects.toMatchObject({
+      code: "VALIDATION_FAILED",
+    });
+    await expect(finishAccountErasure(actor, user.id)).rejects.toMatchObject({
+      code: "VALIDATION_FAILED",
+    });
+    expect(await testPrisma.userQuota.count()).toBe(1);
+    expect(await testPrisma.evidenceFile.count()).toBe(1);
+    expect(
+      (await testPrisma.user.findUniqueOrThrow({ where: { id: user.id } })).email
+    ).toBe(user.email);
+  });
+
   it("erases an identifier and affected message copies, and permits adding the value again", async () => {
     const fixture = await workflowFixture();
     await generateRequests(fixture.actor, fixture.input);

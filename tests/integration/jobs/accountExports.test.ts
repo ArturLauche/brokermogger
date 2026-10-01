@@ -372,6 +372,38 @@ describe("complete account exports with separate sensitive confirmation", () => 
     await expect(downloadAccountExport(f.actor, data.id)).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
+    const purge = await testPrisma.backgroundJob.findUniqueOrThrow({
+      where: { idempotencyKey: `export-purge:${data.id}` },
+    });
+    await testPrisma.backgroundJob.update({
+      where: { id: purge.id },
+      data: {
+        status: "FAILED",
+        attemptCount: purge.maxAttempts,
+        lastError: "Synthetic storage failure",
+      },
+    });
+    await deleteAccountExport(f.actor, data.id);
+    expect(
+      await testPrisma.backgroundJob.findUniqueOrThrow({ where: { id: purge.id } })
+    ).toMatchObject({ status: "PENDING", attemptCount: 0, lastError: null });
+    await testPrisma.backgroundJob.update({
+      where: { id: purge.id },
+      data: {
+        status: "RUNNING",
+        lockedBy: "active-purge",
+        leaseToken: "live-purge-lease",
+        lockExpiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+    await deleteAccountExport(f.actor, data.id);
+    expect(
+      await testPrisma.backgroundJob.findUniqueOrThrow({ where: { id: purge.id } })
+    ).toMatchObject({ status: "RUNNING", leaseToken: "live-purge-lease" });
+    await testPrisma.backgroundJob.update({
+      where: { id: purge.id },
+      data: { status: "PENDING", lockedBy: null, leaseToken: null, lockExpiresAt: null },
+    });
     const [job] = await claimDueJobs("export-purge", 1);
     expect(job!.type).toBe("PURGE_EVIDENCE");
     await runClaimedJob(job!, createJobHandlers());
