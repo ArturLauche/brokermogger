@@ -107,7 +107,7 @@ GitHub Actions runs on every push to `main` and on pull requests. Node is instal
 4. Production build and Playwright (`npm run test:e2e`)
 
 Browser fixtures preload the existing `tsx` loader for worker-side TypeScript
-imports. The browser job uses shared local storage so its standalone server and
+imports. The browser job uses one absolute local storage path so its standalone server and
 leased job handlers can read and purge the same encrypted objects.
 
 CI also rehearses all three Docker runtimes, authenticated encrypted downloads,

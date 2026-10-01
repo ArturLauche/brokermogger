@@ -47,6 +47,9 @@ Back up this volume together with the database and retain the matching encryptio
 keyring separately. Mock delivery uses a separate `/data/mail` volume. Configure
 S3 explicitly when using remote storage; preserve access to backends recorded on
 existing objects until their migration and deletion work is complete.
+Outside Compose, give app and worker the same absolute `STORAGE_LOCAL_DIR` and
+`MOCK_EMAIL_DIR` paths. The standalone server changes its working directory;
+relative paths can otherwise select different directories in the two processes.
 Follow the [backup and restore procedure](backup-and-recovery.md) and rehearse it
 on disposable infrastructure before relying on a backup.
 
