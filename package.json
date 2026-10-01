@@ -31,7 +31,7 @@
     "test:components": "vitest run --project components",
     "test:integration": "vitest run --project integration",
     "test:watch": "vitest",
-    "test:e2e": "playwright test",
+    "test:e2e": "node --import tsx node_modules/@playwright/test/cli.js test",
     "test:e2e:install": "playwright install --with-deps chromium",
     "prepare:standalone": "mkdir -p .next/standalone/.next .next/standalone/public && rm -rf .next/standalone/.next/static && cp -R .next/static .next/standalone/.next/static && cp -R public/. .next/standalone/public/",
     "start:standalone": "node .next/standalone/server.js",

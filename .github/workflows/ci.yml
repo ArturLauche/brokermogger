@@ -88,6 +88,10 @@ jobs:
           HOSTNAME: 127.0.0.1
           PORT: "3000"
           LOG_LEVEL: error
+          # Browser-driven leased jobs and the standalone server are separate
+          # processes, so encrypted objects must use the same persistent store.
+          STORAGE_BACKEND: local
+          STORAGE_LOCAL_DIR: .tmp/e2e-storage
       - name: Upload Playwright artifacts
         if: failure()
         uses: actions/upload-artifact@v4

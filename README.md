@@ -106,6 +106,10 @@ GitHub Actions runs on every push to `main` and on pull requests. Node is instal
 3. Dependency auditing and `npm run check:env`, `typecheck`, `lint`, `format:check`, `test`, `test:integration`
 4. Production build and Playwright (`npm run test:e2e`)
 
+Browser fixtures preload the existing `tsx` loader for worker-side TypeScript
+imports. The browser job uses shared local storage so its standalone server and
+leased job handlers can read and purge the same encrypted objects.
+
 CI also rehearses all three Docker runtimes, authenticated encrypted downloads,
 database/object backup restoration and pending deletion recovery. No GitHub secrets
 are required. The Docker workflow builds the images on pull requests and

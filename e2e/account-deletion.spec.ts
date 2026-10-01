@@ -40,6 +40,11 @@ test("deletes an account through confirmation, blocks the old session and comple
       where: { userId: account.id },
       select: { storageBackend: true, storageKey: true },
     });
+    const { getStorage } = await import("../lib/storage");
+    const storage = getStorage(stored.storageBackend);
+    // Prove the worker can see the app's object before claiming its deletion.
+    // Separate in-memory adapters would make the final absence check vacuous.
+    expect(await storage.exists(stored.storageKey)).toBe(true);
     await page.goto("/settings/account");
     await page.getByRole("button", { name: "Delete my account", exact: true }).click();
     const dialog = page.getByRole("alertdialog", { name: "Delete my account" });
@@ -92,8 +97,7 @@ test("deletes an account through confirmation, blocks the old session and comple
       })
     ).toBe(0);
     expect(await db.evidenceFile.count({ where: { userId: account.id } })).toBe(0);
-    const { getStorage } = await import("../lib/storage");
-    expect(await getStorage(stored.storageBackend).exists(stored.storageKey)).toBe(false);
+    expect(await storage.exists(stored.storageKey)).toBe(false);
   } finally {
     await db.$disconnect();
   }
