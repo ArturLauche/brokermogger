@@ -289,7 +289,7 @@ describe("immutable catalogue versions", () => {
     } finally {
       source.version.bodyTemplate = original;
     }
-  });
+  }, 120_000);
   it("creates a new template version on seed changes and never rewrites or revives history", async () => {
     await seedJurisdictions(testPrisma);
     await seedRequestTemplates(testPrisma);

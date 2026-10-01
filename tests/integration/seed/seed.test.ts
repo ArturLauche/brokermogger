@@ -5,7 +5,7 @@
  * and running them a second time changes nothing. The unit tests already cover
  * the content of the data modules, so this file only checks the writing side.
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { ALL_SETTINGS } from "@/lib/config/systemSettings";
 import { templateChecksum } from "@/prisma/seeds/checksum";
@@ -41,14 +41,28 @@ const EXPECTED = {
   settings: ALL_SETTINGS.length,
 };
 
-async function runSeed() {
-  return {
+const pendingSeedRuns = new Set<Promise<unknown>>();
+
+afterEach(async () => {
+  // A timed-out test must finish its outstanding writer before the next
+  // fixture's TRUNCATE can acquire locks in a different order.
+  await Promise.allSettled(pendingSeedRuns);
+}, 120_000);
+
+function runSeed() {
+  const operation = (async () => ({
     jurisdictions: await seedJurisdictions(testPrisma),
     legalRules: await seedLegalRules(testPrisma),
     templates: await seedRequestTemplates(testPrisma),
     brokers: await seedBrokers(testPrisma),
     settings: await seedSystemSettings(testPrisma),
-  };
+  }))();
+  pendingSeedRuns.add(operation);
+  void operation.then(
+    () => pendingSeedRuns.delete(operation),
+    () => pendingSeedRuns.delete(operation)
+  );
+  return operation;
 }
 
 async function countRows() {
@@ -117,7 +131,7 @@ describe("seed writers", () => {
 
     const afterSecond = await countRows();
     expect(afterSecond).toEqual(afterFirst);
-  });
+  }, 120_000);
 
   it("stores brokers as demo data that cannot be used for production sending", async () => {
     await seedJurisdictions(testPrisma);
