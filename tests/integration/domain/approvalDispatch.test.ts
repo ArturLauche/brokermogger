@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 
 import { markAccountDeletionRequested } from "@/lib/db/repositories/account";
 import { claimDueJobs, markJobCompleted } from "@/lib/db/repositories/jobs";
-import { getOwnedRequest } from "@/lib/db/repositories/requests";
+import { applyRequestStatus, getOwnedRequest } from "@/lib/db/repositories/requests";
 import { getEmailProvider } from "@/lib/email";
 import { clearMockOutbox, getMockOutbox } from "@/lib/email/providers/mock";
 import { systemActor } from "@/lib/permissions/actor";
@@ -16,6 +16,7 @@ import {
   sendApprovedRequest,
 } from "@/lib/requests/lifecycle";
 import { readApprovalEnvelope, profileIdentityDigest } from "@/lib/requests/envelope";
+import { editRequestDraft } from "@/lib/requests/editing";
 import { testActor } from "../../helpers/actor";
 import { testPrisma } from "../../helpers/db";
 import { workflowFixture } from "../../helpers/workflow";
@@ -89,6 +90,100 @@ async function approveAndClaim(household = false) {
 }
 
 describe("atomic message approval and dispatch", () => {
+  it("approves and dispatches revision 21 without imposing a lifetime retry cap", async () => {
+    const fixture = await draft();
+    let command = fixture.command;
+    let snapshotId = fixture.request.currentSnapshotId!;
+    for (let attempt = 1; attempt <= 21; attempt += 1) {
+      await expect(approveRequest(fixture.actor, command)).resolves.toMatchObject({
+        alreadyApproved: false,
+      });
+      if (attempt < 21) {
+        const saved = await editRequestDraft(fixture.actor, {
+          requestId: fixture.request.id,
+          previousSnapshotId: snapshotId,
+          subject: fixture.request.snapshots[0]!.subject,
+          body: `${fixture.request.snapshots[0]!.body}\nRevision ${attempt + 1}.`,
+        });
+        snapshotId = saved.snapshotId;
+        const snapshot = await testPrisma.requestSnapshot.findUniqueOrThrow({
+          where: { id: snapshotId },
+          select: { envelopeHash: true },
+        });
+        command = { ...command, envelopeHash: snapshot.envelopeHash! };
+      }
+    }
+    const ledgers = await testPrisma.outboundEmail.findMany({
+      orderBy: { attempt: "asc" },
+      select: { attempt: true, dispatchState: true, idempotencyKey: true },
+    });
+    expect(ledgers.map((row) => row.attempt)).toEqual(
+      Array.from({ length: 21 }, (_, i) => i + 1)
+    );
+    expect(ledgers.slice(0, 20).every((row) => row.dispatchState === "CANCELLED")).toBe(
+      true
+    );
+    expect(new Set(ledgers.map((row) => row.idempotencyKey)).size).toBe(21);
+    expect(
+      await testPrisma.consentRecord.count({ where: { purpose: "REQUEST_SUBMISSION" } })
+    ).toBe(21);
+    const [job] = await claimDueJobs("revision-21", 1);
+    expect(job?.type).toBe("SEND_REQUEST");
+    expect(job?.payload).toMatchObject({ attempt: 21, snapshotId });
+    const send = () =>
+      sendApprovedRequest(systemActor(job!.id), fixture.request.id, 21, snapshotId, job!);
+    await send();
+    await send();
+    expect(getMockOutbox()).toHaveLength(1);
+    expect((await getOwnedRequest(fixture.actor, fixture.request.id)).status).toBe(
+      "WAITING_FOR_BROKER"
+    );
+  }, 60_000);
+
+  it("reapproves the same snapshot after a confirmed failure with a fresh stable send key", async () => {
+    const fixture = await draft();
+    await approveRequest(fixture.actor, fixture.command);
+    await applyRequestStatus(systemActor("confirmed-failure"), {
+      requestId: fixture.request.id,
+      from: "APPROVED",
+      to: "FAILED",
+      message: "Synthetic confirmed failure before dispatch.",
+      cancelPendingJobTypes: ["SEND_REQUEST"],
+    });
+    await applyRequestStatus(fixture.actor, {
+      requestId: fixture.request.id,
+      from: "FAILED",
+      to: "AWAITING_USER_APPROVAL",
+      message: "The owner chose to review the unchanged message again.",
+    });
+    await approveRequest(fixture.actor, fixture.command);
+    const ledgers = await testPrisma.outboundEmail.findMany({
+      orderBy: { attempt: "asc" },
+      select: { attempt: true, snapshotId: true, idempotencyKey: true },
+    });
+    expect(ledgers).toHaveLength(2);
+    expect(ledgers.map((row) => row.attempt)).toEqual([1, 2]);
+    expect(ledgers[0]!.snapshotId).toBe(ledgers[1]!.snapshotId);
+    expect(ledgers[0]!.idempotencyKey).not.toBe(ledgers[1]!.idempotencyKey);
+    await expect(approveRequest(fixture.actor, fixture.command)).resolves.toMatchObject({
+      alreadyApproved: true,
+    });
+    expect(await testPrisma.outboundEmail.count()).toBe(2);
+    const [job] = await claimDueJobs("reapproval", 1);
+    const send = () =>
+      sendApprovedRequest(
+        systemActor(job!.id),
+        fixture.request.id,
+        2,
+        fixture.request.currentSnapshotId!,
+        job!
+      );
+    await send();
+    await send();
+    expect(getMockOutbox()).toHaveLength(1);
+    expect(getMockOutbox()[0]!.message.idempotencyKey).toBe(ledgers[1]!.idempotencyKey);
+  });
+
   it("persists exactly one consent, intent and job under duplicate approval", async () => {
     const fixture = await draft();
     const results = await concurrently([

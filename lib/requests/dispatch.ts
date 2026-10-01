@@ -13,11 +13,12 @@ import type { JobLease } from "@/lib/jobs/types";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { parseWithSchema } from "@/lib/validation/form";
 import { entityIdSchema } from "@/lib/validation/ids";
+import { dispatchAttemptSchema } from "./dispatchAttempt";
 
 const dispatchSchema = z.object({
   requestId: entityIdSchema,
   snapshotId: entityIdSchema,
-  attempt: z.number().int().min(1).max(20),
+  attempt: dispatchAttemptSchema,
   job: z.object({ id: entityIdSchema, leaseToken: z.string().uuid() }),
 });
 

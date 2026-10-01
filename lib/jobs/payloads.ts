@@ -11,6 +11,7 @@ import { z } from "zod";
 import { ValidationError } from "@/lib/core/errors";
 import { entityIdSchema } from "@/lib/validation/ids";
 import { followUpKindSchema } from "@/lib/requests/followUpKind";
+import { dispatchAttemptSchema } from "@/lib/requests/dispatchAttempt";
 
 import type { JobPayload, JobPayloadMap } from "./types";
 
@@ -37,7 +38,7 @@ const JOB_PAYLOAD_SCHEMAS = {
   SEND_REQUEST: z.object({
     removalRequestId: entityIdSchema,
     snapshotId: entityIdSchema,
-    attempt: z.number().int().min(1).max(20),
+    attempt: dispatchAttemptSchema,
   }),
   PREPARE_FOLLOW_UP: z
     .object({

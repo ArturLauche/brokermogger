@@ -12,6 +12,7 @@ import {
   type ApprovalCommand,
 } from "@/lib/requests/envelope";
 import { readSnapshotText } from "@/lib/requests/snapshot";
+import { nextDispatchAttempt } from "@/lib/requests/dispatchAttempt";
 import { blindIndex, encryptField, sha256Hex } from "@/lib/security/crypto";
 import { maskEmail } from "@/lib/security/masking";
 
@@ -168,8 +169,8 @@ export async function commitRequestApproval(actor: ActorContext, input: Approval
           where: { removalRequestId: request.id, purpose },
           _max: { attempt: true },
         });
-        const attempt = (latest._max.attempt ?? 0) + 1;
-        const idempotencyKey = `request-${request.id}-${snapshot.id}`;
+        const attempt = nextDispatchAttempt(latest._max.attempt);
+        const idempotencyKey = `request-${request.id}-${snapshot.id}:${attempt}`;
         const encrypted = (column: string, value: string) =>
           encryptField(value, { table: "OutboundEmail", column, recordId: id });
         await tx.outboundEmail.create({
