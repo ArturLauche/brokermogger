@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { prisma } from "@/lib/db/client";
 import { saveOnboardingProfile } from "@/lib/profiles/onboarding";
 import { listConsentRecordsForProfile } from "@/lib/db/repositories/household";
 import {
@@ -13,6 +14,8 @@ import { editRequestDraft } from "@/lib/requests/editing";
 import { testActor } from "../../helpers/actor";
 import { testPrisma } from "../../helpers/db";
 import { workflowFixture } from "../../helpers/workflow";
+
+afterEach(() => vi.restoreAllMocks());
 
 const profileInput = {
   displayName: "My profile",
@@ -34,6 +37,87 @@ async function account() {
 }
 
 describe("resumable profile setup and editing", () => {
+  it("audits a granted consent summary before querying only its permitted fields", async () => {
+    const owner = await account();
+    const saved = await saveOnboardingProfile(owner, { ...input, complete: true });
+    const operator = await testPrisma.user.create({
+      data: { email: "consent-operator@example.org", role: "INSTANCE_ADMIN" },
+    });
+    const actor = testActor(operator.id, "INSTANCE_ADMIN", {
+      adminGrant: {
+        adminActionId: "synthetic-grant",
+        scope: `user:${owner.userId}`,
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+    const reads = vi.spyOn(prisma.consentRecord, "findMany");
+    const result = await listConsentRecordsForProfile(actor, saved.profileId);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      statementText: "Restricted consent proof",
+      evidenceJson: {},
+    });
+    const forbidden = [
+      "statementText",
+      "statementHash",
+      "evidenceJson",
+      "prevHash",
+      "hash",
+      "actorUserId",
+    ];
+    for (const [query] of reads.mock.calls) {
+      expect(query?.select).toBeDefined();
+      for (const field of forbidden) expect(query?.select).not.toHaveProperty(field);
+    }
+    expect(
+      await testPrisma.auditLog.count({
+        where: { action: "admin.user_data_viewed", resourceId: saved.profileId },
+      })
+    ).toBe(1);
+    reads.mockClear();
+    await testPrisma.user.update({
+      where: { id: owner.userId },
+      data: { status: "PENDING_DELETION" },
+    });
+    await expect(
+      listConsentRecordsForProfile(owner, saved.profileId)
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(reads).not.toHaveBeenCalled();
+  });
+
+  it("does not query another owner's consent proof when mandatory auditing fails", async () => {
+    const owner = await account();
+    const saved = await saveOnboardingProfile(owner, { ...input, complete: true });
+    const operator = await testPrisma.user.create({
+      data: { email: "consent-operator@example.org", role: "INSTANCE_ADMIN" },
+    });
+    const actor = testActor(operator.id, "INSTANCE_ADMIN", {
+      adminGrant: {
+        adminActionId: "synthetic-grant",
+        scope: `user:${owner.userId}`,
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+    const reads = vi.spyOn(prisma.consentRecord, "findMany");
+    await testPrisma.$executeRawUnsafe(
+      `CREATE FUNCTION test_reject_consent_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action = 'admin.user_data_viewed' THEN RAISE EXCEPTION 'Injected mandatory audit failure'; END IF; RETURN NEW; END $$`
+    );
+    await testPrisma.$executeRawUnsafe(
+      `CREATE TRIGGER test_reject_consent_audit BEFORE INSERT ON "AuditLog" FOR EACH ROW EXECUTE FUNCTION test_reject_consent_audit()`
+    );
+    try {
+      await expect(listConsentRecordsForProfile(actor, saved.profileId)).rejects.toThrow(
+        /audit failure/
+      );
+      expect(reads).not.toHaveBeenCalled();
+    } finally {
+      await testPrisma.$executeRawUnsafe(
+        `DROP TRIGGER test_reject_consent_audit ON "AuditLog"`
+      );
+      await testPrisma.$executeRawUnsafe(`DROP FUNCTION test_reject_consent_audit()`);
+    }
+  });
+
   it("resumes the same profile and atomically completes once under concurrent submission", async () => {
     const actor = await account();
     const saved = await saveOnboardingProfile(actor, input);

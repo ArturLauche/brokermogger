@@ -28,6 +28,7 @@ import {
   findAuditLogByHash,
   listAuditChainWindow,
   type AuditChainRow,
+  type AuditLogAppender,
 } from "@/lib/db/repositories/audit";
 import { createLogger } from "@/lib/observability/logger";
 import type { ActorContext } from "@/lib/permissions/actor";
@@ -320,7 +321,10 @@ export async function recordAudit(input: RecordAuditInput): Promise<AuditEntry |
   }
 }
 
-export async function recordAuditOrThrow(input: RecordAuditInput): Promise<AuditEntry> {
+export async function recordAuditOrThrow(
+  input: RecordAuditInput,
+  append: AuditLogAppender = appendAuditLog
+): Promise<AuditEntry> {
   if (!isAuditAction(input.action)) {
     throw new Error(
       `Unknown audit action "${String(input.action)}". Add it to lib/audit/actions.ts first.`
@@ -335,7 +339,7 @@ export async function recordAuditOrThrow(input: RecordAuditInput): Promise<Audit
   const targetUserId =
     input.targetUserId ?? actor.fallbackTargetUserId ?? actor.actorUserId ?? null;
 
-  const entry = await appendAuditLog(
+  const entry = await append(
     {
       actorType: actor.actorType,
       actorUserId: actor.actorUserId,

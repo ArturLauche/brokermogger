@@ -170,11 +170,91 @@ describe("account erasure", () => {
       ).toBe("ACTIVE");
       expect(await testPrisma.session.count()).toBe(1);
       expect(await testPrisma.backgroundJob.count()).toBe(0);
+      expect(
+        await testPrisma.auditLog.count({
+          where: { action: "account.deletion_requested" },
+        })
+      ).toBe(0);
     } finally {
       await testPrisma.$executeRawUnsafe(
         `DROP TRIGGER test_reject_purge_job ON "BackgroundJob"`
       );
       await testPrisma.$executeRawUnsafe(`DROP FUNCTION test_reject_purge_job()`);
+    }
+  });
+
+  it("resumes a failed deletion without changing its original request date or restarting a healthy lease", async () => {
+    const fixture = await workflowFixture();
+    await requestAccountDeletion(fixture.actor);
+    const first = await testPrisma.user.findUniqueOrThrow({
+      where: { id: fixture.user.id },
+    });
+    const job = await testPrisma.backgroundJob.findUniqueOrThrow({
+      where: { idempotencyKey: `delete-account:${fixture.user.id}` },
+    });
+    await testPrisma.backgroundJob.update({
+      where: { id: job.id },
+      data: {
+        status: "FAILED",
+        attemptCount: job.maxAttempts,
+        lastError: "Storage unavailable.",
+      },
+    });
+    await requestAccountDeletion(fixture.actor);
+    const resumed = await testPrisma.backgroundJob.findUniqueOrThrow({
+      where: { id: job.id },
+    });
+    expect(resumed.status).toBe("PENDING");
+    expect(resumed.attemptCount).toBe(0);
+    expect(resumed.lastError).toBeNull();
+    expect(
+      (await testPrisma.user.findUniqueOrThrow({ where: { id: fixture.user.id } }))
+        .deletionRequestedAt
+    ).toEqual(first.deletionRequestedAt);
+    await testPrisma.backgroundJob.update({
+      where: { id: job.id },
+      data: {
+        status: "RUNNING",
+        lockedBy: "current-worker",
+        leaseToken: "current-lease",
+        lockedAt: new Date(),
+        lockExpiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+    await requestAccountDeletion(fixture.actor);
+    expect(
+      await testPrisma.backgroundJob.findUniqueOrThrow({ where: { id: job.id } })
+    ).toMatchObject({ status: "RUNNING", leaseToken: "current-lease" });
+  });
+
+  it("rolls back access blocking, session revocation and cleanup scheduling when the deletion audit cannot commit", async () => {
+    const fixture = await workflowFixture();
+    await testPrisma.session.create({
+      data: {
+        userId: fixture.user.id,
+        sessionToken: "keep-on-audit-failure",
+        expires: new Date(Date.now() + 60_000),
+      },
+    });
+    await testPrisma.$executeRawUnsafe(
+      `CREATE FUNCTION test_reject_deletion_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action = 'account.deletion_requested' THEN RAISE EXCEPTION 'Injected deletion audit failure'; END IF; RETURN NEW; END $$`
+    );
+    await testPrisma.$executeRawUnsafe(
+      `CREATE TRIGGER test_reject_deletion_audit BEFORE INSERT ON "AuditLog" FOR EACH ROW EXECUTE FUNCTION test_reject_deletion_audit()`
+    );
+    try {
+      await expect(requestAccountDeletion(fixture.actor)).rejects.toThrow();
+      expect(
+        (await testPrisma.user.findUniqueOrThrow({ where: { id: fixture.user.id } }))
+          .status
+      ).toBe("ACTIVE");
+      expect(await testPrisma.session.count()).toBe(1);
+      expect(await testPrisma.backgroundJob.count()).toBe(0);
+    } finally {
+      await testPrisma.$executeRawUnsafe(
+        `DROP TRIGGER test_reject_deletion_audit ON "AuditLog"`
+      );
+      await testPrisma.$executeRawUnsafe(`DROP FUNCTION test_reject_deletion_audit()`);
     }
   });
 });

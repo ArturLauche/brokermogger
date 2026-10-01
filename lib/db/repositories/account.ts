@@ -11,6 +11,8 @@ import { parseJobPayload } from "@/lib/jobs/payloads";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
 import { readAccountEmail, verificationEmailIndex } from "@/lib/security/accountEmail";
+import { recordAuditOrThrow } from "@/lib/audit/service";
+import { appendAuditLogInTransaction } from "./audit";
 
 export async function getOwnedAccount(actor: ActorContext) {
   requirePermission(actor, "account:read", { ownerUserId: actor.userId });
@@ -53,16 +55,19 @@ export async function markAccountDeletionRequested(actor: ActorContext) {
     await tx.$executeRaw`SELECT 1 FROM "User" WHERE "id" = ${actor.userId} FOR UPDATE`;
     const account = await tx.user.findUniqueOrThrow({ where: { id: actor.userId } });
     if (account.anonymizedAt) return account;
+    const firstRequest = account.deletionRequestedAt === null;
     const requestedAt = account.deletionRequestedAt ?? new Date();
-    const email = readAccountEmail(account).email;
     const updated = await tx.user.update({
       where: { id: actor.userId },
       data: { status: "PENDING_DELETION", deletionRequestedAt: requestedAt },
     });
     await tx.session.deleteMany({ where: { userId: actor.userId } });
-    await tx.verificationToken.deleteMany({
-      where: { identifier: { in: [email, verificationEmailIndex(email)] } },
-    });
+    if (firstRequest) {
+      const email = readAccountEmail(account).email;
+      await tx.verificationToken.deleteMany({
+        where: { identifier: { in: [email, verificationEmailIndex(email)] } },
+      });
+    }
     const requests = await tx.removalRequest.findMany({
       where: { userId: actor.userId },
       select: { id: true },
@@ -86,20 +91,54 @@ export async function markAccountDeletionRequested(actor: ActorContext) {
         lastError: "Account deletion requested.",
       },
     });
-    await tx.backgroundJob.upsert({
+    const payload = parseJobPayload("DELETE_ACCOUNT_DATA", {
+      userId: actor.userId,
+      requestedAt: requestedAt.toISOString(),
+    });
+    const job = await tx.backgroundJob.upsert({
       where: { idempotencyKey: `delete-account:${actor.userId}` },
       create: {
         type: "DELETE_ACCOUNT_DATA",
         relatedUserId: actor.userId,
-        payloadJson: parseJobPayload("DELETE_ACCOUNT_DATA", {
-          userId: actor.userId,
-          requestedAt: requestedAt.toISOString(),
-        }),
+        payloadJson: payload,
         idempotencyKey: `delete-account:${actor.userId}`,
         priority: 10,
       },
       update: {},
+      select: { id: true },
     });
+    // A repeat request can recover exhausted cleanup, but cannot steal a live
+    // worker's lease or replace the backoff of a healthy queued attempt.
+    const resumed = await tx.backgroundJob.updateMany({
+      where: { id: job.id, status: { in: ["FAILED", "CANCELLED", "COMPLETED"] } },
+      data: {
+        status: "PENDING",
+        runAt: new Date(),
+        attemptCount: 0,
+        payloadJson: payload,
+        relatedUserId: actor.userId,
+        relatedRequestId: null,
+        lastError: null,
+        lockedBy: null,
+        lockedAt: null,
+        lockExpiresAt: null,
+        leaseToken: null,
+        cancelledAt: null,
+        completedAt: null,
+      },
+    });
+    if (firstRequest || resumed.count > 0) {
+      await recordAuditOrThrow(
+        {
+          actor,
+          action: "account.deletion_requested",
+          resourceType: "user",
+          resourceId: actor.userId,
+          metadata: { resumed: resumed.count > 0 },
+        },
+        (input, hash) => appendAuditLogInTransaction(tx, input, hash)
+      );
+    }
     return updated;
   });
 }
