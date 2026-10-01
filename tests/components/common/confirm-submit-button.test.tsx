@@ -83,7 +83,11 @@ it("shows a safe error and preserves typed confirmation for an explicit retry", 
     screen.queryByText("private database operation details")
   ).not.toBeInTheDocument();
   expect(screen.getByLabelText(/Type DELETE to confirm/)).toHaveValue("DELETE");
-  expect(screen.getByRole("button", { name: "Delete profile" })).toBeEnabled();
+  // React can publish the error before the async transition releases pending.
+  // Retry becomes available only after both parts of the action have settled.
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Delete profile" })).toBeEnabled()
+  );
   await user.click(screen.getByRole("button", { name: "Delete profile" }));
   await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
   expect(action).toHaveBeenCalledTimes(2);
