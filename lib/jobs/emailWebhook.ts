@@ -15,11 +15,7 @@ import {
 import { applyStoredDeliveryEvent } from "@/lib/db/repositories/deliveryEvents";
 import { commitReceivedEmail } from "@/lib/db/repositories/receiving";
 import { receivingOwner } from "@/lib/db/repositories/inboundMailboxes";
-import {
-  receivedWebhookSchema,
-  retrieveReceivedEmail,
-  type RetrievedCorrespondence,
-} from "@/lib/email/receiving";
+import { receivedWebhookSchema, retrieveReceivedEmail } from "@/lib/email/receiving";
 import { enqueueJob } from "@/lib/jobs/queue";
 import type { ClaimedJob, JobResult } from "./types";
 
@@ -73,13 +69,9 @@ export async function processStoredEmailWebhook(
       message: "Received email without an active private account recipient discarded.",
     };
   }
-  let mail: RetrievedCorrespondence;
-  try {
-    mail = await retrieveReceivedEmail(parsed.data.data.email_id);
-  } catch (error) {
-    if (job.attemptCount < job.maxAttempts) throw error;
-    // Make a lasting retrieval failure visible to the owner with a manual import path.
-    mail = { available: false, reason: "retrieval_failed" };
-  }
+  // A provider outage must leave the event unprocessed even after retries run
+  // out. The failed job remains visible and an operator can retry retrieval.
+  // Only a definitive unavailable/invalid result becomes a terminal placeholder.
+  const mail = await retrieveReceivedEmail(parsed.data.data.email_id);
   return commitReceivedEmail(webhookEventId, mail, job);
 }

@@ -43,8 +43,7 @@ const receivedEmailSchema = z.object({
 export type RetrievedCorrespondence =
   | {
       available: false;
-      reason:
-        "too_large" | "content_unavailable" | "invalid_content" | "retrieval_failed";
+      reason: "too_large" | "content_unavailable" | "invalid_content";
     }
   | {
       available: true;
@@ -92,10 +91,19 @@ export async function retrieveReceivedEmail(
       message: "The receiving provider could not supply the message. The job can retry.",
     });
   }
+  let raw: string;
   try {
-    const parsed = receivedEmailSchema.safeParse(
-      JSON.parse(await readBoundedBody(result, 4 * 1024 * 1024))
-    );
+    raw = await readBoundedBody(result, 4 * 1024 * 1024);
+  } catch (error) {
+    if (isAppError(error) && error.code === "VALIDATION_FAILED")
+      return { available: false, reason: "too_large" };
+    throw new AppError({
+      code: "EMAIL_FAILED",
+      message: "The receiving message could not be read. The job can retry.",
+    });
+  }
+  try {
+    const parsed = receivedEmailSchema.safeParse(JSON.parse(raw));
     if (!parsed.success || parsed.data.id !== id)
       return { available: false, reason: "invalid_content" };
     const mail = parsed.data;

@@ -48,12 +48,23 @@ Provider message IDs deduplicate receipts independently of webhook delivery IDs.
 Only a unique, full 128-bit request reference within the owning account selects
 a request. Short, missing, foreign or ambiguous references leave the reply in
 **Correspondence → Unmatched** for account-holder assignment. Matching itself
-does not change request status. Retrieval failures remain visible with a manual
-import path. Replies larger than the bounded import limits (4 MiB response,
+does not change request status. A definitive missing/expired or invalid-content
+result appears as an unavailable reply with a manual import path. Replies larger
+than the bounded import limits (4 MiB response,
 2 million HTML characters, 100,000 text characters) require manual recording or
 redacted evidence. Attachments are never downloaded automatically.
 
 ## Recovery and privacy
+
+Transport failures, provider outages and interrupted content streams leave the
+encrypted receiving event unprocessed. The worker retries up to the job's attempt
+budget; exhaustion leaves a **failed PROCESS_EMAIL_WEBHOOK job** in
+**Admin → Jobs**. Once the provider recovers, the instance operator can retry
+that job. The retry uses the same event and provider message ID with a fresh
+worker lease, and imports one reply and one notification. Redelivered events
+remain deduplicated; a redelivery does not reset an exhausted job's retry budget.
+Only definitive unavailable/invalid results complete as placeholders. Ordinary
+retention does not erase unprocessed receiving events; account erasure still does.
 
 Delivery callbacks persist only the provider message ID and event time needed to
 update the ledger; recipient lists, subjects and provider diagnostics are omitted.

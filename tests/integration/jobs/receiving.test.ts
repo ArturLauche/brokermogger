@@ -12,6 +12,9 @@ import {
   receivingOwner,
 } from "@/lib/db/repositories/inboundMailboxes";
 import { receivedWebhookSchema } from "@/lib/email/receiving";
+import { retryAdminJob } from "@/lib/admin/service";
+import { createJobHandlers } from "@/lib/jobs/handlers";
+import { runClaimedJob } from "@/lib/jobs/queue";
 import { testActor } from "../../helpers/actor";
 import { getOwnedResponse, listOwnedResponses } from "@/lib/db/repositories/responses";
 import {
@@ -26,6 +29,7 @@ import { approveRequest, generateRequests } from "@/lib/requests/lifecycle";
 import { readApprovalEnvelope } from "@/lib/requests/envelope";
 import { confirmResponse, deleteResponse, linkResponse } from "@/lib/responses/service";
 import { systemActor } from "@/lib/permissions/actor";
+import { decryptField } from "@/lib/security/crypto";
 import type { ClaimedJob } from "@/lib/jobs/types";
 import { testPrisma } from "../../helpers/db";
 import { workflowFixture } from "../../helpers/workflow";
@@ -52,6 +56,7 @@ async function fixture() {
   return { ...f, request, envelope };
 }
 async function received(to: string, subject: string, providerId = randomUUID()) {
+  const eventId = `resend:${randomUUID()}`;
   const raw = {
     type: "email.received",
     created_at: new Date().toISOString(),
@@ -59,12 +64,12 @@ async function received(to: string, subject: string, providerId = randomUUID()) 
   };
   const stored = await storeAndQueueEmailWebhook({
     provider: "resend",
-    eventId: `resend:${randomUUID()}`,
+    eventId,
     eventType: raw.type,
     payloadJson: raw,
     signatureVerified: true,
   });
-  return { raw, stored };
+  return { raw, stored, eventId };
 }
 async function claim() {
   const [job] = await claimDueJobs("receiving-tests", 1);
@@ -92,6 +97,93 @@ function mockContent(
 }
 
 describe("optional Resend receiving adapter", () => {
+  it.each(["provider", "transport", "stream"] as const)(
+    "keeps an exhausted %s retrieval failure replayable and recovers through operator retry",
+    async (failure) => {
+      const f = await fixture();
+      const event = await received(
+        f.envelope.replyTo,
+        `Re: ${f.request.externalReference}`
+      );
+      await testPrisma.backgroundJob.update({
+        where: { idempotencyKey: `webhook:${event.stored.id}` },
+        data: { attemptCount: 11 },
+      });
+      const fetch = vi.fn();
+      if (failure === "provider")
+        fetch.mockResolvedValue(new Response("Unavailable", { status: 503 }));
+      else if (failure === "transport")
+        fetch.mockRejectedValue(new Error("Synthetic connection interruption"));
+      else
+        fetch.mockResolvedValue(
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.error(new Error("Synthetic response stream interruption"));
+              },
+            })
+          )
+        );
+      vi.stubGlobal("fetch", fetch);
+      const exhausted = await claim();
+      expect(exhausted.attemptCount).toBe(exhausted.maxAttempts);
+      await runClaimedJob(exhausted, createJobHandlers());
+      expect(
+        await testPrisma.backgroundJob.findUniqueOrThrow({
+          where: { id: exhausted.id },
+        })
+      ).toMatchObject({
+        status: "FAILED",
+        lastError: expect.stringContaining("EMAIL_FAILED"),
+      });
+      expect(
+        await testPrisma.emailWebhookEvent.findUniqueOrThrow({
+          where: { id: event.stored.id },
+        })
+      ).toMatchObject({ processedAt: null, payloadEnc: expect.any(String) });
+      expect(await testPrisma.brokerResponse.count()).toBe(0);
+      expect(await testPrisma.notification.count()).toBe(0);
+      const redelivery = await storeAndQueueEmailWebhook({
+        provider: "resend",
+        eventId: event.eventId,
+        eventType: event.raw.type,
+        payloadJson: event.raw,
+        signatureVerified: true,
+      });
+      expect(redelivery).toMatchObject({ id: event.stored.id, duplicate: true });
+      expect(redelivery.processedAt).toBeNull();
+      const operator = await testPrisma.user.create({
+        data: { email: "receiving-operator@example.org", role: "INSTANCE_ADMIN" },
+      });
+      await retryAdminJob(testActor(operator.id, "INSTANCE_ADMIN"), exhausted.id);
+      const recoveredFetch = mockContent(event.raw);
+      const retried = await claim();
+      expect(retried.id).toBe(exhausted.id);
+      expect(retried.leaseToken).not.toBe(exhausted.leaseToken);
+      await runClaimedJob(retried, createJobHandlers());
+      expect(recoveredFetch).toHaveBeenCalledTimes(1);
+      expect(
+        await testPrisma.backgroundJob.findUniqueOrThrow({ where: { id: retried.id } })
+      ).toMatchObject({ status: "COMPLETED" });
+      expect(
+        await testPrisma.emailWebhookEvent.findUniqueOrThrow({
+          where: { id: event.stored.id },
+        })
+      ).toMatchObject({ processedAt: expect.any(Date) });
+      const response = await testPrisma.brokerResponse.findFirstOrThrow();
+      expect(response.removalRequestId).toBe(f.request.id);
+      expect((await getOwnedResponse(f.actor, response.id)).content.body).toContain(
+        "Private incoming content"
+      );
+      await processStoredEmailWebhook(event.stored.id, retried);
+      expect(await testPrisma.brokerResponse.count()).toBe(1);
+      expect(await testPrisma.notification.count()).toBe(1);
+      expect((await getOwnedRequest(f.actor, f.request.id)).status).toBe(
+        f.request.status
+      );
+    }
+  );
+
   it("refuses an oversized recipient list rather than hiding another owner beyond a truncated prefix", async () => {
     const a = await testPrisma.user.create({
       data: { email: "receiving-a@example.org" },
@@ -255,38 +347,61 @@ describe("optional Resend receiving adapter", () => {
     expect(await testPrisma.brokerResponse.count()).toBe(1);
   });
 
-  it("keeps retrieval failures visible and prevents applying an unreadable reply", async () => {
-    const f = await fixture();
-    const event = await received(
-      f.envelope.replyTo,
-      `Re: ${f.request.externalReference}`
-    );
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(new Response("Not found", { status: 404 }))
-    );
-    await processStoredEmailWebhook(event.stored.id, await claim());
-    const row = await testPrisma.brokerResponse.findFirstOrThrow();
-    expect(row.bodyEnc).toBeNull();
-    expect(
-      (await listOwnedResponses(f.actor, { filter: "unmatched" })).items
-    ).toHaveLength(1);
-    await linkResponse(f.actor, {
-      responseId: row.id,
-      requestId: f.request.id,
-      expectedRevision: 0,
-    });
-    await expect(
-      confirmResponse(f.actor, {
+  it.each([404, 410])(
+    "records a definitive %i as unavailable and prevents applying an unreadable reply",
+    async (status) => {
+      const f = await fixture();
+      const event = await received(
+        f.envelope.replyTo,
+        `Re: ${f.request.externalReference}`
+      );
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(new Response("Unavailable", { status }))
+      );
+      const job = await claim();
+      await runClaimedJob(job, createJobHandlers());
+      expect(
+        await testPrisma.backgroundJob.findUniqueOrThrow({ where: { id: job.id } })
+      ).toMatchObject({ status: "COMPLETED" });
+      expect(
+        await testPrisma.emailWebhookEvent.findUniqueOrThrow({
+          where: { id: event.stored.id },
+        })
+      ).toMatchObject({ processedAt: expect.any(Date) });
+      const row = await testPrisma.brokerResponse.findFirstOrThrow();
+      expect(row.bodyEnc).toBeNull();
+      expect(
+        JSON.parse(
+          decryptField(row.metadataEnc!, {
+            table: "BrokerResponse",
+            column: "metadataEnc",
+            recordId: row.id,
+          })
+        )
+      ).toMatchObject({
+        unavailableReason: "content_unavailable",
+      });
+      expect(
+        (await listOwnedResponses(f.actor, { filter: "unmatched" })).items
+      ).toHaveLength(1);
+      await linkResponse(f.actor, {
         responseId: row.id,
-        expectedRevision: 1,
-        expectedRequestStatus: f.request.status,
-        classification: "CONFIRMED_COMPLETED",
-        applyToRequest: true,
-        confirmationAccepted: true,
-      })
-    ).rejects.toMatchObject({ code: "CONFLICT" });
-  });
+        requestId: f.request.id,
+        expectedRevision: 0,
+      });
+      await expect(
+        confirmResponse(f.actor, {
+          responseId: row.id,
+          expectedRevision: 1,
+          expectedRequestStatus: f.request.status,
+          classification: "CONFIRMED_COMPLETED",
+          applyToRequest: true,
+          confirmationAccepted: true,
+        })
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+    }
+  );
 
   it("invalidates queued approval when receiving configuration changes", async () => {
     const f = await fixture();
