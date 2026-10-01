@@ -7,6 +7,12 @@ import {
   expireStaleLocks,
 } from "@/lib/db/repositories/jobs";
 import { getOwnedRequest } from "@/lib/db/repositories/requests";
+import {
+  prepareOwnedSendingIdentity,
+  receivingOwner,
+} from "@/lib/db/repositories/inboundMailboxes";
+import { receivedWebhookSchema } from "@/lib/email/receiving";
+import { testActor } from "../../helpers/actor";
 import { getOwnedResponse, listOwnedResponses } from "@/lib/db/repositories/responses";
 import {
   markAccountDeletionRequested,
@@ -86,6 +92,37 @@ function mockContent(
 }
 
 describe("optional Resend receiving adapter", () => {
+  it("refuses an oversized recipient list rather than hiding another owner beyond a truncated prefix", async () => {
+    const a = await testPrisma.user.create({
+      data: { email: "receiving-a@example.org" },
+    });
+    const b = await testPrisma.user.create({
+      data: { email: "receiving-b@example.org" },
+    });
+    const first = await prepareOwnedSendingIdentity(testActor(a.id), a.id);
+    const second = await prepareOwnedSendingIdentity(testActor(b.id), b.id);
+    const to = [
+      first.replyTo!,
+      ...Array.from({ length: 99 }, (_, i) => `unused-${i}@example.org`),
+      second.replyTo!,
+    ];
+    expect(await receivingOwner(to)).toBeNull();
+    expect(await receivingOwner([first.replyTo!])).toBe(a.id);
+    expect(await receivingOwner([first.replyTo!, second.replyTo!])).toBeNull();
+    expect(
+      receivedWebhookSchema.safeParse({
+        type: "email.received",
+        created_at: new Date().toISOString(),
+        data: {
+          email_id: randomUUID(),
+          from: "broker@example.org",
+          subject: "Synthetic",
+          to,
+        },
+      }).success
+    ).toBe(false);
+  });
+
   it("binds a private reply alias to the envelope, retrieves full content and deduplicates provider messages", async () => {
     const f = await fixture();
     expect(f.envelope.replyTo).toMatch(/^bm-[a-f0-9]{48}@replies\.example\.org$/);

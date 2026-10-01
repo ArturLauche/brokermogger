@@ -8,6 +8,7 @@ import { parseAddress } from "@/lib/security/sanitize";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
 import { lockActiveAccount } from "./access";
+import { MAX_RECEIVING_RECIPIENTS } from "@/lib/email/limits";
 
 /** Prepare the private reply identity before rendering; never spend request quota here. */
 export async function prepareOwnedSendingIdentity(
@@ -69,9 +70,10 @@ export async function receivingOwner(
   recipients: readonly string[],
   tx: PrismaTransaction = prisma
 ) {
-  if (!env.RESEND_RECEIVING_DOMAIN) return null;
+  if (!env.RESEND_RECEIVING_DOMAIN || recipients.length > MAX_RECEIVING_RECIPIENTS)
+    return null;
   const indexes: string[] = [];
-  for (const value of recipients.slice(0, 100)) {
+  for (const value of recipients) {
     try {
       indexes.push(blindIndex(parseAddress(value).address, "inbound:recipient", "email"));
     } catch {

@@ -3,6 +3,7 @@ import { env } from "@/lib/config/env";
 import { AppError, isAppError } from "@/lib/core/errors";
 import { readBoundedBody } from "@/lib/http/body";
 import { correspondenceText } from "@/lib/responses/content";
+import { MAX_RECEIVING_RECIPIENTS } from "./limits";
 
 export const receivedWebhookSchema = z.object({
   type: z.literal("email.received"),
@@ -10,7 +11,7 @@ export const receivedWebhookSchema = z.object({
   data: z.object({
     email_id: z.uuid(),
     from: z.string().max(1000),
-    to: z.array(z.string().max(1000)).max(100),
+    to: z.array(z.string().max(1000)).max(MAX_RECEIVING_RECIPIENTS),
     subject: z.string().max(1000),
     created_at: z.iso.datetime({ offset: true }).optional(),
   }),
@@ -19,7 +20,7 @@ export const receivedWebhookSchema = z.object({
 const receivedEmailSchema = z.object({
   id: z.uuid(),
   from: z.string().max(1000),
-  to: z.array(z.string().max(1000)).max(100),
+  to: z.array(z.string().max(1000)).max(MAX_RECEIVING_RECIPIENTS),
   created_at: z.iso.datetime({ offset: true }),
   subject: z.string().max(1000),
   text: z.string().nullable().default(null),

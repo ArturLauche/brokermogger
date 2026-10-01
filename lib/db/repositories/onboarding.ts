@@ -1,4 +1,4 @@
-import { AppError, NotFoundError } from "@/lib/core/errors";
+import { AppError, NotFoundError, ValidationError } from "@/lib/core/errors";
 import { prisma } from "@/lib/db/client";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
@@ -12,6 +12,7 @@ import { lockActiveAccount } from "./access";
 import { appendConsentRecordInTx } from "./consent";
 import { createSelfProfileInTx } from "./profiles";
 import { createIdentifierInTx, syncPrimaryIdentifiersInTx } from "./profileIdentifiers";
+import { MAX_ONBOARDING_IDENTIFIERS } from "@/lib/profiles/limits";
 
 export const SELF_PROFILE_STATEMENT =
   "I confirm that this profile is about me, that I live in the country and state I selected, and that I understand Brokermogger is not a law firm and does not guarantee removal.";
@@ -26,6 +27,8 @@ export async function saveOnboardingRecord(
   }
 ) {
   requirePermission(actor, "profile:create", { ownerUserId: actor.userId });
+  if (input.identifiers.length > MAX_ONBOARDING_IDENTIFIERS)
+    throw new ValidationError("Add no more than 30 matching details per save.");
   return prisma.$transaction(
     async (tx) => {
       await lockActiveAccount(tx, actor.userId);
@@ -51,13 +54,18 @@ export async function saveOnboardingRecord(
           })
         : await createSelfProfileInTx(tx, actor, input.profile);
       await syncPrimaryIdentifiersInTx(tx, actor, profile.id, input.profile);
+      const seen = new Set<string>();
       for (const item of input.identifiers) {
+        const valueBi = identifierBlindIndex(item);
+        const key = `${item.type}:${valueBi}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
         const duplicate = await tx.profileIdentifier.findUnique({
           where: {
             profileId_type_valueBi: {
               profileId: profile.id,
               type: item.type,
-              valueBi: identifierBlindIndex(item),
+              valueBi,
             },
           },
         });

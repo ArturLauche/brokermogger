@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/db/client";
+import { saveOnboardingRecord } from "@/lib/db/repositories/onboarding";
+import { identifierInputSchema, profileInputSchema } from "@/lib/profiles/validation";
 import { saveOnboardingProfile } from "@/lib/profiles/onboarding";
 import { listConsentRecordsForProfile } from "@/lib/db/repositories/household";
 import {
@@ -37,6 +39,31 @@ async function account() {
 }
 
 describe("resumable profile setup and editing", () => {
+  it("bounds direct repository batches and preserves deduplicated matching details", async () => {
+    const actor = await account();
+    const profile = profileInputSchema.parse(profileInput);
+    const identifier = identifierInputSchema.parse({
+      type: "EMAIL",
+      value: "other@example.org",
+    });
+    await expect(
+      saveOnboardingRecord(actor, {
+        profileId: null,
+        profile,
+        identifiers: Array(31).fill(identifier),
+        complete: false,
+      })
+    ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    expect(await testPrisma.userProfile.count()).toBe(0);
+    await saveOnboardingRecord(actor, {
+      profileId: null,
+      profile,
+      identifiers: Array(30).fill(identifier),
+      complete: false,
+    });
+    expect(await testPrisma.profileIdentifier.count()).toBe(3);
+  });
+
   it("audits a granted consent summary before querying only its permitted fields", async () => {
     const owner = await account();
     const saved = await saveOnboardingProfile(owner, { ...input, complete: true });
