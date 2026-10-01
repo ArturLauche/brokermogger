@@ -10,6 +10,7 @@ import { getSetting } from "@/lib/config/runtimeSettings";
 import {
   countExpiredTemporaryEvidence,
   countRetentionDueEvidence,
+  countUnfinishedFilePurges,
   listExpiredTemporaryEvidence,
   listRetentionDueEvidence,
   listUnfinishedFilePurges,
@@ -81,6 +82,7 @@ export async function runRetentionSweep(input: { dryRun: boolean }): Promise<Job
 
   const counts = {
     evidence: 0,
+    unfinishedFilePurgesRemaining: 0,
     temporaryIdentity: 0,
     closedRequests: 0,
     closedRequestSnapshots: 0,
@@ -97,6 +99,7 @@ export async function runRetentionSweep(input: { dryRun: boolean }): Promise<Job
   };
 
   if (input.dryRun) {
+    counts.unfinishedFilePurgesRemaining = await countUnfinishedFilePurges();
     counts.expiredUnmatchedDelivery = await countExpiredUnmatchedDelivery(
       daysAgo(now, 1)
     );
@@ -145,12 +148,17 @@ export async function runRetentionSweep(input: { dryRun: boolean }): Promise<Job
     };
   }
 
-  const unfinished = await listUnfinishedFilePurges(BATCH);
   counts.expiredUnmatchedDelivery = await drainCount((take) =>
     expireUnmatchedDelivery(daysAgo(now, 1), take)
   );
-  await mapPool(unfinished, 5, purgePrivateFile);
-  counts.evidence = unfinished.length + (await purgeEvidenceBatch(evidenceCutoff));
+  const unfinishedPurged = await drain(
+    () => listUnfinishedFilePurges(BATCH),
+    async (files) => {
+      await mapPool(files, 5, purgePrivateFile);
+      return files.length;
+    }
+  );
+  counts.evidence = unfinishedPurged + (await purgeEvidenceBatch(evidenceCutoff));
   counts.temporaryIdentity = await purgeTemporaryIdentity();
   counts.closedRequests = await drain(
     () => listClosedRequestsDueForRetention(closedCutoff, BATCH),
@@ -182,6 +190,7 @@ export async function runRetentionSweep(input: { dryRun: boolean }): Promise<Job
     deleteConsentRecordsOlderThan(consentCutoff, take)
   );
   counts.rateLimitBuckets = await purgeExpiredBuckets(now);
+  counts.unfinishedFilePurgesRemaining = await countUnfinishedFilePurges();
 
   await recordAudit({
     actor: systemActor("retention-sweep"),
@@ -190,8 +199,16 @@ export async function runRetentionSweep(input: { dryRun: boolean }): Promise<Job
     metadata: counts,
   });
 
-  log.info(counts, "Retention sweep complete");
-  return { message: "Retention sweep complete.", metadata: counts };
+  const message =
+    counts.unfinishedFilePurgesRemaining > 0
+      ? "Retention pass finished; unfinished file purges remain queued."
+      : "Retention sweep complete.";
+  log.info(counts, message);
+  return {
+    message,
+    metadata: counts,
+    ...(counts.unfinishedFilePurgesRemaining > 0 ? { repeatAfterSeconds: 1 } : {}),
+  };
 }
 
 async function purgeEvidenceBatch(cutoff: Date): Promise<number> {

@@ -174,8 +174,8 @@ export function createJobHandlers(): JobHandlerRegistry {
         return result;
       }
       return {
-        ...result,
         ...recurringRepeat(job, RECURRING_INTERVAL_SECONDS.RETENTION_SWEEP),
+        ...result,
       };
     },
   };

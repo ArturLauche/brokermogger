@@ -326,17 +326,25 @@ export async function markPrivateFilePurgePending(id: string) {
   });
 }
 
+function unfinishedFilePurgesWhere(): Prisma.EvidenceFileWhereInput {
+  return {
+    OR: [
+      { storageState: "PURGE_PENDING" },
+      {
+        storageState: "UPLOADING",
+        updatedAt: { lt: new Date(Date.now() - 60 * 60 * 1000) },
+      },
+    ],
+  };
+}
+
+export async function countUnfinishedFilePurges() {
+  return prisma.evidenceFile.count({ where: unfinishedFilePurgesWhere() });
+}
+
 export async function listUnfinishedFilePurges(take = 100) {
   return prisma.evidenceFile.findMany({
-    where: {
-      OR: [
-        { storageState: "PURGE_PENDING" },
-        {
-          storageState: "UPLOADING",
-          updatedAt: { lt: new Date(Date.now() - 60 * 60 * 1000) },
-        },
-      ],
-    },
+    where: unfinishedFilePurgesWhere(),
     take,
     orderBy: { updatedAt: "asc" },
   });

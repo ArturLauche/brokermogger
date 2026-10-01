@@ -53,6 +53,27 @@ describe("reserveBucket", () => {
 });
 
 describe("reserveWeightedRequestCreate", () => {
+  it("aborts a caller-owned transaction on monthly rejection instead of committing its daily increment", async () => {
+    const now = new Date("2026-08-25T12:00:10.000Z");
+    const daily = { ...identity("caller-daily", now), limit: 10 };
+    const monthly = { ...identity("caller-monthly", now), limit: 0 };
+    await expect(
+      testPrisma.$transaction((tx) =>
+        reserveWeightedRequestCreate(
+          {
+            userId: "caller-quota-owner",
+            requestedCount: 1,
+            daily,
+            monthly,
+            rollingSince: new Date("2026-07-26T00:00:00.000Z"),
+          },
+          tx
+        )
+      )
+    ).rejects.toMatchObject({ code: "QUOTA_EXCEEDED" });
+    expect(await readBucketCount(daily)).toBe(0);
+    expect(await readBucketCount(monthly)).toBe(0);
+  });
   it("lets concurrent workflows share one monthly budget by request count", async () => {
     const now = new Date("2026-08-25T12:00:10.000Z");
     const userId = "quota-user-concurrent";
