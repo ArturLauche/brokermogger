@@ -54,8 +54,8 @@ and open work at their respective checkpoints.
 | Check                    | Coverage                                                                                                                                                                          |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Static checks            | Type checking, ESLint, Prettier and the 40-check environment catalogue                                                                                                            |
-| Unit/component tests     | 466 cases across 71 files                                                                                                                                                         |
-| Integration tests        | 287 cases across 47 files, including 350 complete sourced-catalogue journeys in five matrix cases                                                                                 |
+| Unit/component tests     | 478 cases across 72 files                                                                                                                                                         |
+| Integration tests        | 294 cases across 47 files, including 350 complete sourced-catalogue journeys in five matrix cases                                                                                 |
 | Production browser tests | 15 Chromium journeys under strict CSP, including actual magic-link authentication and account erasure                                                                             |
 | Complete interface       | 48 routes at 320, 375, 768, 1024 and 1440px: 240 captures with no overflow, heading/label defects, unexpected console/CSP errors or axe AA findings                               |
 | Keyboard and zoom        | 101 passing navigation, dialog, focus and layout checks; zoom is an automation approximation                                                                                      |
@@ -97,6 +97,18 @@ recover a terminal job without stealing a lease. Receiving and onboarding also
 defend their repository boundaries against oversized direct calls. Browser CI uses an isolated schema
 so worker fixtures cannot claim leftover integration jobs. See the
 [review dispositions and regression evidence](delivery-review.md).
+
+The subsequent owner review and eight further bot reports were checked against
+the delivered revision. Approval counters now share their actual storage contract
+across reservation, job validation and dispatch, with no arbitrary lifetime cap of
+20 approvals. New send intents have a distinct per-attempt key; worker retries
+reuse the persisted key. Exhausted receiving outages stay failed and recover
+through the existing operator retry, including interrupted message streams.
+Escalation reads select only summary metadata, and request previews expose their
+limited result explicitly while retaining complete correspondence pagination.
+The existing household consent transaction, input bounds and erasure eligibility
+already contradicted the repeated reports. These corrections add 12 unit cases
+and seven integration cases without requiring another migration.
 
 ## Migration commitments
 
