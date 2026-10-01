@@ -603,9 +603,10 @@ export default async function RequestDetailPage({
                 changing this request.
               </p>
             )}
-            {request._count.responses > request.responses.length ? (
+            {request.responsesTruncated ? (
               <p className="text-sm">
-                Showing the latest 25 of {request._count.responses} replies.{" "}
+                Showing the latest {request.responses.length} of{" "}
+                {request._count.responses} replies.{" "}
                 <Link href="/responses" className="underline">
                   Browse all correspondence
                 </Link>

@@ -5,11 +5,15 @@ import type { PrismaTransaction } from "@/lib/db/client";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
 
-export async function loadRequestForDecision(
+type RequestDecisionAction =
+  "request:approve" | "request:send" | "request:update" | "request:recordOutcome";
+
+/** Authorize and fence lifecycle reads without loading message or profile payloads. */
+export async function lockRequestForDecision(
   tx: PrismaTransaction,
   actor: ActorContext,
   id: string,
-  action: "request:approve" | "request:send" | "request:update" | "request:recordOutcome"
+  action: RequestDecisionAction
 ) {
   const ref = await tx.removalRequest.findFirst({
     where: { id, deletedAt: null },
@@ -33,8 +37,23 @@ export async function loadRequestForDecision(
   await tx.$executeRaw`SELECT 1 FROM "UserProfile" WHERE id = ${ref.profileId} FOR UPDATE`;
   await tx.$executeRaw`SELECT 1 FROM "RemovalRequest" WHERE id = ${id} FOR UPDATE`;
   await tx.$executeRaw`SELECT 1 FROM "Broker" WHERE id = ${ref.brokerId} FOR SHARE`;
+  return ref;
+}
+
+export async function loadRequestForDecision(
+  tx: PrismaTransaction,
+  actor: ActorContext,
+  id: string,
+  action: RequestDecisionAction
+) {
+  const ref = await lockRequestForDecision(tx, actor, id, action);
   const request = await tx.removalRequest.findFirst({
-    where: { id, deletedAt: null, profile: { deletedAt: null, ownerUserId: ref.userId } },
+    where: {
+      id,
+      userId: ref.userId,
+      deletedAt: null,
+      profile: { deletedAt: null, ownerUserId: ref.userId },
+    },
     include: {
       user: { select: { timezone: true } },
       templateVersion: { select: { template: { select: { requestType: true } } } },

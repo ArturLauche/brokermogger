@@ -64,6 +64,40 @@ async function fixture(submit = true) {
 }
 
 describe("recorded correspondence and explicit outcomes", () => {
+  it("marks a limited request preview and keeps every reply reachable through correspondence pagination", async () => {
+    const f = await fixture(false);
+    expect((await getOwnedRequest(f.actor, f.request.id)).responsesTruncated).toBe(false);
+    const now = new Date();
+    await testPrisma.brokerResponse.createMany({
+      data: Array.from({ length: 26 }, (_, index) => ({
+        id: randomUUID(),
+        userId: f.user.id,
+        removalRequestId: f.request.id,
+        brokerId: f.brokers[0]!.id,
+        receivedAt: new Date(now.getTime() - index * 1000),
+      })),
+    });
+    const request = await getOwnedRequest(f.actor, f.request.id);
+    expect(request.responsesTruncated).toBe(true);
+    expect(request.responses).toHaveLength(25);
+    expect(request._count.responses).toBe(26);
+    const first = await listOwnedResponses(f.actor);
+    expect(first.items).toHaveLength(25);
+    expect(first.nextCursor).toBeTruthy();
+    const second = await listOwnedResponses(f.actor, { cursor: first.nextCursor });
+    expect(second.items).toHaveLength(1);
+    expect(second.nextCursor).toBeNull();
+    expect(new Set([...first.items, ...second.items].map((row) => row.id)).size).toBe(26);
+    await testPrisma.brokerResponse.update({
+      where: { id: second.items[0]!.id },
+      data: { deletedAt: now },
+    });
+    expect((await getOwnedRequest(f.actor, f.request.id)).responsesTruncated).toBe(false);
+    await expect(
+      getOwnedRequest(testActor("foreign"), f.request.id)
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
   it("encrypts content, deduplicates concurrent saves and leaves status unchanged until confirmation", async () => {
     const f = await fixture();
     const results = await Promise.all([

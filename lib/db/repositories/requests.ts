@@ -97,6 +97,7 @@ export async function getOwnedRequest(actor: ActorContext, requestId: string) {
   return {
     ...request,
     currentSnapshotSubmitted,
+    responsesTruncated: request._count.responses > request.responses.length,
     snapshots: request.snapshots.map(readSnapshotText),
   };
 }

@@ -1,4 +1,4 @@
-import { AppError } from "@/lib/core/errors";
+import { AppError, NotFoundError } from "@/lib/core/errors";
 import { prisma } from "@/lib/db/client";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
@@ -6,7 +6,11 @@ import { canPrepareEscalation } from "@/lib/requests/escalationEligibility";
 import { canTransition } from "@/lib/requests/stateMachine";
 import { parseWithSchema } from "@/lib/validation/form";
 import { entityIdSchema } from "@/lib/validation/ids";
-import { assertCurrentProfileConsent, loadRequestForDecision } from "./requestDecision";
+import {
+  assertCurrentProfileConsent,
+  loadRequestForDecision,
+  lockRequestForDecision,
+} from "./requestDecision";
 import { applyRequestStatusInTx } from "./requests";
 
 export async function prepareEscalationRecord(actor: ActorContext, rawId: string) {
@@ -73,8 +77,34 @@ export async function prepareEscalationRecord(actor: ActorContext, rawId: string
 export async function getEscalationSummary(actor: ActorContext, rawId: string) {
   const id = parseWithSchema(entityIdSchema, rawId);
   return prisma.$transaction(async (tx) => {
-    const request = await loadRequestForDecision(tx, actor, id, "request:update");
-    requirePermission(actor, "evidence:download", { ownerUserId: request.userId });
+    const ref = await lockRequestForDecision(tx, actor, id, "request:update");
+    requirePermission(actor, "evidence:download", { ownerUserId: ref.userId });
+    const request = await tx.removalRequest.findFirst({
+      where: {
+        id,
+        userId: ref.userId,
+        deletedAt: null,
+        profile: { deletedAt: null, ownerUserId: ref.userId },
+      },
+      select: {
+        id: true,
+        userId: true,
+        status: true,
+        externalReference: true,
+        requestType: true,
+        legalBasisText: true,
+        deadlineAt: true,
+        deadlineOn: true,
+        deadlineIsEstimate: true,
+        deadlineNote: true,
+        deadlineBasis: true,
+        deadlineAnchorOn: true,
+        sentAt: true,
+        legalRuleVersionId: true,
+        broker: { select: { legalName: true } },
+      },
+    });
+    if (!request) throw new NotFoundError();
     if (request.status !== "ESCALATION_RECOMMENDED")
       throw new AppError({
         code: "CONFLICT",
