@@ -23,6 +23,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { sessionCookieName } from "@/lib/auth/cookies";
 import { env } from "@/lib/config/env";
 import { buildContentSecurityPolicy } from "@/lib/security/contentSecurityPolicy";
+import { INDEXABLE_PATHS } from "@/lib/seo/crawling";
 
 /** Route prefixes that only make sense for a signed in account. */
 const AUTHENTICATED_PREFIXES = [
@@ -69,12 +70,15 @@ export function proxy(request: NextRequest): NextResponse {
 
     const redirectResponse = NextResponse.redirect(loginUrl);
     redirectResponse.headers.set("Content-Security-Policy", csp);
+    redirectResponse.headers.set("X-Robots-Tag", "noindex, nofollow");
     return redirectResponse;
   }
 
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set("Content-Security-Policy", csp);
   response.headers.set("x-nonce", nonce);
+  if (!INDEXABLE_PATHS.some((path) => path === pathname))
+    response.headers.set("X-Robots-Tag", "noindex, nofollow");
   return response;
 }
 

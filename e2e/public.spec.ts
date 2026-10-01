@@ -48,6 +48,9 @@ test.describe("public screens", () => {
     page,
     baseURL,
   }) => {
+    const privateRedirect = await page.request.get("/dashboard", { maxRedirects: 0 });
+    expect(privateRedirect.status()).toBe(307);
+    expect(privateRedirect.headers()["x-robots-tag"]).toBe("noindex, nofollow");
     let previousNonce: string | undefined;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const response = await page.goto("/this-page-does-not-exist");
