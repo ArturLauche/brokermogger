@@ -6,6 +6,8 @@ import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
 import { parseWithSchema } from "@/lib/validation/form";
 import { lockAuthorizedAccount } from "./access";
+import { recordAuditOrThrow } from "@/lib/audit/service";
+import { appendAuditLogInTransaction } from "./audit";
 
 export async function listAdminSettings(actor: ActorContext) {
   requirePermission(actor, "admin:settings:read");
@@ -57,7 +59,7 @@ export async function saveAdminSetting(actor: ActorContext, raw: unknown) {
         message:
           "This setting changed in another session. Reload to review the current value before saving.",
       });
-    return tx.systemSetting.upsert({
+    const result = await tx.systemSetting.upsert({
       where: { key: command.key },
       create: {
         key: command.key,
@@ -76,5 +78,16 @@ export async function saveAdminSetting(actor: ActorContext, raw: unknown) {
       },
       select: { updatedAt: true },
     });
+    await recordAuditOrThrow(
+      {
+        actor,
+        action: "admin.setting_changed",
+        resourceType: "system_setting",
+        resourceId: command.key,
+        metadata: { settingKey: command.key, reset: command.intent === "reset" },
+      },
+      (input, hash) => appendAuditLogInTransaction(tx, input, hash)
+    );
+    return result;
   });
 }
