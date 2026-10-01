@@ -5,7 +5,7 @@
  * and running them a second time changes nothing. The unit tests already cover
  * the content of the data modules, so this file only checks the writing side.
  */
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ALL_SETTINGS } from "@/lib/config/systemSettings";
 import { templateChecksum } from "@/prisma/seeds/checksum";
@@ -43,10 +43,21 @@ const EXPECTED = {
 
 const pendingSeedRuns = new Set<Promise<unknown>>();
 
+beforeEach(() => {
+  // This fixture checks the shipped version set before scheduled amendments.
+  // Explicit commencement/cache tests exercise their later activation separately.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-30T12:00:00Z"));
+});
+
 afterEach(async () => {
   // A timed-out test must finish its outstanding writer before the next
   // fixture's TRUNCATE can acquire locks in a different order.
-  await Promise.allSettled(pendingSeedRuns);
+  try {
+    await Promise.allSettled(pendingSeedRuns);
+  } finally {
+    vi.useRealTimers();
+  }
 }, 120_000);
 
 function runSeed() {

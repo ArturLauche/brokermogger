@@ -215,11 +215,13 @@ describe("immutable catalogue versions", () => {
   });
 
   it("changes timed packs exactly at their effective instant even with a warm cache", async () => {
-    await seedJurisdictions(testPrisma);
-    await seedLegalRules(testPrisma);
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
       vi.setSystemTime(new Date("2026-10-01T03:59:59.999Z"));
+      // Install before commencement; a real-clock install after it correctly
+      // supersedes the predecessor and cannot simulate the earlier catalogue.
+      await seedJurisdictions(testPrisma);
+      await seedLegalRules(testPrisma);
       invalidateCatalogCache();
       const before = await listPublishedLegalRules();
       const current = before.find(
