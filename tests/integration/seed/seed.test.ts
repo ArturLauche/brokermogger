@@ -5,7 +5,7 @@
  * and running them a second time changes nothing. The unit tests already cover
  * the content of the data modules, so this file only checks the writing side.
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ALL_SETTINGS } from "@/lib/config/systemSettings";
 import { templateChecksum } from "@/prisma/seeds/checksum";
@@ -41,14 +41,39 @@ const EXPECTED = {
   settings: ALL_SETTINGS.length,
 };
 
-async function runSeed() {
-  return {
+const pendingSeedRuns = new Set<Promise<unknown>>();
+
+beforeEach(() => {
+  // This fixture checks the shipped version set before scheduled amendments.
+  // Explicit commencement/cache tests exercise their later activation separately.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-30T12:00:00Z"));
+});
+
+afterEach(async () => {
+  // A timed-out test must finish its outstanding writer before the next
+  // fixture's TRUNCATE can acquire locks in a different order.
+  try {
+    await Promise.allSettled(pendingSeedRuns);
+  } finally {
+    vi.useRealTimers();
+  }
+}, 120_000);
+
+function runSeed() {
+  const operation = (async () => ({
     jurisdictions: await seedJurisdictions(testPrisma),
     legalRules: await seedLegalRules(testPrisma),
     templates: await seedRequestTemplates(testPrisma),
     brokers: await seedBrokers(testPrisma),
     settings: await seedSystemSettings(testPrisma),
-  };
+  }))();
+  pendingSeedRuns.add(operation);
+  void operation.then(
+    () => pendingSeedRuns.delete(operation),
+    () => pendingSeedRuns.delete(operation)
+  );
+  return operation;
 }
 
 async function countRows() {
@@ -117,7 +142,7 @@ describe("seed writers", () => {
 
     const afterSecond = await countRows();
     expect(afterSecond).toEqual(afterFirst);
-  });
+  }, 120_000);
 
   it("stores brokers as demo data that cannot be used for production sending", async () => {
     await seedJurisdictions(testPrisma);
@@ -245,7 +270,13 @@ describe("seed writers", () => {
     const published = await testPrisma.legalRuleVersion.count({
       where: { status: "PUBLISHED" },
     });
-    expect(published).toBe(EXPECTED.legalRuleVersions);
+    const publishedSources = LEGAL_RULES.flatMap((rule) => rule.versions).filter(
+      (version) => version.status === "PUBLISHED"
+    );
+    expect(published).toBe(publishedSources.length);
+    expect(await testPrisma.legalRuleVersion.count({ where: { status: "DRAFT" } })).toBe(
+      EXPECTED.legalRuleVersions - publishedSources.length
+    );
   });
 
   it("creates demo users only when SEED_DEMO_USERS is true", async () => {

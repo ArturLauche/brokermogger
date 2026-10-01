@@ -33,19 +33,14 @@ export function PublicHeader({
   className,
 }: PublicHeaderProps) {
   return (
-    <header
-      className={cn(
-        "sticky top-0 z-30 border-b bg-background supports-backdrop-filter:bg-background/90 supports-backdrop-filter:backdrop-blur",
-        className
-      )}
-    >
+    <header className={cn("sticky top-0 z-30 border-b bg-background", className)}>
       <a
         href="#main-content"
         className="sr-only rounded-lg bg-background px-3 py-2 text-sm font-medium ring-2 ring-ring focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50"
       >
         Skip to main content
       </a>
-      <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-4 px-4">
+      <div className="mx-auto flex h-16 w-full max-w-6xl items-center gap-2 px-4 sm:gap-4">
         <Link href="/" className="font-heading text-base font-semibold">
           Brokermogger
         </Link>
@@ -57,7 +52,7 @@ export function PublicHeader({
                 <li key={link.href}>
                   <Link
                     href={link.href}
-                    className="rounded-lg px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                    className="inline-flex min-h-10 items-center rounded-md px-2 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
                   >
                     {link.label}
                   </Link>
@@ -67,11 +62,11 @@ export function PublicHeader({
           </nav>
         ) : null}
 
-        <div className="ml-auto flex items-center gap-2">
-          <Button asChild variant="ghost">
+        <div className="ml-auto flex items-center gap-1 sm:gap-2">
+          <Button asChild variant="ghost" className="px-3">
             <Link href="/login">Log in</Link>
           </Button>
-          <Button asChild>
+          <Button asChild className="px-3">
             <Link href="/login">Sign up</Link>
           </Button>
         </div>

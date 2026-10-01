@@ -11,11 +11,11 @@ const PRINCIPLES = [
   },
   {
     title: "Masked by default",
-    body: "The interface shows a masked preview. The full value appears only after you press a reveal action, and that reveal is written to the audit trail.",
+    body: "Stored identifiers show a masked preview. Revealing an identifier is recorded in the audit trail. Request letters and replies require a separate reveal action before their text is displayed.",
   },
   {
     title: "Append only history",
-    body: "The audit log, the request history, the approved request snapshots and the consent records cannot be edited or deleted by the application. A correction is a new entry that points at the old one.",
+    body: "Ordinary edits preserve audit entries, request history, approved snapshots, and consent records. Corrections create new entries. Account or profile erasure removes personal content while retaining only the proof described by the instance policy.",
   },
   {
     title: "Nothing is sent by accident",
@@ -41,8 +41,10 @@ export function SecurityPrinciples() {
       <ul className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
         {PRINCIPLES.map((principle) => (
           <li key={principle.title} className="flex flex-col gap-1">
-            <h3 className="font-heading font-medium">{principle.title}</h3>
-            <p className="text-sm text-pretty text-muted-foreground">{principle.body}</p>
+            <h3 className="font-heading font-semibold">{principle.title}</h3>
+            <p className="text-sm leading-6 text-pretty text-muted-foreground">
+              {principle.body}
+            </p>
           </li>
         ))}
       </ul>

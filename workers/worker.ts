@@ -7,7 +7,16 @@
  * Handlers for sending, follow-ups, notifications, reports, deletion and
  * retention are registered here so a single worker binary covers the MVP.
  */
+import "dotenv/config";
 import { randomUUID } from "node:crypto";
+import { writeFile, unlink } from "node:fs/promises";
+import { prisma } from "@/lib/db/client";
+import {
+  registerWorker,
+  refreshWorkerHeartbeat,
+  stopWorkerHeartbeat,
+  WORKER_HEARTBEAT_INTERVAL_MS,
+} from "@/lib/db/repositories/workers";
 
 import { env } from "@/lib/config/env";
 import { createJobHandlers } from "@/lib/jobs/handlers";
@@ -19,7 +28,7 @@ import { createLogger } from "@/lib/observability/logger";
 const log = createLogger("worker");
 
 async function main(): Promise<void> {
-  const workerId = `worker-${process.pid}-${randomUUID().slice(0, 8)}`;
+  const workerId = `worker-${randomUUID()}`;
   const handlers: JobHandlerRegistry = createJobHandlers();
 
   await ensureRecurringJobs();
@@ -36,26 +45,53 @@ async function main(): Promise<void> {
   );
 
   let stopping = false;
+  let heartbeatTimer: ReturnType<typeof setTimeout> | undefined;
+  let heartbeatTask: Promise<void> | undefined;
   const stop = () => {
     stopping = true;
+    clearTimeout(heartbeatTimer);
   };
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
 
-  while (!stopping) {
+  await registerWorker(workerId);
+  const heartbeat = async () => {
     try {
-      if (Date.now() - lastEnsureAt >= ensureEveryMs) {
-        await ensureRecurringJobs();
-        lastEnsureAt = Date.now();
-      }
-      const processed = await processOnce(workerId, handlers);
-      if (processed === 0) {
+      if (!(await refreshWorkerHeartbeat(workerId))) stop();
+    } catch (error) {
+      log.error({ err: error }, "Worker process heartbeat failed");
+    }
+    if (!stopping) scheduleHeartbeat();
+  };
+  const scheduleHeartbeat = () => {
+    heartbeatTimer = setTimeout(() => {
+      heartbeatTask = heartbeat();
+    }, WORKER_HEARTBEAT_INTERVAL_MS);
+    heartbeatTimer.unref();
+  };
+  try {
+    if (env.WORKER_HEALTH_FILE)
+      await writeFile(env.WORKER_HEALTH_FILE, workerId, { mode: 0o600 });
+    scheduleHeartbeat();
+    while (!stopping) {
+      try {
+        if (Date.now() - lastEnsureAt >= ensureEveryMs) {
+          await ensureRecurringJobs();
+          lastEnsureAt = Date.now();
+        }
+        const processed = await processOnce(workerId, handlers, () => stopping);
+        if (processed === 0) await sleep(env.JOB_POLL_INTERVAL_MS);
+      } catch (error) {
+        log.error({ err: error }, "Worker loop failed");
         await sleep(env.JOB_POLL_INTERVAL_MS);
       }
-    } catch (error) {
-      log.error({ err: error }, "Worker loop failed");
-      await sleep(env.JOB_POLL_INTERVAL_MS);
     }
+  } finally {
+    stop();
+    await heartbeatTask;
+    await stopWorkerHeartbeat(workerId);
+    if (env.WORKER_HEALTH_FILE)
+      await unlink(env.WORKER_HEALTH_FILE).catch(() => undefined);
   }
 
   log.info({ workerId }, "Worker stopped");
@@ -67,7 +103,9 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
-main().catch((error) => {
-  log.error({ err: error }, "Worker exited");
-  process.exitCode = 1;
-});
+main()
+  .finally(() => prisma.$disconnect())
+  .catch((error) => {
+    log.error({ err: error }, "Worker exited");
+    process.exitCode = 1;
+  });

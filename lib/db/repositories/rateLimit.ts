@@ -9,6 +9,7 @@
 import { randomUUID } from "node:crypto";
 
 import { prisma, type PrismaTransaction } from "@/lib/db/client";
+import { AppError } from "@/lib/core/errors";
 
 export interface BucketIdentity {
   scope: string;
@@ -31,11 +32,15 @@ export interface RequestCreateQuotaReservation {
   rollingCount: number;
 }
 
-class MonthlyQuotaRollback extends Error {
+class MonthlyQuotaRollback extends AppError {
   readonly bucket = "monthly" as const;
 
   constructor() {
-    super("monthly_quota_reservation_rejected");
+    super({
+      code: "QUOTA_EXCEEDED",
+      message: "This batch would exceed the monthly operational request limit.",
+      details: { bucket: "monthly" },
+    });
     this.name = "MonthlyQuotaRollback";
   }
 }
@@ -132,16 +137,23 @@ async function reserveBucketOn(
  * buckets in one transaction. The per-user advisory lock plus a GREATEST
  * against the live request count make concurrent generate calls share one
  * budget instead of each consuming a single workflow increment.
+ * With a caller-owned transaction, monthly rejection throws QUOTA_EXCEEDED;
+ * the caller must propagate it to roll back the earlier daily reservation.
  */
-export async function reserveWeightedRequestCreate(input: {
-  userId: string;
-  requestedCount: number;
-  daily: BucketIdentity & { limit: number };
-  monthly: BucketIdentity & { limit: number };
-  rollingSince: Date;
-}): Promise<RequestCreateQuotaReservation> {
+export async function reserveWeightedRequestCreate(
+  input: {
+    userId: string;
+    requestedCount: number;
+    daily: BucketIdentity & { limit: number };
+    monthly: BucketIdentity & { limit: number };
+    rollingSince: Date;
+  },
+  transaction?: PrismaTransaction
+): Promise<RequestCreateQuotaReservation> {
   try {
-    return await prisma.$transaction(async (tx) => {
+    const reserve = async (
+      tx: PrismaTransaction
+    ): Promise<RequestCreateQuotaReservation> => {
       await tx.$executeRawUnsafe(
         `SELECT pg_advisory_xact_lock(hashtext($1))`,
         `brokermogger_request_create_${input.userId}`
@@ -189,9 +201,11 @@ export async function reserveWeightedRequestCreate(input: {
       }
 
       return { reserved: true, rejectedBucket: null, rollingCount };
-    });
+    };
+    return await (transaction ? reserve(transaction) : prisma.$transaction(reserve));
   } catch (error) {
     if (error instanceof MonthlyQuotaRollback) {
+      if (transaction) throw error;
       const rollingCount = await prisma.removalRequest.count({
         where: {
           userId: input.userId,

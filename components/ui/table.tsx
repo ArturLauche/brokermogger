@@ -1,14 +1,23 @@
-"use client";
-
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-function Table({ className, ...props }: React.ComponentProps<"table">) {
+function Table({
+  className,
+  scrollLabel,
+  ...props
+}: React.ComponentProps<"table"> & { scrollLabel?: string }) {
   return (
-    <div data-slot="table-container" className="relative w-full overflow-x-auto">
+    <div
+      data-slot="table-container"
+      role="region"
+      aria-label={scrollLabel ?? props["aria-label"] ?? "Table"}
+      tabIndex={0}
+      className="relative w-full max-w-full min-w-0 overflow-x-auto"
+    >
       <table
         data-slot="table"
+        aria-label={props["aria-label"] ?? scrollLabel}
         className={cn("w-full caption-bottom text-sm", className)}
         {...props}
       />
@@ -63,6 +72,7 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
   return (
     <th
       data-slot="table-head"
+      scope="col"
       className={cn(
         "h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0",
         className
@@ -77,7 +87,7 @@ function TableCell({ className, ...props }: React.ComponentProps<"td">) {
     <td
       data-slot="table-cell"
       className={cn(
-        "p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0",
+        "p-2 align-middle whitespace-nowrap [&_a]:inline-flex [&_a]:min-h-11 [&_a]:items-center md:[&_a]:min-h-10 [&:has([role=checkbox])]:pr-0",
         className
       )}
       {...props}

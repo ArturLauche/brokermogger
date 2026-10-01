@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState, useTransition } from "react";
 
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { Button } from "@/components/ui/button";
@@ -25,32 +25,54 @@ export function ConfirmSubmitButton({
   destructive?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   return (
     <>
       <Button
+        ref={triggerRef}
         type="button"
         variant={destructive ? "destructive" : "outline"}
-        onClick={() => setOpen(true)}
+        disabled={pending}
+        onClick={() => {
+          setErrorMessage(null);
+          setOpen(true);
+        }}
       >
         {label}
       </Button>
       <ConfirmDialog
+        key={open ? "confirmation" : "closed"}
         open={open}
         onOpenChange={setOpen}
+        returnFocusRef={triggerRef}
         title={title}
         description={description}
         {...(consequences ? { consequences } : {})}
         {...(confirmationPhrase ? { confirmationPhrase } : {})}
-        confirmLabel={label}
+        confirmLabel={pending ? "Working…" : label}
+        pending={pending}
+        keepOpenOnConfirm
+        errorMessage={errorMessage}
         destructive={destructive}
         onConfirm={() => {
           const formData = new FormData();
           for (const [key, value] of Object.entries(hidden)) {
             formData.set(key, value);
           }
-          void action(formData);
-          setOpen(false);
+          startTransition(async () => {
+            setErrorMessage(null);
+            try {
+              await action(formData);
+              setOpen(false);
+            } catch {
+              setErrorMessage(
+                "We could not confirm that this action completed. Check the current state before trying again."
+              );
+            }
+          });
         }}
       />
     </>

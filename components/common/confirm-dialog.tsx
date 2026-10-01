@@ -40,7 +40,12 @@ export interface ConfirmDialogProps {
   destructive?: boolean;
   /** Disables the confirm button while the action runs. */
   pending?: boolean;
+  /** Retain the dialog until its asynchronous action reports completion. */
+  keepOpenOnConfirm?: boolean;
+  errorMessage?: string | null;
   onConfirm: () => void;
+  /** Explicit target when the controlled dialog has no Radix trigger. */
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
   className?: string;
 }
 
@@ -55,13 +60,17 @@ export function ConfirmDialog({
   confirmationPhrase,
   destructive = false,
   pending = false,
+  keepOpenOnConfirm = false,
+  errorMessage,
   onConfirm,
+  returnFocusRef,
   className,
 }: ConfirmDialogProps) {
   const inputId = React.useId();
   const [typed, setTyped] = React.useState("");
 
   function handleOpenChange(nextOpen: boolean) {
+    if (pending) return;
     if (!nextOpen) {
       setTyped("");
     }
@@ -74,7 +83,16 @@ export function ConfirmDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={handleOpenChange}>
-      <AlertDialogContent className={cn("sm:max-w-md", className)}>
+      <AlertDialogContent
+        className={cn("sm:max-w-md", className)}
+        aria-busy={pending}
+        onCloseAutoFocus={(event) => {
+          if (returnFocusRef?.current) {
+            event.preventDefault();
+            returnFocusRef.current.focus();
+          }
+        }}
+      >
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>
@@ -97,9 +115,16 @@ export function ConfirmDialog({
               id={inputId}
               value={typed}
               autoComplete="off"
+              disabled={pending}
               onChange={(event) => setTyped(event.target.value)}
             />
           </div>
+        ) : null}
+
+        {errorMessage ? (
+          <p role="alert" className="text-sm text-destructive">
+            {errorMessage}
+          </p>
         ) : null}
 
         <AlertDialogFooter>
@@ -112,6 +137,7 @@ export function ConfirmDialog({
                 event.preventDefault();
                 return;
               }
+              if (keepOpenOnConfirm) event.preventDefault();
               onConfirm();
             }}
           >

@@ -15,6 +15,12 @@
  *    and asks the recipient to confirm what was actually done.
  */
 import type { PublicationStatus, RequestChannel, RequestType } from "@prisma/client";
+import {
+  US_PRIVACY_PACKS,
+  usPackName,
+  type UsInitialRequestType,
+} from "@/lib/jurisdiction/us";
+import { FUTURE_US_PRIVACY_PACKS } from "@/lib/jurisdiction/futureUs";
 
 export interface RequestTemplateVersionSeed {
   version: number;
@@ -56,9 +62,10 @@ const CORE_REQUIRED: readonly string[] = [
 ];
 
 /** Blocks that render empty when they do not apply. */
-const CORE_OPTIONAL: readonly string[] = ["consent.statement", "request.deadlineDate"];
+const CORE_OPTIONAL: readonly string[] = ["consent.statement"];
 
-const CHANGE_NOTES = "Initial template shipped with the seed data set.";
+const CHANGE_NOTES =
+  "2026-09-28: identify the named person consistently, remove empty response-date labels, and support reminders after partial replies.";
 
 const CLAUSES_BASE = [
   "request-identification",
@@ -97,13 +104,142 @@ const VERIFICATION_BLOCK = `Please verify this request with the identifiers abov
 
 function footer(): string {
   return `Reference: {{request.reference}}
-Requested response date: {{request.deadlineDate}}
 Date of this request: {{today}}
 
 {{profile.fullName}}`;
 }
 
 export const REQUEST_TEMPLATES: RequestTemplateSeed[] = [
+  ...(["DELETION", "FOLLOW_UP", "FINAL_REMINDER"] as const).map((requestType) => ({
+    key: `ca.drop.${requestType.toLowerCase().replaceAll("_", "-")}`,
+    name: `California DROP ${requestType.toLowerCase().replaceAll("_", " ")} instructions`,
+    description:
+      "A private plan for the individual's action on the official DROP platform. No email, platform login or submission is automated.",
+    requestType,
+    channel: "DROP" as const,
+    jurisdictionCode: "US-CA",
+    isActive: true,
+    clauses: [...CLAUSES_BASE, "delete-act-platform-reference", "scope-limitation"],
+    version: {
+      ...version(
+        "California DROP {{request.type}} preparation — {{request.reference}}",
+        `Private DROP preparation for {{profile.fullName}}, resident in {{profile.country}}.
+
+Intended action: {{request.type}} concerning {{broker.name}}, under {{request.legalBasis}}.
+
+This instance has not submitted a request or checked your DROP status. Complete California residency verification and any required identity fields directly on the official platform. Brokermogger does not collect its additional identity fields or log in on your behalf.
+
+Approved matching details for your own review:
+{{identifiers.list}}
+
+{{consent.statement}}
+
+Open https://consumer.drop.privacy.ca.gov/ yourself. Review the broker list and select the intended scope, including {{broker.name}}. The platform's default can include other current and future brokers; review those choices before submitting. For a follow-up, check your existing request's status rather than assuming another submission is required.
+
+Keep your private DROP ID outside this instance. Do not share it in correspondence or upload an unredacted confirmation. Record only the submission date and relevant broker outcome here.
+
+CalPrivacy describes initial status reporting of up to 90 days and ongoing broker rechecks at least every 45 days. These are different from a universal 45-day response deadline. Exceptions and nonmatching records can limit the outcome; no result is promised.
+
+Your instance reply address is {{reply.address}}; it is not a destination for submitting to DROP. Record the actual platform outcome yourself.
+
+${footer()}`
+      ),
+      changeNotes:
+        "2026-09-30: separate official manual DROP actions from direct broker letters and from an invented ordinary response deadline.",
+    },
+  })),
+  ...(
+    [
+      [
+        "ACCESS",
+        "Provide the summary of personal-data processing and recipient information covered by the applicable request basis. This does not assert full-copy access to every record.",
+      ],
+      [
+        "CORRECTION",
+        "Correct, complete or update the named person's inaccurate personal data within the applicable request basis. Please identify a secure channel for the disputed fields and proposed corrections.",
+      ],
+      [
+        "DELETION",
+        "Erase the named person's personal data to the extent covered by the applicable request basis and subject to lawful retention. Explain what you retain and why.",
+      ],
+    ] as const
+  ).map(([requestType, instructions]) => ({
+    key: `in.${requestType.toLowerCase()}`,
+    name: `India ${requestType.toLowerCase()} request`,
+    description:
+      "Scoped Indian request; voluntary before DPDP rights commence and statutory only under the applicable published rule.",
+    requestType,
+    channel: "EMAIL" as const,
+    jurisdictionCode: "IN",
+    isActive: true,
+    clauses: [...CLAUSES_BASE, "retention-exception-disclosure"],
+    version: {
+      ...version(
+        "Privacy request ({{request.type}}) - reference {{request.reference}}",
+        `Dear {{broker.name}} privacy team,
+
+I am making a {{request.type}} request under {{request.legalBasis}}.
+
+${IDENTIFIER_BLOCK}
+
+${instructions}
+
+Please use your published rights-request procedure where statutory rights apply. Where this is a voluntary policy request, I understand that you may decline. This letter asserts no fixed response deadline or automatic remedy.
+
+${VERIFICATION_BLOCK}
+
+Please reply to {{reply.address}}, confirm the actual result and explain any refusal and available grievance process. If representation needs further legal authority, please explain the procedure so the named person can submit directly.
+
+${footer()}`
+      ),
+      changeNotes:
+        "2026-09-30: respect summary access, staged DPDP commencement, explicit voluntary basis and separate grievance timing.",
+    },
+  })),
+  ...[...US_PRIVACY_PACKS, ...FUTURE_US_PRIVACY_PACKS].flatMap((pack) =>
+    (Object.entries(pack.requests) as [UsInitialRequestType, string][]).map(
+      ([requestType, instructions]) => ({
+        key: `us-${pack.region.toLowerCase()}.${requestType.toLowerCase().replaceAll("_", "-")}`,
+        name: `${usPackName(pack)} ${requestType.toLowerCase().replaceAll("_", " ")} request`,
+        description: `${pack.lawName}: a scoped request, subject to consumer and controller eligibility.`,
+        requestType,
+        channel: "EMAIL" as const,
+        jurisdictionCode: `US-${pack.region}`,
+        isActive: true,
+        clauses: [...CLAUSES_BASE, "retention-exception-disclosure"],
+        version: {
+          ...version(
+            "Privacy request ({{request.type}}) - reference {{request.reference}}",
+            `Dear {{broker.name}} privacy team,
+
+I am making a {{request.type}} request under {{request.legalBasis}} about {{profile.fullName}}, who has confirmed residence in ${usPackName(pack)}, {{profile.country}}.
+
+Please use only these approved identifiers to locate the records and authenticate this request:
+
+{{identifiers.list}}
+
+${instructions}
+
+These rights depend on the applicable consumer and recipient coverage. If an exception applies, please explain which part of the request it affects and the basis for your decision. This request does not assert a right over all exempt or publicly available records.
+
+${VERIFICATION_BLOCK}
+
+{{consent.statement}}
+
+If representation needs additional legal authority, please explain the required procedure. The named individual can use your secure submission channel directly. Please reply to {{reply.address}}, confirm the result and explain any refusal and available appeal process. An opt-out or suppression record is not proof of erasure.
+
+${footer()}`
+          ),
+          status: FUTURE_US_PRIVACY_PACKS.includes(pack)
+            ? ("DRAFT" as const)
+            : ("PUBLISHED" as const),
+          changeNotes: FUTURE_US_PRIVACY_PACKS.includes(pack)
+            ? "2026-10-01: future-law draft. Review enacted source, eligibility and effective date before publication. Never activated automatically."
+            : "2026-09-30: state-specific adult consumer instructions; narrower Iowa, Indiana and Utah scopes are preserved, with no universal sharing or deletion claim.",
+        },
+      })
+    )
+  ),
   // -------------------------------------------------------------------------
   // Generic templates, one per request type
   // -------------------------------------------------------------------------
@@ -124,7 +260,7 @@ export const REQUEST_TEMPLATES: RequestTemplateSeed[] = [
       "Privacy request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request about my own personal data under {{request.legalBasis}}.
+I am making a {{request.type}} request about the named person’s personal data under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -153,7 +289,7 @@ ${footer()}`
       "Privacy request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request about my own personal data under {{request.legalBasis}}.
+I am making a {{request.type}} request about the named person’s personal data under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -182,7 +318,7 @@ ${footer()}`
       "Privacy request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request about my own personal data under {{request.legalBasis}}.
+I am making a {{request.type}} request about the named person’s personal data under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -211,7 +347,7 @@ ${footer()}`
       "Privacy request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request about my own personal data under {{request.legalBasis}}.
+I am making a {{request.type}} request about the named person’s personal data under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -240,7 +376,7 @@ ${footer()}`
       "Privacy request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request about my own personal data under {{request.legalBasis}}.
+I am making a {{request.type}} request about the named person’s personal data under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -269,7 +405,7 @@ ${footer()}`
       "Privacy request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request about my own personal data under {{request.legalBasis}}.
+I am making a {{request.type}} request about the named person’s personal data under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -297,7 +433,7 @@ ${footer()}`
       "Privacy request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request about my own personal data under {{request.legalBasis}}.
+I am making a {{request.type}} request about the named person’s personal data under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -330,7 +466,7 @@ I am following up on a privacy request I sent you earlier. The request was a {{r
 
 ${IDENTIFIER_BLOCK}
 
-The response date I noted for the original request was {{request.deadlineDate}}. I have not recorded a reply from you so far.
+The request remains unresolved. Please address any outstanding parts and explain what, if anything, prevents you from completing them.
 
 ${VERIFICATION_BLOCK}
 
@@ -352,7 +488,7 @@ ${footer()}`
       "Final reminder: privacy request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-This is a final reminder about the privacy request with the reference {{request.reference}}. It is a {{request.type}} request made under {{request.legalBasis}}, and the response date I noted was {{request.deadlineDate}}.
+This is a final reminder about the privacy request with the reference {{request.reference}}. It is a {{request.type}} request made under {{request.legalBasis}} and remains unresolved.
 
 ${IDENTIFIER_BLOCK}
 
@@ -360,7 +496,7 @@ I would still prefer to settle this directly with you.
 
 ${VERIFICATION_BLOCK}
 
-Please reply in writing to {{reply.address}} and confirm what you have done with the request. If I do not hear from you, I will decide myself whether to take the matter to the authority that supervises data protection where I live.
+Please reply in writing to {{reply.address}} and confirm what you have done with the request. If I do not hear from you, I will decide myself whether to take the matter to the relevant privacy authority for the person named above.
 
 ${footer()}`
     ),
@@ -378,7 +514,7 @@ ${footer()}`
       "Escalation: privacy request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am writing about the privacy request with the reference {{request.reference}}, a {{request.type}} request made under {{request.legalBasis}}. The response date I noted was {{request.deadlineDate}}, and the matter is still unresolved.
+I am writing about the privacy request with the reference {{request.reference}}, a {{request.type}} request made under {{request.legalBasis}}. The matter is still unresolved.
 
 Organisation: {{broker.name}}
 Registered entity: {{broker.legalName}}
@@ -418,7 +554,7 @@ ${footer()}`,
       "California privacy request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am a California resident and I am making a {{request.type}} request about my own personal information under {{request.legalBasis}}.
+The person named below is a California resident. I am making a {{request.type}} request about their personal information under {{request.legalBasis}}.
 
 State or region of residence: {{profile.region}}
 
@@ -454,7 +590,7 @@ ${footer()}`,
       "California privacy request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am a California resident and I am making a {{request.type}} request about my own personal information under {{request.legalBasis}}.
+The person named below is a California resident. I am making a {{request.type}} request about their personal information under {{request.legalBasis}}.
 
 State or region of residence: {{profile.region}}
 
@@ -488,7 +624,7 @@ ${footer()}`,
       "California privacy request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am a California resident and I am making a {{request.type}} request about my own personal information under {{request.legalBasis}}.
+The person named below is a California resident. I am making a {{request.type}} request about their personal information under {{request.legalBasis}}.
 
 State or region of residence: {{profile.region}}
 
@@ -520,7 +656,7 @@ ${footer()}`,
       "California privacy request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am a California resident and I am making a {{request.type}} request about my own personal information under {{request.legalBasis}}.
+The person named below is a California resident. I am making a {{request.type}} request about their personal information under {{request.legalBasis}}.
 
 State or region of residence: {{profile.region}}
 
@@ -560,7 +696,7 @@ ${footer()}`,
       "Data protection request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request as a data subject under {{request.legalBasis}}.
+I am making a {{request.type}} request concerning the person named below under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -590,7 +726,7 @@ ${footer()}`
       "Data protection request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request as a data subject under {{request.legalBasis}}.
+I am making a {{request.type}} request concerning the person named below under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -622,7 +758,7 @@ ${footer()}`
       "Data protection request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request as a data subject under {{request.legalBasis}}.
+I am making a {{request.type}} request concerning the person named below under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -651,7 +787,7 @@ ${footer()}`
       "Data protection request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request as a data subject under {{request.legalBasis}}.
+I am making a {{request.type}} request concerning the person named below under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -681,7 +817,7 @@ ${footer()}`
       "Data protection request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request as a data subject under {{request.legalBasis}}.
+I am making a {{request.type}} request concerning the person named below under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -720,7 +856,7 @@ ${footer()}`
       "Data protection request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request as a data subject under {{request.legalBasis}}.
+I am making a {{request.type}} request concerning the person named below under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -750,7 +886,7 @@ ${footer()}`
       "Subject access request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request as a data subject under {{request.legalBasis}}. This is a subject access request.
+I am making a {{request.type}} request concerning the person named below under {{request.legalBasis}}. This is a subject access request.
 
 ${IDENTIFIER_BLOCK}
 
@@ -783,7 +919,7 @@ ${footer()}`
       "Data protection request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request as a data subject under {{request.legalBasis}}.
+I am making a {{request.type}} request concerning the person named below under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -823,7 +959,7 @@ ${footer()}`
       "Data protection request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request as a data subject under {{request.legalBasis}}.
+I am making a {{request.type}} request concerning the person named below under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -854,7 +990,7 @@ ${footer()}`
       "Data protection request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request as a data subject under {{request.legalBasis}}.
+I am making a {{request.type}} request concerning the person named below under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -885,7 +1021,7 @@ ${footer()}`
       "Data protection request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request as a data subject under {{request.legalBasis}}.
+I am making a {{request.type}} request concerning the person named below under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 
@@ -914,7 +1050,7 @@ ${footer()}`
       "Data protection request ({{request.type}}) - reference {{request.reference}}",
       `Dear {{broker.name}} privacy team,
 
-I am making a {{request.type}} request as a data subject under {{request.legalBasis}}.
+I am making a {{request.type}} request concerning the person named below under {{request.legalBasis}}.
 
 ${IDENTIFIER_BLOCK}
 

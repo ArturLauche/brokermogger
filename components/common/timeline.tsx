@@ -35,17 +35,22 @@ export function Timeline({ events, label, className }: TimelineProps) {
     <ol
       aria-label={label}
       data-slot="timeline"
-      className={cn("flex flex-col", className)}
+      className={cn("flex min-w-0 flex-col [overflow-wrap:anywhere]", className)}
     >
       {events.map((event, index) => (
-        <li key={event.id} className="flex gap-3">
+        <li key={event.id} className="flex min-w-0 gap-3">
           <div className="flex flex-col items-center" aria-hidden="true">
             <span className="mt-1.5 size-2 shrink-0 rounded-full bg-muted-foreground" />
             {index < events.length - 1 ? (
               <span className="w-px flex-1 bg-border" />
             ) : null}
           </div>
-          <div className={cn("flex flex-col gap-1", index < events.length - 1 && "pb-5")}>
+          <div
+            className={cn(
+              "flex min-w-0 flex-col gap-1",
+              index < events.length - 1 && "pb-5"
+            )}
+          >
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-sm font-medium">{event.title}</p>
               {event.status}

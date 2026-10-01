@@ -41,16 +41,18 @@ export function HowItWorks() {
           <li key={step.title} className="flex gap-4">
             <span
               aria-hidden="true"
-              className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary font-medium text-primary-foreground"
+              className="w-8 shrink-0 text-2xl leading-none font-semibold text-primary tabular-nums"
             >
               {index + 1}
             </span>
             <div className="flex flex-col gap-1">
-              <h3 className="font-heading font-medium">
+              <h3 className="font-heading font-semibold">
                 <span className="sr-only">Step {index + 1}: </span>
                 {step.title}
               </h3>
-              <p className="text-sm text-pretty text-muted-foreground">{step.body}</p>
+              <p className="text-sm leading-6 text-pretty text-muted-foreground">
+                {step.body}
+              </p>
             </div>
           </li>
         ))}

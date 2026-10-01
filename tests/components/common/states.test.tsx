@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import Link from "next/link";
 import userEvent from "@testing-library/user-event";
 import { InboxIcon } from "lucide-react";
 import { describe, expect, it, vi } from "vitest";
@@ -55,12 +56,12 @@ describe("EmptyState", () => {
         title="No requests yet"
         description="Pick a broker to prepare your first request."
         action={<Button type="button">Choose brokers</Button>}
-        secondaryAction={<a href="/brokers">Browse the directory</a>}
+        secondaryAction={<Link href="/brokers">Browse the directory</Link>}
       />
     );
 
     expect(
-      screen.getByRole("heading", { level: 3, name: "No requests yet" })
+      screen.getByRole("heading", { level: 2, name: "No requests yet" })
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Choose brokers" })).toBeInTheDocument();
     expect(

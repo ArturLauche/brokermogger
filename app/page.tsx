@@ -36,8 +36,7 @@ export const dynamic = "force-dynamic";
 /**
  * Landing page.
  *
- * A server component with no client state: everything except the FAQ accordion
- * renders and reads without JavaScript.
+ * Server-rendered content and native FAQ disclosures work without JavaScript.
  */
 export default async function LandingPage() {
   let repositoryUrl = "";

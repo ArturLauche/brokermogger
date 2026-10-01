@@ -6,10 +6,76 @@ import { describe, expect, it } from "vitest";
 
 import { JURISDICTIONS } from "@/prisma/seeds/data/jurisdictions";
 
-const EXPECTED_CODES = ["US-CA", "US-OTHER", "DE", "GB", "BR", "IN", "AU", "SG"];
+const GDPR_CODES = [
+  "AT",
+  "BE",
+  "BG",
+  "HR",
+  "CY",
+  "CZ",
+  "DK",
+  "EE",
+  "FI",
+  "FR",
+  "DE",
+  "GR",
+  "HU",
+  "IS",
+  "IE",
+  "IT",
+  "LV",
+  "LI",
+  "LT",
+  "LU",
+  "MT",
+  "NL",
+  "NO",
+  "PL",
+  "PT",
+  "RO",
+  "SK",
+  "SI",
+  "ES",
+  "SE",
+];
+const STATE_CODES = [
+  "CA",
+  "CO",
+  "CT",
+  "DE",
+  "FL",
+  "IN",
+  "IA",
+  "KY",
+  "MD",
+  "MN",
+  "MT",
+  "NE",
+  "NH",
+  "NJ",
+  "OR",
+  "RI",
+  "TN",
+  "TX",
+  "UT",
+  "VA",
+];
+const EXPECTED_CODES = [
+  ...STATE_CODES.map((region) => `US-${region}`),
+  "US-AL",
+  "US-LA",
+  "US-OK",
+  "US-OTHER",
+  ...GDPR_CODES,
+  "GB",
+  "BR",
+  "IN",
+  "AU",
+  "SG",
+];
 
 describe("jurisdiction seed data", () => {
-  it("ships exactly the eight supported jurisdictions", () => {
+  it("ships explicit packs for all 30 EU/EEA countries and the existing other locations", () => {
     expect(JURISDICTIONS.map((jurisdiction) => jurisdiction.code).sort()).toEqual(
       [...EXPECTED_CODES].sort()
     );
@@ -32,8 +98,8 @@ describe("jurisdiction seed data", () => {
 
   it("only sets a region for the sub national jurisdiction", () => {
     for (const jurisdiction of JURISDICTIONS) {
-      if (jurisdiction.code === "US-CA") {
-        expect(jurisdiction.region).toBe("CA");
+      if (jurisdiction.countryCode === "US" && jurisdiction.code !== "US-OTHER") {
+        expect(jurisdiction.region).toBe(jurisdiction.code.slice(3));
       } else {
         expect(jurisdiction.region).toBeUndefined();
       }

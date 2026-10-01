@@ -64,6 +64,7 @@ function buildOptions(): LoggerOptions {
     redact: { paths: REDACT_PATHS, censor: REDACTED },
     base: { app: "brokermogger", appEnv: env.APP_ENV },
     timestamp: pino.stdTimeFunctions.isoTime,
+    serializers: { err: safeError, error: safeError },
     formatters: {
       level(label) {
         return { level: label };
@@ -86,6 +87,24 @@ function buildOptions(): LoggerOptions {
   }
 
   return base;
+}
+
+/** Error messages/stacks can contain SQL parameters, tokens or provider bodies. */
+export function safeError(error: unknown): Record<string, unknown> {
+  if (!error || typeof error !== "object") return { type: "Error" };
+  const name =
+    "name" in error &&
+    typeof error.name === "string" &&
+    /^[A-Za-z][A-Za-z0-9_]{0,60}$/.test(error.name)
+      ? error.name
+      : "Error";
+  const code =
+    "code" in error &&
+    typeof error.code === "string" &&
+    /^[A-Z0-9_]{1,80}$/.test(error.code)
+      ? error.code
+      : undefined;
+  return { type: name, ...(code ? { code } : {}) };
 }
 
 let rootLogger: Logger | undefined;

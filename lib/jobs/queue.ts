@@ -9,6 +9,8 @@ import { env } from "@/lib/config/env";
 import { isAppError } from "@/lib/core/errors";
 import {
   claimDueJobs,
+  heartbeatJob,
+  hasCurrentLease,
   expireStaleLocks,
   insertJob,
   markJobCancelled,
@@ -34,14 +36,10 @@ export const postgresJobQueue: JobQueue = {
   enqueue: insertJob,
   claim: claimDueJobs,
   complete: markJobCompleted,
-  async fail(jobId, error, durationMs) {
-    const message = isAppError(error)
-      ? error.message
-      : error instanceof Error
-        ? error.message
-        : "Unknown job failure";
-    await markJobFailed({
-      jobId,
+  async fail(job, error, durationMs) {
+    const message = errorMessage(error);
+    return markJobFailed({
+      job,
       attemptCount: 0,
       errorMessage: message,
       durationMs,
@@ -62,8 +60,8 @@ export async function enqueueJob<T extends JobType>(
 }
 
 function errorMessage(error: unknown): string {
-  if (isAppError(error)) return `${error.code}: ${error.message}`;
-  if (error instanceof Error) return error.message;
+  if (isAppError(error))
+    return `${error.code}: Job could not complete. Check the related record or instance configuration.`;
   return "Unknown job failure";
 }
 
@@ -72,11 +70,12 @@ export async function runClaimedJob(
   handlers: JobHandlerRegistry
 ): Promise<void> {
   const started = Date.now();
+  if (!(await hasCurrentLease(job))) return;
   const handler = handlers[job.type];
 
   if (!handler) {
     await markJobFailed({
-      jobId: job.id,
+      job,
       attemptCount: job.attemptCount,
       errorMessage: `No handler registered for ${job.type}`,
       durationMs: Date.now() - started,
@@ -85,6 +84,33 @@ export async function runClaimedJob(
     return;
   }
 
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const renew = async () => {
+    if (stopped) return;
+    try {
+      if (!(await heartbeatJob(job))) {
+        stopped = true;
+        return;
+      }
+    } catch (error) {
+      log.error({ jobId: job.id, err: error }, "Worker heartbeat failed");
+      stopped = true;
+      return;
+    }
+    if (!stopped) {
+      timer = setTimeout(
+        () => void renew(),
+        Math.max(1000, (env.JOB_LOCK_SECONDS * 1000) / 3)
+      );
+      timer.unref();
+    }
+  };
+  timer = setTimeout(
+    () => void renew(),
+    Math.max(1000, (env.JOB_LOCK_SECONDS * 1000) / 3)
+  );
+  timer.unref();
   try {
     // The registry is keyed by JobType; the payload was stored by the matching enqueue.
     const result = (await (handler as (claimed: ClaimedJob) => Promise<JobResult>)(
@@ -95,8 +121,17 @@ export async function runClaimedJob(
     // Recurring success uses `repeatAfterSeconds` inside markJobCompleted.
     // `retryAfterSeconds` is a failed attempt that should run again later.
     if (result.retryAfterSeconds && result.retryAfterSeconds > 0) {
+      if (job.attemptCount >= job.maxAttempts) {
+        await markJobFailed({
+          job,
+          attemptCount: job.attemptCount,
+          errorMessage: result.message,
+          durationMs,
+        });
+        return;
+      }
       await markJobRetryable({
-        jobId: job.id,
+        job,
         attemptCount: job.attemptCount,
         errorMessage: result.message,
         runAt: new Date(Date.now() + result.retryAfterSeconds * 1000),
@@ -105,7 +140,7 @@ export async function runClaimedJob(
       return;
     }
 
-    await markJobCompleted(job.id, result, durationMs);
+    await markJobCompleted(job, result, durationMs);
   } catch (error) {
     const durationMs = Date.now() - started;
     const message = errorMessage(error);
@@ -113,7 +148,7 @@ export async function runClaimedJob(
 
     if (exhausted) {
       await markJobFailed({
-        jobId: job.id,
+        job,
         attemptCount: job.attemptCount,
         errorMessage: message,
         durationMs,
@@ -127,7 +162,7 @@ export async function runClaimedJob(
 
     const delay = backoffSeconds(job.attemptCount);
     await markJobRetryable({
-      jobId: job.id,
+      job,
       attemptCount: job.attemptCount,
       errorMessage: message,
       runAt: new Date(Date.now() + delay * 1000),
@@ -137,19 +172,27 @@ export async function runClaimedJob(
       { jobType: job.type, jobId: job.id, delaySeconds: delay },
       "Job scheduled for retry"
     );
+  } finally {
+    stopped = true;
+    clearTimeout(timer);
   }
 }
 
 export async function processOnce(
   workerId: string,
-  handlers: JobHandlerRegistry
+  handlers: JobHandlerRegistry,
+  shouldStop: () => boolean = () => false
 ): Promise<number> {
   await expireStaleLocks();
-  const batch = await claimDueJobs(workerId, env.JOB_BATCH_SIZE);
-  for (const job of batch) {
+  // Claim only when ready to execute. Jobs waiting in a local batch cannot lose their lease.
+  let processed = 0;
+  for (; processed < env.JOB_BATCH_SIZE; processed += 1) {
+    if (shouldStop()) break;
+    const [job] = await claimDueJobs(workerId, 1);
+    if (!job) break;
     await runClaimedJob(job, handlers);
   }
-  return batch.length;
+  return processed;
 }
 
 export { postgresJobQueue as jobQueue };

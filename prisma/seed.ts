@@ -11,6 +11,7 @@
 import { PrismaClient } from "@prisma/client";
 
 import { seedBrokers } from "./seeds/brokers";
+import { seedRealBrokerDrafts } from "./seeds/realBrokers";
 import { seedDemoUsers } from "./seeds/demoUsers";
 import { seedJurisdictions } from "./seeds/jurisdictions";
 import { seedLegalRules } from "./seeds/legalRules";
@@ -25,6 +26,7 @@ const STEPS: { run: (client: PrismaClient) => Promise<SeedStepResult> }[] = [
   { run: seedLegalRules },
   { run: seedRequestTemplates },
   { run: seedBrokers },
+  { run: seedRealBrokerDrafts },
   { run: seedSystemSettings },
   { run: seedDemoUsers },
 ];

@@ -12,7 +12,25 @@
  *  * LOW confidence always implies `requiresLegalReview`. The database enforces
  *    this too (`legal_rule_version_low_confidence_requires_review`).
  */
-import type { LegalConfidence, PublicationStatus, RequestType } from "@prisma/client";
+import type {
+  LegalConfidence,
+  PublicationStatus,
+  RequestType,
+  RequestChannel,
+} from "@prisma/client";
+import type { DeadlinePolicy } from "@/lib/jurisdiction/deadlines";
+import { createGdprPacks } from "./gdpr-packs";
+import { createUsPrivacyPacks } from "./us-packs";
+import { createFutureUsPacks } from "./future-us-packs";
+import { createIndiaPacks } from "./india-packs";
+import { createUsVoluntarySuppressionPacks } from "./voluntary-us-packs";
+import { reviewRegionalTiming } from "./regional-timing";
+import {
+  GDPR_RESPONSE_POLICY,
+  UK_GDPR_RESPONSE_POLICY,
+  CCPA_RESPONSE_POLICY,
+  CCPA_OPT_OUT_POLICY,
+} from "./deadline-policies";
 
 /**
  * Structured deadline logic. Stored as JSON on `LegalRuleVersion.deadlineRule`.
@@ -20,6 +38,8 @@ import type { LegalConfidence, PublicationStatus, RequestType } from "@prisma/cl
  * JSON input value.
  */
 export type DeadlineRuleSeed = {
+  /** Explicit executable policy; legacy baseDays is retained only for compatibility. */
+  policy?: DeadlinePolicy;
   /** Baseline number of days, null when the law sets no fixed period. */
   baseDays: number | null;
   dayType: "CALENDAR" | "BUSINESS";
@@ -47,6 +67,7 @@ export type LegalVerificationRequirementsSeed = {
   authorisedAgentSupported: boolean | null;
   notarisationExpected: boolean;
   dataMinimisationNote: string;
+  allowedChannels?: RequestChannel[];
 };
 
 export type AdditionalSourceSeed = {
@@ -79,6 +100,7 @@ export interface LegalRuleVersionSeed {
   reviewedBy: string;
   /** ISO timestamp. */
   effectiveFrom: string;
+  effectiveUntil?: string;
   changeNotes: string;
 }
 
@@ -90,6 +112,8 @@ export interface LegalRuleSeed {
   shortName: string;
   description: string;
   isActive: boolean;
+  /** Archive earlier untouched seeded versions that asserted premature rights. */
+  retirePublishedBefore?: string;
   versions: LegalRuleVersionSeed[];
 }
 
@@ -100,7 +124,7 @@ const INITIAL_CHANGE_NOTES = "Initial demo rule shipped with the seed data set."
 const NO_IDENTITY_DOCUMENT_NOTE =
   "Ask for the least intrusive verification that identifies the record. Government identity documents, dates of birth and financial data are not provided by default.";
 
-export const LEGAL_RULES: readonly LegalRuleSeed[] = [
+const BASE_LEGAL_RULES: readonly LegalRuleSeed[] = [
   // -------------------------------------------------------------------------
   // California
   // -------------------------------------------------------------------------
@@ -129,6 +153,7 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
           "the California Consumer Privacy Act as amended by the California Privacy Rights Act (California Civil Code sections 1798.100 and following), which gives California residents the right to know about, delete and correct personal information a business holds about them",
         deadlineDays: 45,
         deadlineRule: {
+          policy: CCPA_RESPONSE_POLICY,
           baseDays: 45,
           dayType: "CALENDAR",
           startsFrom: "receipt of a verifiable consumer request",
@@ -185,10 +210,11 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
             url: "https://cppa.ca.gov/",
           },
         ],
-        lastReviewedAt: LAST_REVIEWED_AT,
+        lastReviewedAt: "2026-09-30T00:00:00.000Z",
         reviewedBy: REVIEWED_BY,
         effectiveFrom: "2023-01-01T00:00:00.000Z",
-        changeNotes: INITIAL_CHANGE_NOTES,
+        changeNotes:
+          "Source timing review on 2026-09-30. Versioned receipt-based response policy; dispatch and unverified holiday calendars remain estimates.",
       },
     ],
   },
@@ -210,6 +236,7 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
           "the right to opt out of the sale or sharing of personal information under the California Consumer Privacy Act as amended by the California Privacy Rights Act (California Civil Code section 1798.120)",
         deadlineDays: 15,
         deadlineRule: {
+          policy: CCPA_OPT_OUT_POLICY,
           baseDays: 15,
           dayType: "BUSINESS",
           startsFrom: "receipt of the opt out request",
@@ -265,10 +292,11 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
             url: "https://cppa.ca.gov/regulations/",
           },
         ],
-        lastReviewedAt: LAST_REVIEWED_AT,
+        lastReviewedAt: "2026-09-30T00:00:00.000Z",
         reviewedBy: REVIEWED_BY,
         effectiveFrom: "2023-01-01T00:00:00.000Z",
-        changeNotes: INITIAL_CHANGE_NOTES,
+        changeNotes:
+          "Source timing review on 2026-09-30. Versioned receipt-based response policy; dispatch and unverified holiday calendars remain estimates.",
       },
     ],
   },
@@ -285,21 +313,31 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
       {
         version: 1,
         status: "PUBLISHED",
-        supportedRequestTypes: [
-          "DELETION",
-          "SUPPRESSION",
-          "FOLLOW_UP",
-          "FINAL_REMINDER",
-          "ESCALATION",
-        ],
+        supportedRequestTypes: ["DELETION", "FOLLOW_UP", "FINAL_REMINDER", "ESCALATION"],
         legalBasisText:
-          "the California Delete Act (California Civil Code sections 1798.99.80 and following), under which registered data brokers must process deletion requests received through the deletion request platform operated by the California Privacy Protection Agency",
-        deadlineDays: 45,
+          "the California Delete Act (Civil Code sections 1798.99.80 and following), solely for a user-performed submission or status check through the official DROP platform, subject to California residency, broker coverage and exceptions",
+        deadlineDays: null,
         deadlineRule: {
-          baseDays: 45,
+          policy: {
+            version: 1,
+            unit: "NONE",
+            period: null,
+            startsFrom: "RECEIPT",
+            sourceUrl: "https://privacy.ca.gov/drop/how-drop-works/",
+            verified: true,
+            rollForward: "NONE",
+            calendar: null,
+            extension: null,
+            conditions: [
+              "DROP uses recurring broker processing and platform status reporting, not an ordinary 45-day direct-letter response clock.",
+            ],
+            notes:
+              "Processing began August 1, 2026. CalPrivacy describes up to 90 days for initial status reporting and rechecks at least every 45 days. No universal per-request response date is calculated here.",
+          },
+          baseDays: null,
           dayType: "CALENDAR",
           startsFrom:
-            "the point at which a registered broker is required to access the platform, which the maintainers did not verify",
+            "the platform's broker-processing cycle; no ordinary letter deadline",
           extension: {
             possible: false,
             additionalDays: null,
@@ -309,20 +347,21 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
           },
           conditions: [
             "Only data brokers that are registered in California are in scope.",
-            "The obligation and its start date depend on the current status of the platform and of the implementing regulations.",
+            "The individual must complete California residency verification and submit directly through the official platform. Preparation here is not submission.",
           ],
-          verified: false,
+          verified: true,
           notes:
-            "The 45 day figure reflects the maintainers' reading of the statute and is explicitly unverified. Check the current CPPA guidance before using this rule in production.",
+            "Initial status reporting can take up to 90 days; recurring processing is at least every 45 days. These are not an unconditional promise of deletion or a receipt-based 45-day email deadline.",
         },
         verificationRequirements: {
           identityVerificationExpected: true,
           governmentIdExpected: false,
-          accountRequired: true,
+          accountRequired: false,
           authorisedAgentSupported: null,
           notarisationExpected: false,
           dataMinimisationNote:
-            "Requests run through the state platform, so the platform decides which identifiers are handed over. Brokermogger does not submit to the platform automatically.",
+            "Complete the platform's residency and required identity fields directly on its official site. Brokermogger does not collect the platform's additional identity fields, authenticate there or store the private DROP ID. Redact confirmations before uploading a receipt.",
+          allowedChannels: ["DROP"],
         },
         escalationPath:
           "Non-compliance by a registered broker can be reported to the California Privacy Protection Agency. The individual decides whether to escalate, and submission through the state platform is a step the individual performs.",
@@ -340,22 +379,22 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
           "household-consent-statement",
         ],
         riskNotes:
-          "Timing, eligibility, broker coverage and the behaviour of the official platform must be verified against current California Privacy Protection Agency sources before production use. Brokermogger does not operate, integrate with or speak for the state platform, and a broker that is not registered in California is very likely out of scope.",
+          "Only eligible California residents and covered registered brokers use this platform workflow. Select the intended broker scope directly in DROP; its default can include additional current and future brokers. A direct email is not a DROP submission. Exemptions, first-party data and nonmatching records can limit results. Brokermogger does not integrate with DROP, collect the platform's additional required identity fields or store its private tracking ID. Do not share that ID in a reply or evidence file.",
         requiresLegalReview: true,
         confidence: "LOW",
-        sourceUrl: "https://cppa.ca.gov/data_broker_registry/",
-        sourceTitle: "California Privacy Protection Agency, data broker registry",
+        sourceUrl: "https://privacy.ca.gov/drop/how-drop-works/",
+        sourceTitle: "CalPrivacy, how DROP works and platform status reporting",
         additionalSources: [
           {
-            title: "California Attorney General, data broker information",
-            url: "https://oag.ca.gov/data-brokers",
+            title: "CalPrivacy, broker processing obligations",
+            url: "https://privacy.ca.gov/drop-for-data-brokers/process-drop-requests/",
           },
         ],
-        lastReviewedAt: LAST_REVIEWED_AT,
+        lastReviewedAt: "2026-09-30T00:00:00.000Z",
         reviewedBy: REVIEWED_BY,
-        effectiveFrom: "2024-01-01T00:00:00.000Z",
+        effectiveFrom: "2026-08-01T07:00:00.000Z",
         changeNotes:
-          "Initial demo rule. Deliberately conservative: unverified timing and unverified platform behaviour.",
+          "2026-09-30: verified platform processing/status guidance, limited this basis to DROP, separated voluntary broker suppression, and removed the unsupported 45-day direct-response clock.",
       },
     ],
   },
@@ -363,94 +402,6 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
   // -------------------------------------------------------------------------
   // Other United States
   // -------------------------------------------------------------------------
-  {
-    jurisdictionCode: "US-OTHER",
-    key: "us-state-privacy-rights",
-    lawName: "State consumer privacy law of the individual's state of residence",
-    shortName: "US state privacy rights",
-    description:
-      "Deletion, access, correction and opt out rights that several US states provide. The applicable state law has to be confirmed per request.",
-    isActive: true,
-    versions: [
-      {
-        version: 1,
-        status: "PUBLISHED",
-        supportedRequestTypes: [
-          "DELETION",
-          "ACCESS",
-          "CORRECTION",
-          "OPT_OUT",
-          "FOLLOW_UP",
-          "FINAL_REMINDER",
-          "ESCALATION",
-        ],
-        legalBasisText:
-          "the consumer privacy law of my state of residence, as several US states give residents rights to access, correct and delete personal data and to opt out of targeted advertising and the sale of personal data",
-        deadlineDays: 45,
-        deadlineRule: {
-          baseDays: 45,
-          dayType: "CALENDAR",
-          startsFrom: "receipt of the request",
-          extension: {
-            possible: true,
-            additionalDays: 45,
-            maxTotalDays: 90,
-            noticeRequired: true,
-            conditions: [
-              "Most state laws that use a 45 day period allow one extension where the request is complex, with notice to the consumer.",
-            ],
-          },
-          conditions: [
-            "The applicable state law must be confirmed. Deadlines, thresholds and available rights differ between states.",
-            "Several states have no general consumer privacy statute at all.",
-          ],
-          verified: false,
-          notes:
-            "45 days is the most common period among the state statutes the maintainers looked at. It is a working assumption, not a confirmed rule for any specific state.",
-        },
-        verificationRequirements: {
-          identityVerificationExpected: true,
-          governmentIdExpected: false,
-          accountRequired: false,
-          authorisedAgentSupported: null,
-          notarisationExpected: false,
-          dataMinimisationNote: NO_IDENTITY_DOCUMENT_NOTE,
-        },
-        escalationPath:
-          "Where the state provides an enforcement route, a complaint usually goes to the state attorney general. The individual has to identify the correct office and decide whether to escalate.",
-        escalationAuthority:
-          "State attorney general of the individual's state of residence",
-        templateClauses: [
-          "request-identification",
-          "legal-basis",
-          "identifier-list",
-          "scope-limitation",
-          "verification-minimisation",
-          "retention-exception-disclosure",
-          "third-party-disclosure-list",
-          "confirmation-request",
-          "household-consent-statement",
-        ],
-        riskNotes:
-          "There is no uniform federal deletion right in the United States. Whether any right exists at all depends on the state of residence, on whether the recipient meets that state's applicability thresholds and on sector exemptions. Confirm the applicable state law before sending. Not reviewed by counsel.",
-        requiresLegalReview: true,
-        confidence: "LOW",
-        sourceUrl: "https://www.ftc.gov/business-guidance/privacy-security",
-        sourceTitle: "US Federal Trade Commission, privacy and security guidance",
-        additionalSources: [
-          {
-            title: "National Conference of State Legislatures, state privacy legislation",
-            url: "https://www.ncsl.org/technology-and-communication/state-laws-related-to-digital-privacy",
-          },
-        ],
-        lastReviewedAt: LAST_REVIEWED_AT,
-        reviewedBy: REVIEWED_BY,
-        effectiveFrom: "2023-01-01T00:00:00.000Z",
-        changeNotes:
-          "Initial demo rule. Deliberately generic because the applicable state law is unknown at seed time.",
-      },
-    ],
-  },
   {
     jurisdictionCode: "US-OTHER",
     key: "us-broker-voluntary-opt-out",
@@ -468,6 +419,22 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
           "your published opt out and suppression policy, as this request does not rely on a statutory right",
         deadlineDays: null,
         deadlineRule: {
+          policy: {
+            version: 1,
+            unit: "NONE",
+            period: null,
+            startsFrom: "RECEIPT",
+            sourceUrl: "https://www.ftc.gov/business-guidance/privacy-security",
+            verified: true,
+            rollForward: "NONE",
+            calendar: null,
+            extension: null,
+            conditions: [
+              "A voluntary request has no asserted statutory response period.",
+            ],
+            notes:
+              "Use the recipient's actual policy. Any courtesy follow-up is chosen by the individual, not a statutory deadline.",
+          },
           baseDays: null,
           dayType: "CALENDAR",
           startsFrom: "receipt of the request",
@@ -479,7 +446,7 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
             conditions: [],
           },
           conditions: [
-            "There is no statutory deadline. Brokermogger schedules a courtesy follow up after 30 days instead.",
+            "There is no statutory deadline. The individual may choose to prepare a courtesy follow-up.",
           ],
           verified: true,
           notes:
@@ -546,15 +513,16 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
         ],
         legalBasisText:
           "Articles 15, 16 and 17 of Regulation (EU) 2016/679 (General Data Protection Regulation), which give a data subject the right to obtain access to their personal data, to have inaccurate data rectified and to obtain erasure where one of the grounds in Article 17(1) applies",
-        deadlineDays: 30,
+        deadlineDays: null,
         deadlineRule: {
-          baseDays: 30,
+          policy: GDPR_RESPONSE_POLICY,
+          baseDays: null,
           dayType: "CALENDAR",
           startsFrom: "receipt of the request",
           extension: {
             possible: true,
-            additionalDays: 60,
-            maxTotalDays: 90,
+            additionalDays: null,
+            maxTotalDays: null,
             noticeRequired: true,
             conditions: [
               "Article 12(3) allows two further months where the request is complex or where the controller received a number of requests.",
@@ -562,12 +530,12 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
             ],
           },
           conditions: [
-            "The legal period is one month, which the product models as 30 days for scheduling.",
+            "The baseline response period is one calendar month from receipt, not a fixed day count.",
             "Erasure can be refused where Article 17(3) applies, for example where processing is necessary for compliance with a legal obligation.",
           ],
           verified: true,
           notes:
-            "One month plus up to two further months under Article 12(3). The 30 day figure is a scheduling approximation of one calendar month.",
+            "One calendar month, with a possible two-month extension under Article 12(3). Extensions are not automatic.",
         },
         verificationRequirements: {
           identityVerificationExpected: true,
@@ -581,7 +549,7 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
         escalationPath:
           "If the controller does not respond within the period or refuses without an adequate reason, the data subject can lodge a complaint with the competent supervisory authority under Article 77, usually the authority of their habitual residence. In Germany this is the state data protection authority responsible for the controller. The individual decides whether to escalate.",
         escalationAuthority: "Competent data protection supervisory authority",
-        escalationUrl: "https://www.edpb.europa.eu/about-edpb/about-edpb/members_en",
+        escalationUrl: "https://www.edpb.europa.eu/about-edpb/our-members_en",
         templateClauses: [
           "request-identification",
           "legal-basis",
@@ -604,13 +572,14 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
         additionalSources: [
           {
             title: "European Data Protection Board, members and national authorities",
-            url: "https://www.edpb.europa.eu/about-edpb/about-edpb/members_en",
+            url: "https://www.edpb.europa.eu/about-edpb/our-members_en",
           },
         ],
-        lastReviewedAt: LAST_REVIEWED_AT,
+        lastReviewedAt: "2026-09-30T00:00:00.000Z",
         reviewedBy: REVIEWED_BY,
         effectiveFrom: "2018-05-25T00:00:00.000Z",
-        changeNotes: INITIAL_CHANGE_NOTES,
+        changeNotes:
+          "Source timing review on 2026-09-30. Versioned receipt-based response policy; dispatch and unverified holiday calendars remain estimates.",
       },
     ],
   },
@@ -637,15 +606,16 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
         ],
         legalBasisText:
           "Article 21 of Regulation (EU) 2016/679, under which a data subject may object to processing based on legitimate interests and may object to direct marketing at any time, and Article 7(3), under which consent may be withdrawn at any time",
-        deadlineDays: 30,
+        deadlineDays: null,
         deadlineRule: {
-          baseDays: 30,
+          policy: GDPR_RESPONSE_POLICY,
+          baseDays: null,
           dayType: "CALENDAR",
           startsFrom: "receipt of the objection or withdrawal",
           extension: {
             possible: true,
-            additionalDays: 60,
-            maxTotalDays: 90,
+            additionalDays: null,
+            maxTotalDays: null,
             noticeRequired: true,
             conditions: [
               "Article 12(3) allows two further months for complex requests, with notice within the first month.",
@@ -671,7 +641,7 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
         escalationPath:
           "A complaint can be lodged with the competent supervisory authority under Article 77. The individual decides whether to escalate.",
         escalationAuthority: "Competent data protection supervisory authority",
-        escalationUrl: "https://www.edpb.europa.eu/about-edpb/about-edpb/members_en",
+        escalationUrl: "https://www.edpb.europa.eu/about-edpb/our-members_en",
         templateClauses: [
           "request-identification",
           "legal-basis",
@@ -694,13 +664,14 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
         additionalSources: [
           {
             title: "European Data Protection Board, members and national authorities",
-            url: "https://www.edpb.europa.eu/about-edpb/about-edpb/members_en",
+            url: "https://www.edpb.europa.eu/about-edpb/our-members_en",
           },
         ],
-        lastReviewedAt: LAST_REVIEWED_AT,
+        lastReviewedAt: "2026-09-30T00:00:00.000Z",
         reviewedBy: REVIEWED_BY,
         effectiveFrom: "2018-05-25T00:00:00.000Z",
-        changeNotes: INITIAL_CHANGE_NOTES,
+        changeNotes:
+          "Source timing review on 2026-09-30. Versioned receipt-based response policy; dispatch and unverified holiday calendars remain estimates.",
       },
     ],
   },
@@ -730,22 +701,23 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
         ],
         legalBasisText:
           "Articles 15, 16 and 17 of the UK General Data Protection Regulation, read with the Data Protection Act 2018, which give an individual the right of access to their personal data, the right to have inaccurate data rectified and the right to erasure where one of the grounds in Article 17(1) applies",
-        deadlineDays: 30,
+        deadlineDays: null,
         deadlineRule: {
-          baseDays: 30,
+          policy: UK_GDPR_RESPONSE_POLICY,
+          baseDays: null,
           dayType: "CALENDAR",
           startsFrom: "receipt of the request",
           extension: {
             possible: true,
-            additionalDays: 60,
-            maxTotalDays: 90,
+            additionalDays: null,
+            maxTotalDays: null,
             noticeRequired: true,
             conditions: [
               "The period can be extended by two further months for complex or numerous requests, with notice within the first month.",
             ],
           },
           conditions: [
-            "The statutory period is one calendar month, modelled as 30 days for scheduling.",
+            "The baseline response period is one calendar month from receipt, with bank holidays and justified pauses requiring review.",
             "Erasure can be refused where an exemption applies.",
           ],
           verified: true,
@@ -778,7 +750,7 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
           "household-consent-statement",
         ],
         riskNotes:
-          "Exemptions in the Data Protection Act 2018 can limit access and erasure, and a controller may refuse manifestly unfounded or excessive requests. Whether the recipient is a controller for the data in question has to be assessed per case. Not reviewed by counsel.",
+          "Exemptions in the Data Protection Act 2018 can limit access and erasure, and a controller may refuse manifestly unfounded or excessive requests. Access requires a reasonable and proportionate search, not a guarantee of every possible record. A controller cannot force the requester to narrow the scope; justified subject-access clarification affects timing only after explicit review. Whether the recipient is a controller for the data in question has to be assessed per case. Not reviewed by counsel.",
         requiresLegalReview: true,
         confidence: "MEDIUM",
         sourceUrl:
@@ -789,11 +761,24 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
             title: "Data Protection Act 2018",
             url: "https://www.legislation.gov.uk/ukpga/2018/12/contents",
           },
+          {
+            title: "ICO, guide to subject access, updated 16 July 2026",
+            url: "https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/subject-access-requests/a-guide-to-subject-access/",
+          },
+          {
+            title: "Data (Use and Access) Act 2025, time limits and reasonable searches",
+            url: "https://www.legislation.gov.uk/ukpga/2025/18/contents",
+          },
+          {
+            title: "SI 2026/82, commencement and time-limit transitional provisions",
+            url: "https://www.legislation.gov.uk/uksi/2026/82/contents/made",
+          },
         ],
-        lastReviewedAt: LAST_REVIEWED_AT,
+        lastReviewedAt: "2026-10-01T00:00:00.000Z",
         reviewedBy: REVIEWED_BY,
         effectiveFrom: "2021-01-01T00:00:00.000Z",
-        changeNotes: INITIAL_CHANGE_NOTES,
+        changeNotes:
+          "2026-10-01: reviewed current ICO access guidance and DUAA timing transitions. Reasonable and proportionate search and access-only clarification remain explicit caveats. Historical snapshots and their timing policies stay pinned.",
       },
     ],
   },
@@ -820,15 +805,16 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
         ],
         legalBasisText:
           "Article 21 of the UK General Data Protection Regulation, which allows an individual to object to processing carried out for legitimate interests and to object to direct marketing at any time, together with the right to restriction of processing in Article 18",
-        deadlineDays: 30,
+        deadlineDays: null,
         deadlineRule: {
-          baseDays: 30,
+          policy: UK_GDPR_RESPONSE_POLICY,
+          baseDays: null,
           dayType: "CALENDAR",
           startsFrom: "receipt of the objection",
           extension: {
             possible: true,
-            additionalDays: 60,
-            maxTotalDays: 90,
+            additionalDays: null,
+            maxTotalDays: null,
             noticeRequired: true,
             conditions: [
               "Two further months are available for complex or numerous requests, with notice within the first month.",
@@ -878,11 +864,20 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
             title: "Information Commissioner's Office, make a complaint",
             url: "https://ico.org.uk/make-a-complaint/",
           },
+          {
+            title: "Data (Use and Access) Act 2025, time limits for rights requests",
+            url: "https://www.legislation.gov.uk/ukpga/2025/18/section/76",
+          },
+          {
+            title: "SI 2026/82, commencement and time-limit transitional provisions",
+            url: "https://www.legislation.gov.uk/uksi/2026/82/contents/made",
+          },
         ],
-        lastReviewedAt: LAST_REVIEWED_AT,
+        lastReviewedAt: "2026-10-01T00:00:00.000Z",
         reviewedBy: REVIEWED_BY,
         effectiveFrom: "2021-01-01T00:00:00.000Z",
-        changeNotes: INITIAL_CHANGE_NOTES,
+        changeNotes:
+          "2026-10-01: verified DUAA time-limit commencement and transitional provisions. Subject-access clarification is not applied automatically to objection or restriction; holiday coverage still requires review.",
       },
     ],
   },
@@ -932,7 +927,7 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
           ],
           verified: true,
           notes:
-            "15 days follows Article 19(II) for the complete declaration. Applying it to every request type is a product simplification.",
+            "Legacy access-specific declaration period. reviewRegionalTiming separates access from the other rights before publication.",
         },
         verificationRequirements: {
           identityVerificationExpected: true,
@@ -1368,12 +1363,12 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
             ],
           },
           conditions: [
-            "The Act requires a response as soon as reasonably possible; 30 days comes from the regulator's guidance rather than an explicit statutory period.",
+            "Access is due as soon as reasonably possible and correction as soon as practicable. Regulation 5's 30-day duty concerns notification of a response timeframe, not universal completion.",
             "Access can be refused or limited under the exceptions in the Fifth Schedule.",
           ],
           verified: false,
           notes:
-            "The 30 day figure reflects published guidance from the Personal Data Protection Commission and should be re-checked against the current guidelines.",
+            "Legacy notification period. reviewRegionalTiming prevents it becoming a universal completion clock.",
         },
         verificationRequirements: {
           identityVerificationExpected: true,
@@ -1508,3 +1503,26 @@ export const LEGAL_RULES: readonly LegalRuleSeed[] = [
     ],
   },
 ];
+
+/** Country packs share the reviewed GDPR definitions; historical German keys stay stable. */
+export const LEGAL_RULES: readonly LegalRuleSeed[] = [
+  ...reviewRegionalTiming(
+    BASE_LEGAL_RULES.filter((rule) => !["DE", "IN"].includes(rule.jurisdictionCode))
+  ),
+  ...createGdprPacks(BASE_LEGAL_RULES.filter((rule) => rule.jurisdictionCode === "DE")),
+  ...createUsPrivacyPacks(),
+  ...createFutureUsPacks(
+    BASE_LEGAL_RULES.find((rule) => rule.key === "us-broker-voluntary-opt-out")!
+  ),
+  ...createIndiaPacks(
+    BASE_LEGAL_RULES.find((rule) => rule.key === "dpdp-data-principal-rights")!
+  ),
+  ...createUsVoluntarySuppressionPacks(
+    BASE_LEGAL_RULES.find((rule) => rule.key === "us-broker-voluntary-opt-out")!
+  ),
+];
+
+/** Legacy content is retained as history, but is no longer a default sending basis. */
+export const RETIRED_DEFAULT_LEGAL_RULES = [
+  { jurisdictionCode: "US-OTHER", key: "us-state-privacy-rights" },
+] as const;

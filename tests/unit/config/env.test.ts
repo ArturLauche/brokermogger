@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { getEnv, resetEnvCacheForTests } from "@/lib/config/env";
+import { randomBytes } from "node:crypto";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -8,6 +9,35 @@ afterEach(() => {
 });
 
 describe("environment cross-field checks", () => {
+  it("refuses the build bypass at runtime", () => {
+    vi.stubEnv("SKIP_ENV_VALIDATION", "true");
+    vi.stubEnv("NEXT_PHASE", "phase-production-server");
+    resetEnvCacheForTests();
+    expect(() => getEnv()).toThrow(/only.*compil/i);
+  });
+
+  it.each([
+    "bad.id:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=,v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=!!!",
+  ])("refuses malformed or ambiguous encryption keys", (keys) => {
+    vi.stubEnv("ENCRYPTION_KEYS", keys);
+    resetEnvCacheForTests();
+    expect(() => getEnv()).toThrow(/ENCRYPTION_KEYS/);
+  });
+
+  it("refuses decoded example keys in production", () => {
+    vi.stubEnv("APP_ENV", "production");
+    vi.stubEnv("APP_BASE_URL", "https://privacy.example.org");
+    vi.stubEnv("AUTH_SECRET", randomBytes(32).toString("base64"));
+    vi.stubEnv("EMAIL_PROVIDER", "sandbox");
+    vi.stubEnv("EMAIL_SANDBOX_REDIRECT_TO", "sandbox@example.org");
+    vi.stubEnv("STORAGE_BACKEND", "local");
+    vi.stubEnv("ENCRYPTION_KEYS", "v1:ZGV2LW9ubHkta2V5LWRvLW5vdC11c2UtaW4tcHJvZAA=");
+    resetEnvCacheForTests();
+    expect(() => getEnv()).toThrow(/example|test|placeholder/);
+  });
+
   it("accepts the CI e2e combination: Node production, APP_ENV development, mock email", () => {
     vi.stubEnv("APP_ENV", "development");
     vi.stubEnv("NODE_ENV", "production");

@@ -1,9 +1,9 @@
 /**
  * Outbound email ledger.
  *
- * Every message the instance sends gets one `OutboundEmail` row so that a user
- * can prove what was sent, and so that delivery webhooks can be correlated
- * later. Data minimisation rules for this table:
+ * Broker requests and sign-in messages use `OutboundEmail` rows to record
+ * provider outcomes. Optional notification emails have a separately fenced
+ * dispatch record on their `Notification` row. Data minimisation rules here:
  *
  *  - the recipient is stored encrypted, plus a masked preview for the UI and a
  *    blind index for "did we already write to this address" lookups,

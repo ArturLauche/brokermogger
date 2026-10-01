@@ -1,148 +1,159 @@
-/**
- * Report generation. PDF rendering uses pdfkit.
- */
+/** Report orchestration; all persistence and worker fencing lives in repositories. */
 import { PassThrough } from "node:stream";
-
 import PDFDocument from "pdfkit";
-import { addMonths } from "date-fns";
-
 import { recordAudit } from "@/lib/audit/service";
-import { ValidationError } from "@/lib/core/errors";
-import { createEvidenceFile } from "@/lib/db/repositories/evidence";
 import {
-  createReport,
+  createOwnedReport,
   getOwnedReport,
-  getReportById,
   listOwnedReports,
-  updateReport,
+  updateOwnedReportJob,
 } from "@/lib/db/repositories/reports";
-import { listRequestsForUser } from "@/lib/db/repositories/requests";
-import { enqueueJob } from "@/lib/jobs/queue";
-import type { ActorContext } from "@/lib/permissions/actor";
+import {
+  abandonUnpublishedReportFile,
+  beginReportGeneration,
+  failReportGeneration,
+  loadReportPage,
+  publishReportFile,
+} from "@/lib/db/repositories/reportGeneration";
+import { downloadEvidence } from "@/lib/evidence/service";
+import { NotFoundError } from "@/lib/core/errors";
+import type { ClaimedJob } from "@/lib/jobs/types";
+import { parseJobPayload } from "@/lib/jobs/payloads";
 import { requirePermission } from "@/lib/permissions/policy";
-import { getStorage } from "@/lib/storage";
-import { sha256Hex } from "@/lib/security/crypto";
-import type { ReportFormat } from "@prisma/client";
+import { systemActor, type ActorContext } from "@/lib/permissions/actor";
+import { purgePrivateFile, storePrivateFile } from "@/lib/storage/privateFiles";
+import {
+  buildReportPayload,
+  reportToJson,
+  type ReportPayload,
+  type ReportRequestRow,
+} from "./build";
 
-import { buildReportPayload, reportToJson, type ReportPayload } from "./build";
-
-export async function requestReport(
-  actor: ActorContext,
-  input: { profileId: string | null; dateFrom: Date; dateTo: Date; format: ReportFormat }
-) {
-  requirePermission(actor, "report:generate", { ownerUserId: actor.userId });
-  if (input.dateTo.getTime() < input.dateFrom.getTime()) {
-    throw new ValidationError("The end date must be on or after the start date.");
-  }
-  if (input.dateTo.getTime() > addMonths(input.dateFrom, 24).getTime()) {
-    throw new ValidationError("The date range cannot exceed 24 months.");
-  }
-
-  const report = await createReport({
-    user: { connect: { id: actor.userId } },
-    ...(input.profileId ? { profile: { connect: { id: input.profileId } } } : {}),
-    title: "Privacy request report",
-    dateFrom: input.dateFrom,
-    dateTo: input.dateTo,
-    format: input.format,
-    status: "PENDING",
-  });
-
-  await enqueueJob({
-    type: "GENERATE_REPORT",
-    payload: { reportId: report.id },
-    idempotencyKey: `report:${report.id}`,
-    relatedUserId: actor.userId,
-  });
-
+export async function requestReport(actor: ActorContext, input: unknown) {
+  const report = await createOwnedReport(actor, input);
   await recordAudit({
     actor,
-    action: "report.generated",
+    action: "report.requested",
     resourceType: "report",
     resourceId: report.id,
   });
-
   return report;
 }
-
-export async function listReports(actor: ActorContext, profileId: string | null) {
-  return listOwnedReports(actor, profileId);
+export async function listReports(actor: ActorContext, input: unknown = {}) {
+  return listOwnedReports(actor, input);
 }
-
-export async function markReportDownloaded(actor: ActorContext, reportId: string) {
-  const report = await getOwnedReport(actor, reportId);
+export async function changeReportJob(
+  actor: ActorContext,
+  input: { id: string; operation: "retry" | "cancel" }
+) {
+  await updateOwnedReportJob(actor, input);
+  await recordAudit({
+    actor,
+    action: input.operation === "retry" ? "report.retried" : "report.cancelled",
+    resourceType: "report",
+    resourceId: input.id,
+  });
+}
+export async function downloadReport(actor: ActorContext, id: string) {
+  const report = await getOwnedReport(actor, id);
+  requirePermission(actor, "evidence:download", { ownerUserId: report.userId });
+  if (report.status !== "READY" || !report.evidenceFile)
+    throw new NotFoundError("This report is not ready to download.");
+  const { body } = await downloadEvidence(actor, report.evidenceFile.id);
   await recordAudit({
     actor,
     action: "report.downloaded",
     resourceType: "report",
     resourceId: report.id,
   });
-  return report;
+  return {
+    body,
+    format: report.format,
+    filename: `brokermogger-report-${report.dateFrom.toISOString().slice(0, 10)}-${report.dateTo.toISOString().slice(0, 10)}.${report.format.toLowerCase()}`,
+  };
 }
 
-export async function renderReportForJob(reportId: string): Promise<{ message: string }> {
-  const report = await getReportById(reportId);
-  if (!report) {
-    return { message: "Report no longer exists." };
-  }
-  if (report.status === "READY" && report.evidenceFileId) {
-    return { message: "Report already generated." };
-  }
-
-  await updateReport(reportId, { status: "GENERATING" });
-
-  const inRange = await listRequestsForUser(report.userId, report.profileId, {
-    from: report.dateFrom,
-    to: report.dateTo,
-  });
-
-  const payload = buildReportPayload({
-    dateFrom: report.dateFrom,
-    dateTo: report.dateTo,
-    profileLabel: report.profile?.displayName ?? "All profiles",
-    truncated: inRange.truncated,
-    requestCountCap: inRange.maxRows,
-    requests: inRange.rows.map((row) => ({
-      id: row.id,
-      brokerName: row.broker.legalName,
-      requestType: row.requestType,
-      status: row.status,
-      legalBasis: row.legalBasisText,
-      deadlineAt: row.deadlineAt ? row.deadlineAt.toISOString().slice(0, 10) : null,
-      sentAt: row.sentAt ? row.sentAt.toISOString() : null,
-    })),
-  });
-
-  const body = report.format === "PDF" ? await renderPdf(payload) : reportToJson(payload);
-  const contentType = report.format === "PDF" ? "application/pdf" : "application/json";
-  const key = `reports/${report.userId}/${report.id}.${report.format === "PDF" ? "pdf" : "json"}`;
-  const stored = await getStorage().put({ key, body, contentType });
-
-  const evidence = await createEvidenceFile({
-    user: { connect: { id: report.userId } },
-    ...(report.profileId ? { profile: { connect: { id: report.profileId } } } : {}),
-    kind: "REPORT",
-    storageKey: stored.key,
-    storageBackend: getStorage().backend,
-    contentType,
-    byteSize: stored.byteSize,
-    checksumSha256: stored.checksumSha256 || sha256Hex(body),
-    filenameMasked: `report.${report.format === "PDF" ? "pdf" : "json"}`,
-  });
-
-  await updateReport(reportId, {
-    status: "READY",
-    generatedAt: new Date(),
-    evidenceFile: { connect: { id: evidence.id } },
-    summary: {
+export async function renderReportForJob(
+  job: ClaimedJob<"GENERATE_REPORT">
+): Promise<{ message: string }> {
+  parseJobPayload("GENERATE_REPORT", job.payload);
+  const report = await beginReportGeneration(job);
+  if (!report)
+    return { message: "This report is complete, cancelled or owned by another worker." };
+  let fileId: string | undefined;
+  try {
+    const requests: ReportRequestRow[] = [];
+    let cursor: string | undefined;
+    for (;;) {
+      const page = await loadReportPage(job, cursor);
+      if (!page)
+        return { message: "Report generation was cancelled or its lease changed." };
+      for (const row of page)
+        requests.push({
+          id: row.id,
+          brokerName: row.broker.legalName,
+          requestType: row.requestType,
+          status: row.status,
+          legalBasis: row.legalBasisText,
+          deadlineAt: row.deadlineOn?.toISOString().slice(0, 10) ?? null,
+          deadlineOn: row.deadlineOn?.toISOString().slice(0, 10) ?? null,
+          deadlineIsEstimate: row.deadlineIsEstimate,
+          deadlineBasis: row.deadlineBasis,
+          deadlineNote: row.deadlineNote,
+          sentAt: row.sentAt?.toISOString() ?? null,
+          contactedAt:
+            row.manualSubmissions[0]?.submittedOn.toISOString().slice(0, 10) ??
+            row.outboundEmails[0]?.sentAt?.toISOString() ??
+            null,
+        });
+      if (page.length < 250) break;
+      cursor = page.at(-1)!.id;
+    }
+    const payload = buildReportPayload({
+      dateFrom: report.dateFrom,
+      dateTo: report.dateTo,
+      timeZone: report.timeZone,
+      profileLabel: report.profileLabel,
+      requests,
+    });
+    const body =
+      report.format === "PDF" ? await renderPdf(payload) : reportToJson(payload);
+    const file = await storePrivateFile(systemActor(job.id), {
+      userId: report.userId,
+      profileId: report.profileId,
+      kind: "REPORT",
+      filename: `report.${report.format.toLowerCase()}`,
+      contentType: report.format === "PDF" ? "application/pdf" : "application/json",
+      body,
+      deferReady: true,
+    });
+    fileId = file.id;
+    const published = await publishReportFile(job, file.id, {
+      requests: requests.length,
       brokers: payload.brokersContacted.length,
-      requests: payload.requests.length,
       openActions: payload.openActions.length,
-      truncated: payload.truncated,
-    },
-  });
-
-  return { message: "Report ready." };
+    });
+    if (!published)
+      return { message: "Report generation was cancelled before publication." };
+    await recordAudit({
+      actor: systemActor(job.id),
+      action: "report.generated",
+      resourceType: "report",
+      resourceId: report.id,
+      targetUserId: report.userId,
+    });
+    return { message: "Report ready." };
+  } catch (error) {
+    await failReportGeneration(job);
+    throw error;
+  } finally {
+    // If a commit response was lost, the linked file stays intact. Otherwise a
+    // durable purge intent survives storage failure or process interruption.
+    if (fileId) {
+      const abandoned = await abandonUnpublishedReportFile(fileId);
+      if (abandoned) await purgePrivateFile(abandoned).catch(() => undefined);
+    }
+  }
 }
 
 async function renderPdf(payload: ReportPayload): Promise<Buffer> {
@@ -158,7 +169,7 @@ async function renderPdf(payload: ReportPayload): Promise<Buffer> {
     doc.fontSize(16).text(payload.title);
     doc.moveDown();
     doc.fontSize(11).text(`Generated: ${payload.generatedAt}`);
-    doc.text(`Range: ${payload.dateFrom} to ${payload.dateTo}`);
+    doc.text(`Range: ${payload.dateFrom} to ${payload.dateTo} (${payload.timeZone})`);
     doc.text(`Profile: ${payload.profileLabel}`);
     doc.moveDown();
     doc.fontSize(13).text("Brokers contacted");
@@ -174,6 +185,14 @@ async function renderPdf(payload: ReportPayload): Promise<Buffer> {
       if (row.legalBasis) {
         doc.fontSize(9).text(row.legalBasis, { indent: 12 });
       }
+      if (row.deadlineOn)
+        doc
+          .fontSize(9)
+          .text(
+            `Response target: ${row.deadlineOn}${row.deadlineIsEstimate ? " (estimate)" : " (recorded receipt)"}`,
+            { indent: 12 }
+          );
+      if (row.deadlineNote) doc.fontSize(9).text(row.deadlineNote, { indent: 12 });
     }
     doc.moveDown();
     doc.fontSize(13).text("Limitations");

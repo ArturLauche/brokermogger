@@ -8,6 +8,8 @@
 import type { BrokerRiskTier, ConsentStatus, LegalConfidence } from "@prisma/client";
 
 export interface ManualReviewInput {
+  brokerManualReviewRequired?: boolean;
+  coverageUnconfirmed?: boolean;
   confidence: LegalConfidence;
   requiresLegalReview: boolean;
   brokerRequiresId: boolean;
@@ -30,6 +32,16 @@ export interface ManualReviewDecision {
 
 export function evaluateManualReview(input: ManualReviewInput): ManualReviewDecision {
   const reasons: string[] = [];
+  if (input.brokerManualReviewRequired)
+    reasons.push(
+      "The broker catalogue requires manual review. Check its current instructions and operator notes."
+    );
+  if (input.coverageUnconfirmed)
+    reasons.push(
+      "This request type has not been confirmed for the broker in this jurisdiction. Preparation is for review only; real email dispatch remains blocked."
+    );
+  if (input.riskTier === "ELEVATED")
+    reasons.push("The broker is in an elevated review category.");
 
   if (input.confidence === "LOW") {
     reasons.push("The applied legal rule has low confidence.");

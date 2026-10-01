@@ -10,13 +10,26 @@ import type {
   RequestStatus,
   RequestType,
 } from "@prisma/client";
+import {
+  sealApprovalEnvelope,
+  profileIdentityDigest,
+  identifierDigest,
+} from "@/lib/requests/envelope";
+import { randomUUID } from "node:crypto";
 
 import { prisma, type PrismaTransaction } from "@/lib/db/client";
 import { AppError, NotFoundError } from "@/lib/core/errors";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
+import { encryptSnapshotText, readSnapshotText } from "@/lib/requests/snapshot";
 import { assertTransition, type TransitionActor } from "@/lib/requests/stateMachine";
 import { canonicalJson, chainHash, sha256Hex } from "@/lib/security/crypto";
+import { sendingIdentityInTx } from "./inboundMailboxes";
+import { assertRenderedSendingIdentity } from "@/lib/requests/rendering";
+import { requestListSchema } from "@/lib/requests/queries";
+import { parseWithSchema } from "@/lib/validation/form";
+import { entityIdSchema } from "@/lib/validation/ids";
+import { createdBeforeCursor, cursorPage } from "@/lib/pagination";
 
 export const DEFAULT_LIST_LIMIT = 100;
 export const MAX_LIST_LIMIT = 200;
@@ -26,18 +39,48 @@ function clampTake(take: number | undefined): number {
 }
 
 export async function getOwnedRequest(actor: ActorContext, requestId: string) {
+  await requireOwnedRequestPrivate(actor, requestId);
   const request = await prisma.removalRequest.findFirst({
-    where: { id: requestId, deletedAt: null },
+    where: {
+      id: requestId,
+      deletedAt: null,
+      ...(!actor.isSystem
+        ? { userId: actor.userId, user: { status: "ACTIVE", deletionRequestedAt: null } }
+        : {}),
+    },
     include: {
       broker: { include: { contactMethods: true, jurisdictionCoverage: true } },
-      profile: true,
+      profile: { select: { displayName: true, consentStatus: true } },
       jurisdiction: true,
       snapshots: { orderBy: { version: "desc" }, take: 1 },
-      events: { orderBy: { createdAt: "asc" } },
       legalRuleVersion: true,
-      templateVersion: true,
-      responses: { orderBy: { receivedAt: "asc" } },
-      evidenceFiles: { where: { deletedAt: null }, orderBy: { createdAt: "desc" } },
+      templateVersion: { include: { template: { select: { requestType: true } } } },
+      responses: {
+        where: { deletedAt: null },
+        orderBy: [{ receivedAt: "desc" }, { id: "desc" }],
+        take: 25,
+        select: {
+          id: true,
+          receivedAt: true,
+          receivedOn: true,
+          classification: true,
+          confirmedAt: true,
+          deletedAt: true,
+        },
+      },
+      _count: { select: { responses: { where: { deletedAt: null } } } },
+      outboundEmails: {
+        where: {
+          dispatchState: { in: ["DISPATCHING", "AMBIGUOUS", "RECONCILIATION_REQUIRED"] },
+        },
+        select: {
+          id: true,
+          snapshotId: true,
+          dispatchStartedAt: true,
+          dispatchState: true,
+        },
+        orderBy: { createdAt: "desc" },
+      },
     },
   });
 
@@ -45,16 +88,54 @@ export async function getOwnedRequest(actor: ActorContext, requestId: string) {
     throw new NotFoundError("This request does not exist.");
   }
 
-  requirePermission(actor, "request:read", { ownerUserId: request.userId });
+  const currentSnapshotSubmitted =
+    !!request.currentSnapshotId &&
+    !!(await prisma.manualSubmission.findFirst({
+      where: { removalRequestId: request.id, snapshotId: request.currentSnapshotId },
+      select: { id: true },
+    }));
+  return {
+    ...request,
+    currentSnapshotSubmitted,
+    responsesTruncated: request._count.responses > request.responses.length,
+    snapshots: request.snapshots.map(readSnapshotText),
+  };
+}
+
+/** Authorize before loading private relations, including for emergency operators. */
+export async function requireOwnedRequestPrivate(actor: ActorContext, rawId: unknown) {
+  const id = parseWithSchema(entityIdSchema, rawId);
+  const request = await prisma.removalRequest.findFirst({
+    where: {
+      id,
+      deletedAt: null,
+      ...(!actor.isSystem
+        ? {
+            user: { status: "ACTIVE", deletionRequestedAt: null },
+            profile: { deletedAt: null },
+          }
+        : {}),
+    },
+    select: { id: true, userId: true },
+  });
+  if (!request) throw new NotFoundError("This request does not exist.");
+  requirePermission(actor, "request:readPrivate", { ownerUserId: request.userId });
   return request;
 }
 
 /** Snapshot pinned at approval. Callers must not fall back to the latest version. */
 export async function getSnapshotForRequest(
+  actor: ActorContext,
   removalRequestId: string,
   snapshotId: string
 ) {
-  return prisma.requestSnapshot.findFirst({
+  const request = await prisma.removalRequest.findFirst({
+    where: { id: removalRequestId, deletedAt: null },
+    select: { userId: true },
+  });
+  if (!request) throw new NotFoundError("This request does not exist.");
+  requirePermission(actor, "request:update", { ownerUserId: request.userId });
+  const snapshot = await prisma.requestSnapshot.findFirst({
     where: { id: snapshotId, removalRequestId },
     select: {
       id: true,
@@ -62,158 +143,73 @@ export async function getSnapshotForRequest(
       body: true,
       contentHash: true,
       version: true,
+      payloadEnc: true,
+      erasedAt: true,
     },
   });
+  return snapshot ? readSnapshotText(snapshot) : null;
 }
 
 export async function listOwnedRequests(
   actor: ActorContext,
   profileId: string | null,
-  options: { take?: number } = {}
+  raw: unknown = {}
 ) {
   requirePermission(actor, "request:read", { ownerUserId: actor.userId });
-  return prisma.removalRequest.findMany({
+  const input = parseWithSchema(requestListSchema, raw);
+  const where: Prisma.RemovalRequestWhereInput = {
+    userId: actor.userId,
+    user: { status: "ACTIVE", deletionRequestedAt: null },
+    profile: { ownerUserId: actor.userId, deletedAt: null },
+    deletedAt: null,
+    ...(profileId ? { profileId: parseWithSchema(entityIdSchema, profileId) } : {}),
+    ...(input.status !== "all" ? { status: input.status } : {}),
+    ...(input.requestType !== "all" ? { requestType: input.requestType } : {}),
+    ...(input.search
+      ? {
+          OR: [
+            { id: { contains: input.search, mode: "insensitive" } },
+            { broker: { legalName: { contains: input.search, mode: "insensitive" } } },
+          ],
+        }
+      : {}),
+  };
+  const [rows, total] = await Promise.all([
+    prisma.removalRequest.findMany({
+      where: { AND: [where, createdBeforeCursor(input.cursor)] },
+      select: {
+        id: true,
+        createdAt: true,
+        status: true,
+        requestType: true,
+        deadlineOn: true,
+        deadlineIsEstimate: true,
+        broker: { select: { legalName: true } },
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: input.limit + 1,
+    }),
+    prisma.removalRequest.count({ where }),
+  ]);
+  return { ...cursorPage(rows, input.limit), total };
+}
+
+/** A selected request remains available even when it is outside the current result page. */
+export async function getOwnedRequestChoice(actor: ActorContext, rawId: unknown) {
+  requirePermission(actor, "request:read", { ownerUserId: actor.userId });
+  const id = parseWithSchema(entityIdSchema, rawId);
+  const row = await prisma.removalRequest.findFirst({
     where: {
+      id,
       userId: actor.userId,
       deletedAt: null,
-      ...(profileId ? { profileId } : {}),
+      user: { status: "ACTIVE", deletionRequestedAt: null },
+      profile: { ownerUserId: actor.userId, deletedAt: null },
     },
-    include: { broker: true, profile: true, jurisdiction: true },
-    orderBy: { updatedAt: "desc" },
-    take: clampTake(options.take),
+    select: { id: true, status: true, broker: { select: { legalName: true } } },
   });
-}
-
-const EXPORT_PAGE_SIZE = 200;
-/** Fail an account export rather than returning a silently truncated file. */
-export const EXPORT_HARD_ROW_LIMIT = 250_000;
-/** Visible report cap. Larger result sets are marked truncated in the report. */
-export const REPORT_MAX_ROWS = 10_000;
-
-async function paginateById<T extends { id: string }>(input: {
-  loadPage: (cursor: string | undefined) => Promise<T[]>;
-  maxRows: number;
-  onCap: "throw" | "truncate";
-}): Promise<{ rows: T[]; truncated: boolean }> {
-  const rows: T[] = [];
-  let cursor: string | undefined;
-
-  while (rows.length < input.maxRows) {
-    const batch = await input.loadPage(cursor);
-    if (batch.length === 0) {
-      return { rows, truncated: false };
-    }
-
-    const room = input.maxRows - rows.length;
-    if (batch.length > room) {
-      rows.push(...batch.slice(0, room));
-      if (input.onCap === "throw") {
-        throw new AppError({
-          code: "INTERNAL_ERROR",
-          message:
-            "This account has too many requests to export as a single file. Contact the instance operator.",
-          details: { limit: input.maxRows },
-        });
-      }
-      return { rows, truncated: true };
-    }
-
-    rows.push(...batch);
-    if (batch.length < EXPORT_PAGE_SIZE) {
-      return { rows, truncated: false };
-    }
-    cursor = batch[batch.length - 1]?.id;
-    if (!cursor) {
-      return { rows, truncated: false };
-    }
-  }
-
-  const peek = await input.loadPage(cursor);
-  if (peek.length === 0) {
-    return { rows, truncated: false };
-  }
-  if (input.onCap === "throw") {
-    throw new AppError({
-      code: "INTERNAL_ERROR",
-      message:
-        "This account has too many requests to export as a single file. Contact the instance operator.",
-      details: { limit: input.maxRows },
-    });
-  }
-  return { rows, truncated: true };
-}
-
-/** Paginated account-export rows. Iterates until the cursor is exhausted. */
-export async function listOwnedRequestExportRows(actor: ActorContext) {
-  requirePermission(actor, "request:read", { ownerUserId: actor.userId });
-  const { rows } = await paginateById({
-    maxRows: EXPORT_HARD_ROW_LIMIT,
-    onCap: "throw",
-    loadPage: (cursor) =>
-      prisma.removalRequest.findMany({
-        where: { userId: actor.userId, deletedAt: null },
-        select: {
-          id: true,
-          status: true,
-          requestType: true,
-          createdAt: true,
-          broker: { select: { legalName: true } },
-        },
-        orderBy: { id: "asc" },
-        take: EXPORT_PAGE_SIZE,
-        ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
-      }),
-  });
-  return rows;
-}
-
-export interface RequestStatusCounts {
-  total: number;
-  byStatus: Map<RequestStatus, number>;
-}
-
-export async function summarizeOwnedRequests(
-  actor: ActorContext,
-  profileId: string | null
-): Promise<RequestStatusCounts> {
-  requirePermission(actor, "request:read", { ownerUserId: actor.userId });
-  const groups = await prisma.removalRequest.groupBy({
-    by: ["status"],
-    where: {
-      userId: actor.userId,
-      deletedAt: null,
-      ...(profileId ? { profileId } : {}),
-    },
-    _count: { _all: true },
-  });
-
-  const byStatus = new Map<RequestStatus, number>();
-  let total = 0;
-  for (const group of groups) {
-    byStatus.set(group.status, group._count._all);
-    total += group._count._all;
-  }
-  return { total, byStatus };
-}
-
-export async function countDistinctOwnedBrokers(
-  actor: ActorContext,
-  profileId: string | null
-): Promise<number> {
-  requirePermission(actor, "request:read", { ownerUserId: actor.userId });
-  const groups = await prisma.removalRequest.groupBy({
-    by: ["brokerId"],
-    where: {
-      userId: actor.userId,
-      deletedAt: null,
-      ...(profileId ? { profileId } : {}),
-    },
-  });
-  return groups.length;
-}
-
-export async function createDraftRequest(data: Prisma.RemovalRequestCreateInput) {
-  return prisma.removalRequest.create({ data });
+  if (!row) throw new NotFoundError("This request does not exist.");
+  return row;
 }
 
 export interface RequestEventInput {
@@ -231,20 +227,26 @@ async function lockRequestEventChain(
   tx: PrismaTransaction,
   requestId: string
 ): Promise<void> {
+  await tx.$executeRaw`SELECT 1 FROM "RemovalRequest" WHERE id = ${requestId} FOR UPDATE`;
   await tx.$executeRawUnsafe(
     `SELECT pg_advisory_xact_lock(hashtext($1))`,
     `brokermogger_request_events_${requestId}`
   );
 }
 
-async function appendRequestEventInTx(tx: PrismaTransaction, input: RequestEventInput) {
+export async function appendRequestEventInTx(
+  tx: PrismaTransaction,
+  input: RequestEventInput
+) {
   const previous = await tx.removalRequestEvent.findFirst({
     where: { removalRequestId: input.removalRequestId },
     orderBy: { createdAt: "desc" },
-    select: { hash: true },
+    select: { hash: true, createdAt: true },
   });
 
-  const createdAt = new Date();
+  const createdAt = new Date(
+    Math.max(Date.now(), (previous?.createdAt.getTime() ?? 0) + 1)
+  );
   const canonical = canonicalJson({
     removalRequestId: input.removalRequestId,
     type: input.type,
@@ -282,7 +284,7 @@ export async function appendRequestEvent(input: RequestEventInput) {
   });
 }
 
-export async function insertSnapshot(input: {
+export interface SnapshotInput {
   removalRequestId: string;
   version: number;
   subject: string;
@@ -291,15 +293,79 @@ export async function insertSnapshot(input: {
   legalRuleVersionId: string | null;
   variables: Record<string, string>;
   identifierDigest: string;
+  profileDigest: string;
   createdByUserId: string | null;
-}) {
+}
+
+export async function insertSnapshot(
+  input: SnapshotInput,
+  tx: PrismaTransaction = prisma
+) {
   const contentHash = sha256Hex(`${input.subject}\n${input.body}`);
-  return prisma.requestSnapshot.create({
+  const id = randomUUID();
+  const request = await tx.removalRequest.findUniqueOrThrow({
+    where: { id: input.removalRequestId },
+    include: {
+      profile: {
+        select: {
+          legalNameBi: true,
+          contactEmailBi: true,
+          countryCode: true,
+          region: true,
+          residencyConfirmed: true,
+        },
+      },
+    },
+  });
+  const identifiers = await tx.profileIdentifier.findMany({
+    where: {
+      profileId: request.profileId,
+      id: { in: request.includedIdentifierIds },
+      deletedAt: null,
+    },
+    select: { id: true, valueBi: true },
+  });
+  if (
+    input.profileDigest !== profileIdentityDigest(request.profile) ||
+    input.identifierDigest !== identifierDigest(identifiers) ||
+    identifiers.length !== request.includedIdentifierIds.length
+  )
+    throw new AppError({
+      code: "CONFLICT",
+      message:
+        "Profile details or selected identifiers changed while preparing this draft. Regenerate it and try again.",
+    });
+  const sendingIdentity = await sendingIdentityInTx(tx, request.userId);
+  assertRenderedSendingIdentity(input.variables, sendingIdentity);
+  const envelope = sealApprovalEnvelope({
+    version: 1,
+    requestId: request.id,
+    snapshotId: id,
+    contentHash,
+    profileId: request.profileId,
+    brokerId: request.brokerId,
+    jurisdictionId: request.jurisdictionId,
+    requestType: request.requestType,
+    channel: request.channel,
+    destinationType: request.destinationType,
+    destination: request.destinationValue,
+    ...sendingIdentity,
+    identifierIds: [...request.includedIdentifierIds].sort(),
+    identifierDigest: input.identifierDigest,
+    profileDigest: profileIdentityDigest(request.profile),
+    templateVersionId: input.templateVersionId,
+    legalRuleVersionId: input.legalRuleVersionId,
+    followUpNumber: Number(input.variables.followUpNumber ?? request.followUpCount),
+  });
+  return tx.requestSnapshot.create({
     data: {
+      id,
       removalRequestId: input.removalRequestId,
       version: input.version,
-      subject: input.subject,
-      body: input.body,
+      subject: "",
+      body: "",
+      payloadEnc: encryptSnapshotText(id, input.subject, input.body),
+      ...envelope,
       templateVersionId: input.templateVersionId,
       legalRuleVersionId: input.legalRuleVersionId,
       variables: input.variables,
@@ -311,11 +377,17 @@ export async function insertSnapshot(input: {
 }
 
 export async function patchRequest(
+  actor: ActorContext,
   requestId: string,
-  data: Omit<Prisma.RemovalRequestUpdateInput, "status">
+  data: { deliveredAt?: Date }
 ) {
-  return prisma.removalRequest.update({
+  const ref = await prisma.removalRequest.findUniqueOrThrow({
     where: { id: requestId },
+    select: { userId: true },
+  });
+  requirePermission(actor, "request:update", { ownerUserId: ref.userId });
+  return prisma.removalRequest.update({
+    where: { id: requestId, deletedAt: null },
     data: { ...data, lastEventAt: new Date() },
   });
 }
@@ -327,7 +399,7 @@ export async function patchRequest(
  * transaction. Callers that also need to drop pending jobs (close, complete)
  * pass `cancelPendingJobTypes` so those rows are cancelled atomically.
  */
-export async function applyRequestStatus(input: {
+export interface StatusChangeInput {
   requestId: string;
   from: RequestStatus;
   to: RequestStatus;
@@ -335,58 +407,116 @@ export async function applyRequestStatus(input: {
   actorUserId: string | null;
   message: string;
   cancelPendingJobTypes?: readonly JobType[];
-}): Promise<void> {
+}
+
+export async function applyRequestStatus(
+  actor: ActorContext,
+  input: Omit<StatusChangeInput, "actor" | "actorUserId">
+): Promise<void> {
+  if (input.to === "APPROVED")
+    throw new AppError({
+      code: "FORBIDDEN",
+      message: "Approval must use the complete message review transaction.",
+    });
+  return prisma.$transaction(async (tx) => {
+    const ref = await tx.removalRequest.findFirst({
+      where: { id: input.requestId, deletedAt: null },
+      select: { userId: true },
+    });
+    if (!ref) throw new NotFoundError();
+    requirePermission(actor, "request:update", { ownerUserId: ref.userId });
+    await tx.$executeRaw`SELECT 1 FROM "User" WHERE id = ${ref.userId} FOR UPDATE`;
+    const active = await tx.user.findFirst({
+      where: { id: ref.userId, status: "ACTIVE", deletionRequestedAt: null },
+      select: { id: true },
+    });
+    if (!active)
+      throw new AppError({ code: "FORBIDDEN", message: "This account is not active." });
+    return applyRequestStatusInTx(tx, {
+      ...input,
+      actor: actor.isSystem ? "SYSTEM" : "USER",
+      actorUserId: actor.isSystem ? null : actor.userId,
+    });
+  });
+}
+
+export async function applyRequestStatusInTx(
+  tx: PrismaTransaction,
+  input: StatusChangeInput
+): Promise<void> {
   assertTransition(input.from, input.to, input.actor);
 
   const extra: Prisma.RemovalRequestUpdateManyMutationInput = {};
+  if (["DRAFT", "AWAITING_USER_APPROVAL"].includes(input.to)) {
+    // Keep the last historical approval timestamp for previously sent requests.
+    // Dispatch authority is the current snapshot/hash/consent tuple, cleared here.
+    extra.approvalConsentRecordId = null;
+    extra.approvedSnapshotId = null;
+    extra.approvedEnvelopeHash = null;
+  }
   if (input.to === "CLOSED") extra.closedAt = new Date();
   if (input.to === "COMPLETED") extra.completedAt = new Date();
   if (input.to === "DELIVERED") extra.deliveredAt = new Date();
 
-  await prisma.$transaction(async (tx) => {
-    await lockRequestEventChain(tx, input.requestId);
+  await lockRequestEventChain(tx, input.requestId);
 
-    const updated = await tx.removalRequest.updateMany({
-      where: { id: input.requestId, status: input.from, deletedAt: null },
-      data: { status: input.to, lastEventAt: new Date(), ...extra },
-    });
-
-    if (updated.count !== 1) {
-      throw new AppError({
-        code: "CONFLICT",
-        message: "This request changed. Reload and try again.",
-        details: { from: input.from, to: input.to },
-      });
-    }
-
-    await appendRequestEventInTx(tx, {
-      removalRequestId: input.requestId,
-      type: "STATUS_CHANGE",
-      fromStatus: input.from,
-      toStatus: input.to,
-      actorType: input.actor,
-      actorUserId: input.actorUserId,
-      message: input.message,
-    });
-
-    if (input.cancelPendingJobTypes && input.cancelPendingJobTypes.length > 0) {
-      await tx.backgroundJob.updateMany({
-        where: {
-          relatedRequestId: input.requestId,
-          type: { in: [...input.cancelPendingJobTypes] },
-          status: { in: ["PENDING", "RETRYABLE"] },
-        },
-        data: {
-          status: "CANCELLED",
-          cancelledAt: new Date(),
-          lastError: "Cancelled because the request left a waiting state.",
-          lockedAt: null,
-          lockedBy: null,
-          lockExpiresAt: null,
-        },
-      });
-    }
+  const updated = await tx.removalRequest.updateMany({
+    where: { id: input.requestId, status: input.from, deletedAt: null },
+    data: { status: input.to, lastEventAt: new Date(), ...extra },
   });
+
+  if (updated.count !== 1) {
+    throw new AppError({
+      code: "CONFLICT",
+      message: "This request changed. Reload and try again.",
+      details: { from: input.from, to: input.to },
+    });
+  }
+
+  await appendRequestEventInTx(tx, {
+    removalRequestId: input.requestId,
+    type: "STATUS_CHANGE",
+    fromStatus: input.from,
+    toStatus: input.to,
+    actorType: input.actor,
+    actorUserId: input.actorUserId,
+    message: input.message,
+  });
+
+  if (input.cancelPendingJobTypes && input.cancelPendingJobTypes.length > 0) {
+    await tx.backgroundJob.updateMany({
+      where: {
+        relatedRequestId: input.requestId,
+        type: { in: [...input.cancelPendingJobTypes] },
+        status: { in: ["PENDING", "RETRYABLE", "RUNNING"] },
+      },
+      data: {
+        status: "CANCELLED",
+        cancelledAt: new Date(),
+        lastError: "Cancelled because the request left a waiting state.",
+        lockedAt: null,
+        lockedBy: null,
+        lockExpiresAt: null,
+        leaseToken: null,
+      },
+    });
+    await tx.outboundEmail.updateMany({
+      where: { removalRequestId: input.requestId, dispatchState: "PREPARED" },
+      data: { dispatchState: "CANCELLED", dispatchToken: null },
+    });
+    await tx.outboundEmail.updateMany({
+      where: {
+        removalRequestId: input.requestId,
+        dispatchState: { in: ["DISPATCHING", "AMBIGUOUS"] },
+      },
+      data: {
+        dispatchState: "RECONCILIATION_REQUIRED",
+        dispatchToken: null,
+        lastError:
+          "The request was closed after dispatch began. The provider may still deliver the message; accepted email cannot be recalled.",
+      },
+    });
+  }
 }
 
 export async function countOpenRequests(userId: string, since: Date): Promise<number> {
@@ -452,53 +582,6 @@ export async function listRejectedBrokerIds(
   return new Set(rows.map((row) => row.brokerId));
 }
 
-export async function listRequestsForUser(
-  userId: string,
-  profileId: string | null,
-  range?: { from: Date; to: Date }
-): Promise<{
-  rows: Awaited<ReturnType<typeof loadRequestReportPage>>;
-  truncated: boolean;
-  maxRows: number;
-}> {
-  return paginateById({
-    maxRows: REPORT_MAX_ROWS,
-    onCap: "truncate",
-    loadPage: (cursor) =>
-      loadRequestReportPage({
-        userId,
-        profileId,
-        ...(range ? { range } : {}),
-        ...(cursor ? { cursor } : {}),
-      }),
-  }).then((result) => ({
-    ...result,
-    maxRows: REPORT_MAX_ROWS,
-  }));
-}
-
-async function loadRequestReportPage(input: {
-  userId: string;
-  profileId: string | null;
-  range?: { from: Date; to: Date };
-  cursor?: string;
-}) {
-  return prisma.removalRequest.findMany({
-    where: {
-      userId: input.userId,
-      deletedAt: null,
-      ...(input.profileId ? { profileId: input.profileId } : {}),
-      ...(input.range
-        ? { createdAt: { gte: input.range.from, lte: input.range.to } }
-        : {}),
-    },
-    include: { broker: true, profile: true, jurisdiction: true },
-    orderBy: { id: "asc" },
-    take: EXPORT_PAGE_SIZE,
-    ...(input.cursor ? { skip: 1, cursor: { id: input.cursor } } : {}),
-  });
-}
-
 export async function hasRejectedSimilar(
   userId: string,
   brokerId: string,
@@ -511,43 +594,6 @@ export async function hasRejectedSimilar(
   return found !== null;
 }
 
-export async function listUpcomingDeadlines(
-  actor: ActorContext,
-  profileId: string | null,
-  take = 5
-) {
-  requirePermission(actor, "request:read", { ownerUserId: actor.userId });
-  return prisma.removalRequest.findMany({
-    where: {
-      userId: actor.userId,
-      deletedAt: null,
-      deadlineAt: { gt: new Date() },
-      ...(profileId ? { profileId } : {}),
-    },
-    include: { broker: true },
-    orderBy: { deadlineAt: "asc" },
-    take,
-  });
-}
-
-export async function listRecentOwnedRequests(
-  actor: ActorContext,
-  profileId: string | null,
-  take = 8
-) {
-  requirePermission(actor, "request:read", { ownerUserId: actor.userId });
-  return prisma.removalRequest.findMany({
-    where: {
-      userId: actor.userId,
-      deletedAt: null,
-      ...(profileId ? { profileId } : {}),
-    },
-    include: { broker: true },
-    orderBy: { updatedAt: "desc" },
-    take,
-  });
-}
-
 const WAITING_FOR_DEADLINE: RequestStatus[] = [
   "SENT",
   "DELIVERED",
@@ -555,12 +601,51 @@ const WAITING_FOR_DEADLINE: RequestStatus[] = [
   "FOLLOW_UP_SENT",
 ];
 
-export async function listOverdueWaitingRequests(now: Date, take = 50) {
+export type DeadlineCursor = { deadlineAt: Date; id: string };
+function afterResponseTarget(after?: DeadlineCursor): Prisma.RemovalRequestWhereInput {
+  return after
+    ? {
+        OR: [
+          { deadlineAt: { gt: after.deadlineAt } },
+          { deadlineAt: after.deadlineAt, id: { gt: after.id } },
+        ],
+      }
+    : {};
+}
+export async function listOverdueWaitingRequests(
+  now: Date,
+  take = 50,
+  after?: DeadlineCursor
+) {
   return prisma.removalRequest.findMany({
     where: {
       deletedAt: null,
-      status: { in: WAITING_FOR_DEADLINE },
+      user: { status: "ACTIVE", deletionRequestedAt: null },
+      profile: { deletedAt: null },
+      OR: [
+        { status: { in: WAITING_FOR_DEADLINE } },
+        {
+          status: "NO_RESPONSE",
+          OR: [
+            { deadlineHandledForAt: null },
+            { deadlineHandledFollowUpCount: null },
+            {
+              NOT: {
+                deadlineHandledForAt: { equals: prisma.removalRequest.fields.deadlineAt },
+              },
+            },
+            {
+              NOT: {
+                deadlineHandledFollowUpCount: {
+                  equals: prisma.removalRequest.fields.followUpCount,
+                },
+              },
+            },
+          ],
+        },
+      ],
       deadlineAt: { lte: now },
+      AND: [afterResponseTarget(after)],
     },
     select: {
       id: true,
@@ -570,8 +655,8 @@ export async function listOverdueWaitingRequests(now: Date, take = 50) {
       deadlineAt: true,
       followUpCount: true,
     },
-    orderBy: { deadlineAt: "asc" },
-    take,
+    orderBy: [{ deadlineAt: "asc" }, { id: "asc" }],
+    take: clampTake(take),
   });
 }
 
@@ -579,15 +664,24 @@ export async function listDeadlineWarningRequests(input: {
   now: Date;
   warningBefore: Date;
   take?: number;
+  after?: DeadlineCursor;
 }) {
   return prisma.removalRequest.findMany({
     where: {
       deletedAt: null,
+      user: { status: "ACTIVE", deletionRequestedAt: null },
+      profile: { deletedAt: null },
       status: { in: WAITING_FOR_DEADLINE },
       deadlineAt: { gt: input.now, lte: input.warningBefore },
-      notifications: {
-        none: { type: "DEADLINE_APPROACHING", emailedAt: { not: null } },
-      },
+      OR: [
+        { deadlineWarningForAt: null },
+        {
+          NOT: {
+            deadlineWarningForAt: { equals: prisma.removalRequest.fields.deadlineAt },
+          },
+        },
+      ],
+      AND: [afterResponseTarget(input.after)],
     },
     select: {
       id: true,
@@ -595,8 +689,8 @@ export async function listDeadlineWarningRequests(input: {
       profileId: true,
       deadlineAt: true,
     },
-    orderBy: { deadlineAt: "asc" },
-    take: input.take ?? 50,
+    orderBy: [{ deadlineAt: "asc" }, { id: "asc" }],
+    take: clampTake(input.take ?? 50),
   });
 }
 

@@ -37,11 +37,11 @@ export function DefinitionList({
           key={item.term}
           className={cn(
             "flex flex-col gap-0.5",
-            layout === "inline" && "sm:grid sm:grid-cols-[12rem_1fr] sm:gap-4"
+            layout === "inline" && "sm:grid sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-4"
           )}
         >
           <dt className="text-sm text-muted-foreground">{item.term}</dt>
-          <dd className="text-sm break-words">{item.description}</dd>
+          <dd className="min-w-0 text-sm [overflow-wrap:anywhere]">{item.description}</dd>
         </div>
       ))}
     </dl>

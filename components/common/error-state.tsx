@@ -41,20 +41,17 @@ export function ErrorState({
     <div
       data-slot="error-state"
       role="alert"
-      className={cn(
-        "flex flex-col items-center justify-center gap-3 rounded-xl border px-6 py-10 text-center",
-        className
-      )}
+      className={cn("flex flex-col items-start gap-4 border-t py-6", className)}
     >
-      <span
-        aria-hidden="true"
-        className="flex size-10 items-center justify-center rounded-full bg-destructive/10 text-destructive"
-      >
-        <TriangleAlertIcon className="size-5" />
-      </span>
-      <div className="flex flex-col gap-1">
-        <Heading className="font-heading text-base font-medium">{title}</Heading>
-        <p className="mx-auto max-w-md text-sm text-pretty text-muted-foreground">
+      <div className="flex max-w-prose flex-col gap-2">
+        <div className="flex items-start gap-2">
+          <TriangleAlertIcon
+            aria-hidden="true"
+            className="mt-0.5 size-5 shrink-0 text-destructive"
+          />
+          <Heading className="font-heading text-lg font-semibold">{title}</Heading>
+        </div>
+        <p className="text-sm leading-6 text-pretty text-muted-foreground">
           {description}
         </p>
       </div>
@@ -64,7 +61,7 @@ export function ErrorState({
         </p>
       ) : null}
       {onRetry || action ? (
-        <div className="flex flex-wrap items-center justify-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {onRetry ? (
             <Button type="button" onClick={onRetry}>
               {retryLabel}

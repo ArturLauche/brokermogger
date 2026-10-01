@@ -8,18 +8,34 @@
 import type { JobType } from "@prisma/client";
 
 /** Payload shape per job type. Payloads never contain personal data. */
+export type DeadlineWatchProgress = {
+  now: string;
+  warningBefore: string;
+  warningsDone: boolean;
+  warningAfter?: { deadlineAt: string; id: string } | undefined;
+  overdueAfter?: { deadlineAt: string; id: string } | undefined;
+};
+
 export interface JobPayloadMap {
   SEND_REQUEST: { removalRequestId: string; snapshotId: string; attempt: number };
-  PREPARE_FOLLOW_UP: { removalRequestId: string; followUpNumber: number };
+  PREPARE_FOLLOW_UP: {
+    removalRequestId: string;
+    followUpNumber: number;
+    kind?: "FOLLOW_UP" | "FINAL_REMINDER" | undefined;
+    origin?: "MANUAL" | "DEADLINE" | undefined;
+    expectedDeadlineAt?: string | undefined;
+  };
   DISPATCH_NOTIFICATION: { notificationId: string };
   PROCESS_EMAIL_WEBHOOK: { webhookEventId: string };
   GENERATE_REPORT: { reportId: string };
+  GENERATE_ACCOUNT_EXPORT: { exportId: string };
   DELETE_ACCOUNT_DATA: { userId: string; requestedAt: string };
   PURGE_EVIDENCE: { olderThanIso: string };
   PURGE_TEMP_ID_FILES: { olderThanIso?: string | undefined };
-  DEADLINE_WATCH: { windowDays: number };
+  DEADLINE_WATCH: { windowDays: number; progress?: DeadlineWatchProgress | undefined };
   RECHECK_REMINDER: { removalRequestId: string };
   RETENTION_SWEEP: { dryRun: boolean };
+  VERIFY_AUDIT_CHAIN: Record<string, never>;
 }
 
 export type JobPayload<T extends JobType> = JobPayloadMap[T];
@@ -41,6 +57,7 @@ export interface EnqueueOptions<T extends JobType> {
 
 export interface ClaimedJob<T extends JobType = JobType> {
   id: string;
+  leaseToken: string;
   type: T;
   payload: JobPayload<T>;
   attemptCount: number;
@@ -76,8 +93,10 @@ export interface JobQueue {
     options: EnqueueOptions<T>
   ): Promise<{ id: string; created: boolean }>;
   claim(workerId: string, batchSize: number): Promise<ClaimedJob[]>;
-  complete(jobId: string, result: JobResult, durationMs: number): Promise<void>;
-  fail(jobId: string, error: unknown, durationMs: number): Promise<void>;
-  cancel(jobId: string, reason: string): Promise<void>;
+  complete(job: JobLease, result: JobResult, durationMs: number): Promise<boolean>;
+  fail(job: JobLease, error: unknown, durationMs: number): Promise<boolean>;
+  cancel(job: JobLease, reason: string): Promise<boolean>;
   releaseExpiredLocks(): Promise<number>;
 }
+
+export type JobLease = Pick<ClaimedJob, "id" | "leaseToken">;

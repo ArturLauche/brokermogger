@@ -53,6 +53,11 @@ export default async function AdminHomePage() {
               title="Audit"
               body="Hash-chained audit trail and break-glass grants."
             />
+            <AdminLink
+              href="/admin/settings"
+              title="Instance settings"
+              body="Sending switches, fair-use limits, follow-up timing and retention."
+            />
           </>
         ) : null}
       </div>
@@ -62,8 +67,12 @@ export default async function AdminHomePage() {
             <CardTitle>Fair use</CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            Limits are operational settings, not paid upgrades. Defaults: 25 requests per
-            day and 200 per month.
+            Limits protect instance capacity and deliverability. Review and change the
+            current defaults in{" "}
+            <Link href="/admin/settings#fair_use" className="underline">
+              instance settings
+            </Link>
+            .
           </CardContent>
         </Card>
       ) : null}

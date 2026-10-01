@@ -43,6 +43,11 @@ export default async function PrivacySettingsPage() {
             description: `${temporaryIdDays} days, then deleted.`,
           },
           {
+            term: "Generated account exports",
+            description:
+              "Private downloads expire 24 hours after generation, then stored copies are scheduled for cleanup.",
+          },
+          {
             term: "Closed requests",
             description: `${closedRequestMonths} months.`,
           },
@@ -61,7 +66,7 @@ export default async function PrivacySettingsPage() {
         Show in the data vault. Reveals are audited.
       </p>
       <Button asChild>
-        <Link href="/api/account/export">Download a copy of my data</Link>
+        <Link href="/settings/privacy/exports">Create a copy of my data</Link>
       </Button>
       <p className="text-sm">
         Delete individual fields from the{" "}

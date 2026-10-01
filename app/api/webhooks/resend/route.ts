@@ -12,6 +12,9 @@ import { z } from "zod";
 import { anonymousAuditActor, recordSecurityEvent } from "@/lib/audit/service";
 import { readRequestContext } from "@/lib/auth/requestContext";
 import { env } from "@/lib/config/env";
+import { readBoundedBody } from "@/lib/http/body";
+import { isAppError } from "@/lib/core/errors";
+import { receivedWebhookSchema } from "@/lib/email/receiving";
 import { storeAndQueueEmailWebhook } from "@/lib/jobs/emailWebhook";
 import { createLogger } from "@/lib/observability/logger";
 
@@ -21,7 +24,11 @@ export const dynamic = "force-dynamic";
 
 /** Minimal shape we rely on. Everything else is kept as the raw payload. */
 const payloadSchema = z.object({
-  type: z.string().min(1).max(120),
+  type: z
+    .string()
+    .min(1)
+    .max(120)
+    .regex(/^email\.[a-z_.]+$/),
   created_at: z.string().optional(),
   data: z.record(z.string(), z.unknown()).default({}),
 });
@@ -41,7 +48,6 @@ export async function POST(request: Request): Promise<Response> {
     return jsonResponse({ error: "webhook_not_configured" }, 503);
   }
 
-  const rawBody = await request.text();
   const svixId = request.headers.get("svix-id");
   const svixTimestamp = request.headers.get("svix-timestamp");
   const svixSignature = request.headers.get("svix-signature");
@@ -49,6 +55,16 @@ export async function POST(request: Request): Promise<Response> {
   if (!svixId || !svixTimestamp || !svixSignature) {
     await reportSuspicious("missing_signature_headers");
     return jsonResponse({ error: "missing_signature" }, 400);
+  }
+
+  let rawBody: string;
+  try {
+    rawBody = await readBoundedBody(request, 256 * 1024);
+  } catch (error) {
+    return jsonResponse(
+      { error: "payload_too_large_or_unreadable" },
+      isAppError(error) ? error.status : 400
+    );
   }
 
   try {
@@ -64,7 +80,11 @@ export async function POST(request: Request): Promise<Response> {
 
   const raw = safeJsonParse(rawBody);
   const parsed = payloadSchema.safeParse(raw);
-  if (!parsed.success) {
+  if (
+    !parsed.success ||
+    (parsed.data.type === "email.received" &&
+      !receivedWebhookSchema.safeParse(raw).success)
+  ) {
     await reportSuspicious("payload_schema_rejected");
     return jsonResponse({ error: "invalid_payload" }, 400);
   }

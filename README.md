@@ -2,16 +2,26 @@
 
 Brokermogger is a free, open source privacy request desk. You prepare, review, approve, send and track privacy requests to data brokers. Nothing leaves the instance until you have read the exact text and confirmed it.
 
-It is not a law firm. It does not guarantee removal. The shipped broker directory is fictional demo data until an operator verifies it.
+It is not a law firm. It does not guarantee removal. The shipped catalogue contains fictional examples and three inactive, sourced broker drafts. Real methods and coverage require operator verification; sending is disabled by default.
 
 ## What it does
 
 1. You sign in with a magic link.
-2. You create a minimised self profile (no date of birth, government ID, biometrics or children's data by default).
-3. The instance maps your country and region onto a jurisdiction pack with published legal rules.
-4. You choose brokers and generate drafts from a published template.
-5. You approve the snapshot. Only then can a send job run.
-6. You track status, attach evidence and download a report.
+2. You save and resume a minimised profile, edit identifiers and obtain consent from any other adult whose requests you manage. No date of birth, government ID, biometrics or children's data is collected by default.
+3. The instance selects an applicable published country/state pack. Unsupported statutory cases use clearly labelled voluntary requests; future unpublished laws never authorize present requests.
+4. You choose brokers, generate and edit a letter, and review its exact text, recipient, channel and reply address.
+5. You approve that immutable snapshot. Eligible email delivery still requires current consent and the instance's sending switches. Portal, platform and postal submissions remain explicit manual tasks.
+6. You record submission and receipt, review correspondence, confirm its classification, and prepare reminders or an escalation summary when their prerequisites are met.
+7. You receive in-app updates, generate complete reports, and download a masked export or explicitly confirmed sensitive copy. Optional notification email is opt-in. Account deletion blocks access immediately and queues resumable content/file cleanup.
+
+Operators maintain verified broker contacts, versioned legal rules/templates and
+fair-use settings. The console exposes job recovery, worker health and background
+audit verification without revealing other accounts' private correspondence.
+
+See [workflow and catalogue documentation](docs/operator-catalogue.md),
+[correspondence](docs/correspondence.md), [exports](docs/account-exports.md),
+[privacy and upgrades](docs/upgrade-private-storage.md), and
+[interface](docs/interface-verification.md) and [performance verification](docs/performance.md).
 
 ## Requirements
 
@@ -75,14 +85,17 @@ Important switches:
 docker compose --profile app up -d --build
 ```
 
-Production-style:
+Production uses separate app, worker and migration images with shared encrypted
+object storage. Configure real secrets, an HTTPS origin and a URL-encoded
+`DATABASE_URL` using the `postgres` service hostname in your uncommitted `.env`.
 
 ```bash
-export POSTGRES_PASSWORD=...
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-Image registry: `ghcr.io/arturlauche/brokermogger`.
+See [production configuration and disposable smoke tests](docs/production-deployment.md).
+Images: `ghcr.io/arturlauche/brokermogger`, `brokermogger-worker` and
+`brokermogger-migrate` under the same registry account.
 
 ## Continuous integration
 
@@ -90,10 +103,18 @@ GitHub Actions runs on every push to `main` and on pull requests. Node is instal
 
 1. `npm ci --include=dev` (lockfile must match `package.json`; no `--legacy-peer-deps`)
 2. Prisma generate + migrate against a Postgres 16 service on port 5433
-3. `npm run check:env`, `typecheck`, `lint`, `format:check`, `test`, `test:integration`
+3. Dependency auditing and `npm run check:env`, `typecheck`, `lint`, `format:check`, `test`, `test:integration`
 4. Production build and Playwright (`npm run test:e2e`)
 
-No GitHub secrets are required for CI. The Docker workflow builds the image on pull requests and `workflow_dispatch`, and pushes to GHCR only from `main` and `v*` tag pushes, using `GITHUB_TOKEN`.
+Browser fixtures preload the existing `tsx` loader for worker-side TypeScript
+imports. The browser job uses one absolute local storage path so its standalone server and
+leased job handlers can read and purge the same encrypted objects.
+
+CI also rehearses all three Docker runtimes, authenticated encrypted downloads,
+database/object backup restoration and pending deletion recovery. No GitHub secrets
+are required. The Docker workflow builds the images on pull requests and
+`workflow_dispatch`, and pushes to GHCR only from `main` and `v*` tag pushes,
+using `GITHUB_TOKEN`.
 
 ## Security
 

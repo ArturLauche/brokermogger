@@ -2,10 +2,11 @@
  * Filesystem storage adapter for local development.
  *
  * Objects live under `STORAGE_LOCAL_DIR`. Keys are sanitised so that `../`
- * cannot escape the root. This adapter is not used in production.
+ * cannot escape the root. Production requires a persistent volume shared by
+ * the app and worker. Writes are atomic, including encryption backfills.
  */
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { env } from "@/lib/config/env";
@@ -27,7 +28,7 @@ function resolveKey(root: string, key: string): string {
     });
   }
   const resolved = path.resolve(root, normalised);
-  if (!resolved.startsWith(path.resolve(root))) {
+  if (!resolved.startsWith(`${path.resolve(root)}${path.sep}`)) {
     throw new AppError({
       code: "STORAGE_FAILED",
       message: "Object key is not allowed.",
@@ -43,8 +44,9 @@ export class LocalStorageAdapter implements StoragePort {
 
   async put(input: PutObjectInput): Promise<StoredObject> {
     const filePath = resolveKey(this.root, input.key);
-    await mkdir(path.dirname(filePath), { recursive: true });
-    await writeFile(filePath, input.body);
+    await mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
+    await writeFile(`${filePath}.pending`, input.body, { mode: 0o600 });
+    await rename(`${filePath}.pending`, filePath);
     return {
       key: input.key,
       byteSize: input.body.byteLength,
@@ -72,7 +74,9 @@ export class LocalStorageAdapter implements StoragePort {
   }
 
   async delete(key: string): Promise<void> {
-    await rm(resolveKey(this.root, key), { force: true });
+    const filePath = resolveKey(this.root, key);
+    await rm(filePath, { force: true });
+    await rm(`${filePath}.pending`, { force: true });
   }
 
   async signedDownloadUrl(key: string, options: SignedUrlOptions): Promise<string> {

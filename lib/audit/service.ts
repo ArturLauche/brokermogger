@@ -20,12 +20,15 @@
  */
 import type { ActorType, AuditOutcome, UserRole } from "@prisma/client";
 
-import { canonicalJson, chainHash } from "@/lib/security/crypto";
+import { chainHash } from "@/lib/security/crypto";
+import { auditCanonicalPayload } from "./hash";
+export { auditCanonicalPayload } from "./hash";
 import {
   appendAuditLog,
   findAuditLogByHash,
   listAuditChainWindow,
   type AuditChainRow,
+  type AuditLogAppender,
 } from "@/lib/db/repositories/audit";
 import { createLogger } from "@/lib/observability/logger";
 import type { ActorContext } from "@/lib/permissions/actor";
@@ -297,33 +300,6 @@ function normaliseActor(actor: AuditActor): NormalisedActor {
   };
 }
 
-/**
- * Canonical hash input. Deliberately excludes `id`, `sequence` and request
- * context so that the chain covers the meaning of an event, not its storage
- * details.
- */
-export function auditCanonicalPayload(fields: {
-  action: string;
-  resourceType: string;
-  resourceId: string | null;
-  actorUserId: string | null;
-  targetUserId: string | null;
-  outcome: AuditOutcome;
-  createdAt: Date;
-  metadata: unknown;
-}): string {
-  return canonicalJson({
-    action: fields.action,
-    resourceType: fields.resourceType,
-    resourceId: fields.resourceId,
-    actorUserId: fields.actorUserId,
-    targetUserId: fields.targetUserId,
-    outcome: fields.outcome,
-    createdAt: fields.createdAt,
-    metadata: fields.metadata,
-  });
-}
-
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -345,7 +321,10 @@ export async function recordAudit(input: RecordAuditInput): Promise<AuditEntry |
   }
 }
 
-export async function recordAuditOrThrow(input: RecordAuditInput): Promise<AuditEntry> {
+export async function recordAuditOrThrow(
+  input: RecordAuditInput,
+  append: AuditLogAppender = appendAuditLog
+): Promise<AuditEntry> {
   if (!isAuditAction(input.action)) {
     throw new Error(
       `Unknown audit action "${String(input.action)}". Add it to lib/audit/actions.ts first.`
@@ -360,7 +339,7 @@ export async function recordAuditOrThrow(input: RecordAuditInput): Promise<Audit
   const targetUserId =
     input.targetUserId ?? actor.fallbackTargetUserId ?? actor.actorUserId ?? null;
 
-  const entry = await appendAuditLog(
+  const entry = await append(
     {
       actorType: actor.actorType,
       actorUserId: actor.actorUserId,

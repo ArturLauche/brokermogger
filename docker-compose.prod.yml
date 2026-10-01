@@ -24,10 +24,9 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    command: ["npx", "prisma", "migrate", "deploy"]
+      target: migrate
     environment:
-      DATABASE_URL: postgresql://brokermogger:${POSTGRES_PASSWORD}@postgres:5432/brokermogger?schema=public
-      SKIP_ENV_VALIDATION: "true"
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL using postgres as the host and URL-encoded credentials}
     depends_on:
       postgres:
         condition: service_healthy
@@ -37,6 +36,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
+      target: app
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -46,10 +46,27 @@ services:
     environment:
       NODE_ENV: production
       APP_ENV: production
-      DATABASE_URL: postgresql://brokermogger:${POSTGRES_PASSWORD}@postgres:5432/brokermogger?schema=public
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL using postgres as the host and URL-encoded credentials}
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-resend}
       ALLOW_EXTERNAL_SENDING: ${ALLOW_EXTERNAL_SENDING:-false}
       STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      STORAGE_LOCAL_DIR: /data/objects
+      MOCK_EMAIL_DIR: /data/mail
+    volumes:
+      - private-storage:/data/objects
+      - mock-mail:/data/mail
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
     depends_on:
       postgres:
         condition: service_healthy
@@ -60,18 +77,24 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    command: ["npx", "tsx", "workers/worker.ts"]
+      target: worker
     restart: unless-stopped
     env_file:
       - path: .env
         required: false
     environment:
       NODE_ENV: production
+      WORKER_HEALTH_FILE: /tmp/brokermogger-worker-id
       APP_ENV: production
-      DATABASE_URL: postgresql://brokermogger:${POSTGRES_PASSWORD}@postgres:5432/brokermogger?schema=public
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL using postgres as the host and URL-encoded credentials}
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-resend}
       ALLOW_EXTERNAL_SENDING: ${ALLOW_EXTERNAL_SENDING:-false}
       STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      STORAGE_LOCAL_DIR: /data/objects
+      MOCK_EMAIL_DIR: /data/mail
+    volumes:
+      - private-storage:/data/objects
+      - mock-mail:/data/mail
     depends_on:
       postgres:
         condition: service_healthy
@@ -80,3 +103,5 @@ services:
 
 volumes:
   postgres-data:
+  private-storage:
+  mock-mail:

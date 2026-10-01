@@ -26,7 +26,7 @@ export interface TransitionRule {
  * Terminal states: CLOSED. FAILED and REJECTED can still be closed or retried
  * through an explicit user action.
  */
-export const TRANSITIONS: Readonly<Record<RequestStatus, readonly TransitionRule[]>> = {
+const BASE_TRANSITIONS: Readonly<Record<RequestStatus, readonly TransitionRule[]>> = {
   DRAFT: [
     { to: "PREPARED", actors: ["USER", "SYSTEM"], description: "Draft rendered" },
     {
@@ -74,6 +74,11 @@ export const TRANSITIONS: Readonly<Record<RequestStatus, readonly TransitionRule
     },
   ],
   APPROVED: [
+    {
+      to: "DRAFT",
+      actors: ["USER"],
+      description: "Approval withdrawn before dispatch for editing",
+    },
     { to: "SENT", actors: ["SYSTEM"], description: "Dispatched to the broker" },
     {
       to: "NEEDS_USER_ACTION",
@@ -84,6 +89,11 @@ export const TRANSITIONS: Readonly<Record<RequestStatus, readonly TransitionRule
     { to: "CLOSED", actors: ["USER"], description: "Withdrawn before sending" },
   ],
   SENT: [
+    {
+      to: "NO_RESPONSE",
+      actors: ["SYSTEM"],
+      description: "Recorded response date passed",
+    },
     { to: "DELIVERED", actors: ["SYSTEM"], description: "Delivery confirmed" },
     {
       to: "WAITING_FOR_BROKER",
@@ -102,6 +112,11 @@ export const TRANSITIONS: Readonly<Record<RequestStatus, readonly TransitionRule
     },
   ],
   DELIVERED: [
+    {
+      to: "NO_RESPONSE",
+      actors: ["SYSTEM"],
+      description: "Recorded response date passed",
+    },
     {
       to: "WAITING_FOR_BROKER",
       actors: ["SYSTEM"],
@@ -186,6 +201,11 @@ export const TRANSITIONS: Readonly<Record<RequestStatus, readonly TransitionRule
   ],
   NEEDS_USER_ACTION: [
     {
+      to: "DRAFT",
+      actors: ["USER"],
+      description: "Manual submission draft reopened before submission",
+    },
+    {
       to: "WAITING_FOR_BROKER",
       actors: ["USER", "SYSTEM"],
       description: "User completed the action",
@@ -209,8 +229,8 @@ export const TRANSITIONS: Readonly<Record<RequestStatus, readonly TransitionRule
     },
     {
       to: "ESCALATION_RECOMMENDED",
-      actors: ["SYSTEM"],
-      description: "Follow-up cap reached before approval",
+      actors: ["SYSTEM", "USER"],
+      description: "Follow-up cap reached or user prepares an overdue escalation summary",
     },
     { to: "CLOSED", actors: ["USER"], description: "Closed by user" },
   ],
@@ -248,6 +268,12 @@ export const TRANSITIONS: Readonly<Record<RequestStatus, readonly TransitionRule
   ],
   NO_RESPONSE: [
     {
+      to: "WAITING_FOR_BROKER",
+      actors: ["USER"],
+      description:
+        "A confirmed receipt correction moves the response target into the future",
+    },
+    {
       to: "FOLLOW_UP_SCHEDULED",
       actors: ["SYSTEM", "USER"],
       description: "Follow up prepared",
@@ -276,6 +302,11 @@ export const TRANSITIONS: Readonly<Record<RequestStatus, readonly TransitionRule
   COMPLETED: [{ to: "CLOSED", actors: ["USER", "SYSTEM"], description: "Archived" }],
   PARTIALLY_COMPLETED: [
     {
+      to: "ESCALATION_RECOMMENDED",
+      actors: ["USER"],
+      description: "User prepares escalation guidance for the unresolved part",
+    },
+    {
       to: "FOLLOW_UP_SCHEDULED",
       actors: ["USER", "SYSTEM"],
       description: "Follow up for the remainder",
@@ -297,6 +328,7 @@ export const TRANSITIONS: Readonly<Record<RequestStatus, readonly TransitionRule
     { to: "CLOSED", actors: ["USER"], description: "Closed by user" },
   ],
   FAILED: [
+    { to: "DRAFT", actors: ["USER"], description: "New draft after a confirmed failure" },
     {
       to: "AWAITING_USER_APPROVAL",
       actors: ["USER"],
@@ -306,6 +338,57 @@ export const TRANSITIONS: Readonly<Record<RequestStatus, readonly TransitionRule
   ],
   CLOSED: [],
 };
+
+// A reply to an earlier submitted message can arrive while its follow-up is
+// drafted or queued. The response repository additionally requires submission
+// history, explicit owner confirmation and the status the owner actually saw.
+const RESPONSE_STATES: readonly RequestStatus[] = [
+  "SENT",
+  "DELIVERED",
+  "WAITING_FOR_BROKER",
+  "BROKER_REQUESTED_VERIFICATION",
+  "NEEDS_USER_ACTION",
+  "FOLLOW_UP_SCHEDULED",
+  "FOLLOW_UP_SENT",
+  "NO_RESPONSE",
+  "ESCALATION_RECOMMENDED",
+  "PARTIALLY_COMPLETED",
+  "REJECTED",
+  "COMPLETED",
+  "AWAITING_USER_APPROVAL",
+  "MANUAL_REVIEW_REQUIRED",
+  "APPROVED",
+];
+const RESPONSE_OUTCOMES: readonly RequestStatus[] = [
+  "COMPLETED",
+  "PARTIALLY_COMPLETED",
+  "REJECTED",
+  "BROKER_REQUESTED_VERIFICATION",
+];
+function withConfirmedResponseTransitions() {
+  const transitions = { ...BASE_TRANSITIONS };
+  for (const from of RESPONSE_STATES) {
+    const rules = [...transitions[from]];
+    for (const to of RESPONSE_OUTCOMES) {
+      if (to === from) continue;
+      const previous = rules.findIndex((rule) => rule.to === to);
+      if (previous === -1)
+        rules.push({
+          to,
+          actors: ["USER"],
+          description: "Broker outcome confirmed by the account holder",
+        });
+      else if (!rules[previous]!.actors.includes("USER"))
+        rules[previous] = {
+          ...rules[previous]!,
+          actors: [...rules[previous]!.actors, "USER"],
+        };
+    }
+    transitions[from] = rules;
+  }
+  return transitions;
+}
+export const TRANSITIONS = withConfirmedResponseTransitions();
 
 export const TERMINAL_STATUSES: readonly RequestStatus[] = ["CLOSED"];
 
@@ -330,11 +413,17 @@ export const OPEN_STATUSES: readonly RequestStatus[] = [
 
 /** Statuses where the user has something to do. Drives the dashboard counter. */
 export const NEEDS_USER_ACTION_STATUSES: readonly RequestStatus[] = [
+  "DRAFT",
+  "PREPARED",
   "AWAITING_USER_APPROVAL",
   "MANUAL_REVIEW_REQUIRED",
   "BROKER_REQUESTED_VERIFICATION",
   "NEEDS_USER_ACTION",
   "ESCALATION_RECOMMENDED",
+  "NO_RESPONSE",
+  "FAILED",
+  "REJECTED",
+  "PARTIALLY_COMPLETED",
 ];
 
 /** Statuses where the request is waiting on the broker. */

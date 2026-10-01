@@ -1,81 +1,106 @@
-/**
- * Idempotent writer for request templates and their versions.
- *
- * Templates are keyed by their globally unique `key`, versions by (template,
- * version number). The checksum over subject and body is computed here so that
- * a changed body always produces a changed checksum.
- */
+/** Seed updates append versions; published and operator-maintained history stays intact. */
 import type { PrismaClient } from "@prisma/client";
-
 import { templateChecksum } from "./checksum";
 import { REQUEST_TEMPLATES } from "./data/templates";
 import { loadJurisdictionIds, requireJurisdictionId } from "./jurisdictions";
 import { emptyResult, type SeedStepResult } from "./types";
+import { hasSameSeedContent } from "./versioning";
 
 export async function seedRequestTemplates(
   prisma: PrismaClient
 ): Promise<SeedStepResult> {
   const result = emptyResult("Request templates");
   const jurisdictionIds = await loadJurisdictionIds(prisma);
-
-  const existing = await prisma.requestTemplate.findMany({
-    where: { key: { in: REQUEST_TEMPLATES.map((template) => template.key) } },
-    select: { key: true },
-  });
-  const existingKeys = new Set(existing.map((row) => row.key));
-
+  let addedVersions = 0;
   for (const template of REQUEST_TEMPLATES) {
     const jurisdictionId = template.jurisdictionCode
       ? requireJurisdictionId(jurisdictionIds, template.jurisdictionCode)
       : null;
-
-    const templateData = {
-      name: template.name,
-      description: template.description,
-      requestType: template.requestType,
-      channel: template.channel,
-      jurisdictionId,
-      isActive: template.isActive,
-    };
-
-    const stored = await prisma.requestTemplate.upsert({
-      where: { key: template.key },
-      create: { key: template.key, ...templateData },
-      update: templateData,
-      select: { id: true },
+    const outcome = await prisma.$transaction(async (tx) => {
+      const scopeKey = `catalogue:template-scope:${template.requestType}:${template.channel}:${jurisdictionId ?? "generic"}`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${scopeKey}, 0))`;
+      const lockKey = `catalogue:template:${template.key}`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
+      const previous = await tx.requestTemplate.findUnique({
+        where: { key: template.key },
+      });
+      const scopeOccupied = !!(await tx.requestTemplate.findFirst({
+        where: {
+          key: { not: template.key },
+          requestType: template.requestType,
+          channel: template.channel,
+          jurisdictionId,
+          isActive: true,
+          deletedAt: null,
+          versions: { some: { status: "PUBLISHED" } },
+        },
+        select: { id: true },
+      }));
+      const data = {
+        name: template.name,
+        description: template.description,
+        requestType: template.requestType,
+        channel: template.channel,
+        jurisdictionId,
+      };
+      const reference = await tx.requestTemplate.upsert({
+        where: { key: template.key },
+        create: {
+          key: template.key,
+          ...data,
+          isActive: template.isActive && !scopeOccupied,
+        },
+        update: {},
+      });
+      await tx.$executeRaw`SELECT 1 FROM "RequestTemplate" WHERE id = ${reference.id} FOR UPDATE`;
+      const stored = await tx.requestTemplate.findUniqueOrThrow({
+        where: { id: reference.id },
+      });
+      if (!stored.updatedById && !stored.createdById)
+        await tx.requestTemplate.update({ where: { id: stored.id }, data });
+      const versions = await tx.requestTemplateVersion.findMany({
+        where: { templateId: stored.id },
+        orderBy: { version: "desc" },
+      });
+      const source = template.version;
+      const desired = {
+        status: source.status,
+        subjectTemplate: source.subjectTemplate,
+        bodyTemplate: source.bodyTemplate,
+        requiredVariables: source.requiredVariables,
+        optionalVariables: source.optionalVariables,
+        locale: source.locale,
+        changeNotes: source.changeNotes,
+        checksum: templateChecksum(source.subjectTemplate, source.bodyTemplate),
+      };
+      if (versions.some((version) => hasSameSeedContent(version, desired)))
+        return { existed: !!previous, added: false };
+      const operatorManaged =
+        !!stored.updatedById ||
+        !!stored.createdById ||
+        versions.some((version) => !!version.createdById);
+      const nextVersion = (versions[0]?.version ?? 0) + 1;
+      const status = operatorManaged || scopeOccupied ? "DRAFT" : desired.status;
+      await tx.requestTemplateVersion.create({
+        data: { templateId: stored.id, version: nextVersion, ...desired, status },
+      });
+      if (status === "PUBLISHED")
+        await tx.requestTemplateVersion.updateMany({
+          where: {
+            templateId: stored.id,
+            status: "PUBLISHED",
+            version: { lt: nextVersion },
+          },
+          data: { status: "SUPERSEDED" },
+        });
+      return { existed: !!previous, added: true };
     });
-
-    if (existingKeys.has(template.key)) {
-      result.updated += 1;
-    } else {
-      result.created += 1;
-    }
-
-    const version = template.version;
-    const versionData = {
-      status: version.status,
-      subjectTemplate: version.subjectTemplate,
-      bodyTemplate: version.bodyTemplate,
-      requiredVariables: version.requiredVariables,
-      optionalVariables: version.optionalVariables,
-      locale: version.locale,
-      changeNotes: version.changeNotes,
-      checksum: templateChecksum(version.subjectTemplate, version.bodyTemplate),
-    };
-
-    await prisma.requestTemplateVersion.upsert({
-      where: { templateId_version: { templateId: stored.id, version: version.version } },
-      create: { templateId: stored.id, version: version.version, ...versionData },
-      update: versionData,
-    });
+    if (outcome.existed) result.updated += 1;
+    else result.created += 1;
+    if (outcome.added) addedVersions += 1;
   }
-
-  const generic = REQUEST_TEMPLATES.filter(
-    (template) => template.jurisdictionCode === undefined
-  ).length;
   result.notes.push(
-    `${generic} generic templates, ${REQUEST_TEMPLATES.length - generic} jurisdiction specific`
+    `${addedVersions} new versions; published history preserved. Operator-maintained templates receive draft updates.`
   );
-
   return result;
 }

@@ -27,5 +27,5 @@ export const DEFAULT_SECURITY_CONTACT = "security@example.invalid";
 export const DEFAULT_SECURITY_ADVISORIES_URL = `${DEFAULT_REPOSITORY_URL}/security/advisories`;
 
 export function isPlaceholderSecurityContact(email: string): boolean {
-  return email.endsWith(".invalid");
+  return email.trim().toLowerCase().endsWith(".invalid");
 }

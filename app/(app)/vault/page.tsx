@@ -20,36 +20,48 @@ import { resolveActiveProfileForRequest } from "@/app/_lib/active-profile";
 import { requireActorOrRedirect } from "@/lib/auth";
 import { getOwnedProfile } from "@/lib/db/repositories/profiles";
 import { listConsentRecordsForProfile } from "@/lib/db/repositories/household";
-import { formatUtcStamp } from "@/lib/format/datetime";
+import { getDateFormatter } from "@/app/_lib/datetime";
 import { IDENTIFIER_TYPE_LABELS } from "@/lib/requests/labels";
 
 import {
-  addIdentifierAction,
   deleteAccountFromVaultAction,
   deleteIdentifierAction,
   deleteProfileAction,
 } from "./actions";
+import { IdentifierForm } from "./identifier-form";
 import { VaultMaskedIdentifier } from "./masked-identifier";
 
 export const metadata = { title: "Data vault" };
 export const dynamic = "force-dynamic";
 
-export default async function VaultPage() {
+export default async function VaultPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ saved?: string }>;
+}) {
+  const { saved } = await searchParams;
   const actor = await requireActorOrRedirect();
+  const { formatStamp } = await getDateFormatter();
   const { active } = await resolveActiveProfileForRequest(actor);
 
   if (!active) {
     return (
-      <EmptyState
-        icon={LockIcon}
-        title="No identifiers stored"
-        description="Set up your profile first. Identifiers live on a profile."
-        action={
-          <Button asChild>
-            <Link href="/onboarding">Set up your profile</Link>
-          </Button>
-        }
-      />
+      <>
+        <PageHeader
+          title="Data vault"
+          description="Your stored profiles and matching details."
+        />
+        <EmptyState
+          icon={LockIcon}
+          title="No identifiers stored"
+          description="Set up your profile first. Identifiers live on a profile."
+          action={
+            <Button asChild>
+              <Link href="/onboarding">Set up your profile</Link>
+            </Button>
+          }
+        />
+      </>
     );
   }
 
@@ -65,11 +77,21 @@ export default async function VaultPage() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
+        actions={
+          <Button asChild variant="outline">
+            <Link href={`/vault/profiles/${profile.id}/edit`}>Edit profile</Link>
+          </Button>
+        }
         title="Data vault"
         description={`Stored identifiers for ${profile.displayName}. Values stay masked until you choose Show.`}
       />
+      {saved && (
+        <p role="status" className="text-sm">
+          Changes saved. Regenerate any affected request drafts before approving them.
+        </p>
+      )}
       <Tabs defaultValue="identifiers">
-        <TabsList>
+        <TabsList aria-label="Data vault">
           <TabsTrigger value="identifiers">Identifiers</TabsTrigger>
           <TabsTrigger value="addresses">Addresses</TabsTrigger>
           <TabsTrigger value="household">Household</TabsTrigger>
@@ -91,7 +113,15 @@ export default async function VaultPage() {
           ) : (
             <IdentifierTable rows={other} />
           )}
-          <AddIdentifierForm profileId={profile.id} />
+          <IdentifierForm
+            initial={{
+              profileId: profile.id,
+              identifierId: "",
+              type: "EMAIL",
+              value: "",
+              label: "",
+            }}
+          />
         </TabsContent>
         <TabsContent value="addresses" className="flex flex-col gap-4">
           {addresses.length === 0 ? (
@@ -99,7 +129,16 @@ export default async function VaultPage() {
           ) : (
             <IdentifierTable rows={addresses} />
           )}
-          <AddIdentifierForm profileId={profile.id} address />
+          <IdentifierForm
+            address
+            initial={{
+              profileId: profile.id,
+              identifierId: "",
+              type: "POSTAL_ADDRESS",
+              value: "",
+              label: "",
+            }}
+          />
         </TabsContent>
         <TabsContent value="household">
           <p className="text-sm text-muted-foreground">
@@ -119,7 +158,7 @@ export default async function VaultPage() {
               events={consents.map((row) => ({
                 id: row.id,
                 title: `${row.purpose.replaceAll("_", " ").toLowerCase()} · ${row.method.replaceAll("_", " ").toLowerCase()}`,
-                timestamp: formatUtcStamp(row.createdAt),
+                timestamp: formatStamp(row.createdAt),
                 dateTime: row.createdAt.toISOString(),
                 detail: <StatusBadge kind="consent" status={row.status} />,
               }))}
@@ -128,14 +167,14 @@ export default async function VaultPage() {
         </TabsContent>
         <TabsContent value="export" className="flex flex-col gap-4">
           <Button asChild>
-            <Link href="/api/account/export">Download a copy of my data</Link>
+            <a href="/api/account/export">Download a copy of my data</a>
           </Button>
           <ConfirmSubmitButton
             action={deleteProfileAction}
             hidden={{ profileId: profile.id }}
             label="Delete this profile"
             title="Delete this profile"
-            description="Identifiers on this profile will be marked deleted. Existing request history remains until account deletion."
+            description="Identifiers and related message content will be erased, and queued requests cancelled. Attached files and reports are scheduled for cleanup. Minimal consent and audit proof is retained."
             consequences={["The profile can no longer be used for new requests."]}
             confirmationPhrase="DELETE"
             destructive
@@ -145,10 +184,11 @@ export default async function VaultPage() {
             hidden={{}}
             label="Delete my account"
             title="Delete my account"
-            description="This queues deletion of identifiers and anonymises the account. It cannot be undone."
+            description="This immediately blocks account access and queues permanent cleanup of personal data. It cannot be undone."
             consequences={[
-              "Open jobs will be cancelled.",
-              "You will be signed out after the job runs.",
+              "Active sessions are revoked and queued work is cancelled immediately.",
+              "Messages already accepted by an email provider cannot be recalled.",
+              "Minimal audit and consent proof is retained for the disclosed periods. Instance backups follow the operator’s retention policy.",
             ]}
             confirmationPhrase="DELETE"
             destructive
@@ -170,7 +210,7 @@ function IdentifierTable({
   }[];
 }) {
   return (
-    <Table>
+    <Table scrollLabel="Profile identifiers">
       <TableHeader>
         <TableRow>
           <TableHead>Type</TableHead>
@@ -192,60 +232,21 @@ function IdentifierTable({
             </TableCell>
             <TableCell>{row.isPrimary ? "Yes" : "No"}</TableCell>
             <TableCell>
-              <form action={deleteIdentifierAction}>
-                <input type="hidden" name="identifierId" value={row.id} />
-                <Button type="submit" variant="ghost" size="sm">
-                  Delete
+              <div className="flex items-center gap-2">
+                <Button asChild variant="ghost" size="sm">
+                  <Link href={`/vault/identifiers/${row.id}/edit`}>Edit</Link>
                 </Button>
-              </form>
+                <form action={deleteIdentifierAction}>
+                  <input type="hidden" name="identifierId" value={row.id} />
+                  <Button type="submit" variant="ghost" size="sm">
+                    Delete
+                  </Button>
+                </form>
+              </div>
             </TableCell>
           </TableRow>
         ))}
       </TableBody>
     </Table>
-  );
-}
-
-function AddIdentifierForm({
-  profileId,
-  address = false,
-}: {
-  profileId: string;
-  address?: boolean;
-}) {
-  return (
-    <form action={addIdentifierAction} className="flex flex-wrap items-end gap-2">
-      <input type="hidden" name="profileId" value={profileId} />
-      <label className="flex flex-col gap-1 text-sm">
-        Type
-        <select name="type" className="h-9 rounded-lg border border-input px-2">
-          {address ? (
-            <>
-              <option value="POSTAL_ADDRESS">Postal address</option>
-              <option value="PREVIOUS_ADDRESS">Previous address</option>
-            </>
-          ) : (
-            <>
-              <option value="EMAIL">Email</option>
-              <option value="PHONE">Phone</option>
-              <option value="PREVIOUS_NAME">Previous name</option>
-              <option value="APPROXIMATE_LOCATION">Approximate location</option>
-              <option value="USERNAME">Username</option>
-              <option value="OTHER">Other</option>
-            </>
-          )}
-        </select>
-      </label>
-      <label className="flex flex-col gap-1 text-sm">
-        Value
-        <input
-          name="value"
-          required
-          maxLength={180}
-          className="h-9 rounded-lg border border-input px-2"
-        />
-      </label>
-      <Button type="submit">Add identifier</Button>
-    </form>
   );
 }

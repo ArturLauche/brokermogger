@@ -2,8 +2,6 @@ import { ConfirmSubmitButton } from "@/components/common/confirm-submit-button";
 import { PageHeader } from "@/components/common/page-header";
 import { Alert, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Table,
   TableBody,
@@ -14,10 +12,12 @@ import {
 } from "@/components/ui/table";
 import { requireActorOrRedirect, getSessionUser } from "@/lib/auth";
 import { getOwnedAccount } from "@/lib/db/repositories/account";
+import { AccountForm } from "./account-form";
+import Link from "next/link";
 import { maskEmail } from "@/lib/security/masking";
-import { formatUtcStamp } from "@/lib/format/datetime";
+import { getDateFormatter } from "@/app/_lib/datetime";
 
-import { deleteAccountAction, revokeSessionAction, updateAccountAction } from "./actions";
+import { deleteAccountAction, revokeSessionAction } from "./actions";
 
 export const metadata = { title: "Account settings" };
 export const dynamic = "force-dynamic";
@@ -28,12 +28,13 @@ export default async function AccountSettingsPage({
   searchParams: Promise<{ saved?: string; error?: string }>;
 }) {
   const actor = await requireActorOrRedirect();
+  const { formatStamp } = await getDateFormatter();
   const user = await getSessionUser();
   const account = await getOwnedAccount(actor);
   const params = await searchParams;
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
       <PageHeader
         title="Account settings"
         description="Sign in details, sessions and account deletion."
@@ -48,37 +49,27 @@ export default async function AccountSettingsPage({
           <AlertTitle>Display name must be between 1 and 80 characters.</AlertTitle>
         </Alert>
       ) : null}
-      <form
-        action={updateAccountAction}
-        className="flex flex-col gap-4 rounded-xl border p-4"
-      >
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="name">Display name</Label>
-          <Input
-            id="name"
-            name="name"
-            required
-            maxLength={80}
-            defaultValue={account.name ?? ""}
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label>Email</Label>
-          <p className="font-mono text-sm">{user ? maskEmail(user.email) : "—"}</p>
-          <p className="text-sm text-muted-foreground">
-            The sign-in address cannot be changed in this version.
-          </p>
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="timezone">Timezone</Label>
-          <Input id="timezone" name="timezone" defaultValue={account.timezone} />
-        </div>
-        <Button type="submit">Save account</Button>
-      </form>
+      <AccountForm
+        initial={{ name: account.name ?? "", timezone: account.timezone }}
+        maskedEmail={user ? maskEmail(user.email) : "—"}
+      />
+
+      <section className="space-y-3 border-t pt-6">
+        <h2 className="text-lg font-semibold">Notifications</h2>
+        <p className="text-sm text-muted-foreground">
+          Review in-app updates and choose whether to receive optional email reminders.
+        </p>
+        <Link
+          className="inline-flex min-h-11 items-center text-sm underline underline-offset-4"
+          href="/notifications#preferences"
+        >
+          Manage notification preferences
+        </Link>
+      </section>
 
       <section className="flex flex-col gap-3">
         <h2 className="font-heading text-base font-medium">Sessions</h2>
-        <Table>
+        <Table scrollLabel="Active sessions">
           <TableHeader>
             <TableRow>
               <TableHead>Expires</TableHead>
@@ -88,7 +79,7 @@ export default async function AccountSettingsPage({
           <TableBody>
             {account.sessions.map((session) => (
               <TableRow key={session.id}>
-                <TableCell>{formatUtcStamp(session.expires)}</TableCell>
+                <TableCell>{formatStamp(session.expires)}</TableCell>
                 <TableCell>
                   <form action={revokeSessionAction}>
                     <input type="hidden" name="sessionId" value={session.id} />
@@ -110,8 +101,12 @@ export default async function AccountSettingsPage({
           hidden={{}}
           label="Delete my account"
           title="Delete my account"
-          description="This queues deletion of identifiers and anonymises the account."
-          consequences={["You will lose access after the deletion job runs."]}
+          description="Access is blocked immediately. A resumable background job erases personal content and stored files."
+          consequences={[
+            "All sessions are revoked and queued work is cancelled immediately.",
+            "Cleanup stays pending until stored files are removed. Minimal pseudonymous audit and consent proof follows the instance retention periods.",
+            "Operator-controlled backups expire under the operator's backup policy; contact the operator for details.",
+          ]}
           confirmationPhrase="DELETE"
           destructive
         />

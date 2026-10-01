@@ -13,6 +13,8 @@ import {
 } from "@/lib/requests/lifecycle";
 import { formCheckbox, formString, parseWithSchema } from "@/lib/validation/form";
 import { entityIdSchema } from "@/lib/validation/ids";
+import { followUpKindSchema } from "@/lib/requests/followUpKind";
+import { prepareEscalation } from "@/lib/requests/escalation";
 import { z } from "zod";
 
 function bounce(requestId: string, error: unknown, fallback: string): never {
@@ -30,9 +32,9 @@ export async function approveRequestAction(formData: FormData): Promise<void> {
   const rawId = formString(formData, "requestId");
   try {
     const { requestId } = parseWithSchema(requestIdSchema, { requestId: rawId });
-    const contentHash = formString(formData, "contentHash");
+    const envelopeHash = formString(formData, "envelopeHash");
     const confirmationAccepted = formCheckbox(formData, "confirmationAccepted");
-    await approveRequest(actor, { requestId, contentHash, confirmationAccepted });
+    await approveRequest(actor, { requestId, envelopeHash, confirmationAccepted });
   } catch (error) {
     bounce(rawId, error, `/requests/${rawId}/review`);
   }
@@ -48,7 +50,7 @@ export async function returnToDraftAction(formData: FormData): Promise<void> {
   } catch (error) {
     bounce(rawId, error, `/requests/${rawId}/review`);
   }
-  redirect(`/requests/${rawId}`);
+  redirect(`/requests/${rawId}/edit`);
 }
 
 export async function closeRequestAction(formData: FormData): Promise<void> {
@@ -80,9 +82,23 @@ export async function prepareFollowUpAction(formData: FormData): Promise<void> {
   const rawId = formString(formData, "requestId");
   try {
     const { requestId } = parseWithSchema(requestIdSchema, { requestId: rawId });
-    await prepareFollowUp(actor, requestId);
+    const rawKind = formString(formData, "kind");
+    const kind = rawKind ? parseWithSchema(followUpKindSchema, rawKind) : undefined;
+    await prepareFollowUp(actor, requestId, kind);
   } catch (error) {
     bounce(rawId, error, `/requests/${rawId}`);
   }
   redirect(`/requests/${rawId}`);
+}
+
+export async function prepareEscalationAction(formData: FormData): Promise<void> {
+  const actor = await requireActor();
+  const rawId = formString(formData, "requestId");
+  try {
+    const { requestId } = parseWithSchema(requestIdSchema, { requestId: rawId });
+    await prepareEscalation(actor, requestId);
+  } catch (error) {
+    bounce(rawId, error, `/requests/${rawId}`);
+  }
+  redirect(`/requests/${encodeURIComponent(rawId)}/escalation`);
 }

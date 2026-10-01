@@ -6,26 +6,28 @@
  * loads them. Writes from the admin console must call `invalidateCatalogCache`.
  * Directory searches are not cached: the key would be unbounded free text.
  */
-import type { BrokerCategory, RequestType } from "@prisma/client";
+import type { RequestChannel, RequestType, Prisma } from "@prisma/client";
+import { MAX_BROKERS_PER_WORKFLOW } from "@/lib/requests/fairUse";
 
-import { createKeyedTtlCache, createTtlCache } from "@/lib/cache/ttl";
+import { createTtlCache } from "@/lib/cache/ttl";
 import { prisma } from "@/lib/db/client";
 import type { JurisdictionRecord, LegalRuleSnapshot } from "@/lib/jurisdiction/types";
 import { brokerCategorySchema } from "@/lib/validation/enums";
+import { z } from "zod";
+import { pageInputSchema, createdBeforeCursor, cursorPage } from "@/lib/pagination";
+import { parseWithSchema } from "@/lib/validation/form";
+import { entityIdSchema } from "@/lib/validation/ids";
 
 const CATALOG_TTL_MS = 60_000;
 const jurisdictionsCache = createTtlCache<JurisdictionRecord[]>(CATALOG_TTL_MS);
-const legalRulesCache = createTtlCache<LegalRuleSnapshot[]>(CATALOG_TTL_MS);
-const brokerDirectoryCache = createKeyedTtlCache<
-  Awaited<ReturnType<typeof loadBrokersForDirectory>>
->(CATALOG_TTL_MS, 32);
-
-const DIRECTORY_TAKE = 500;
+type CatalogueLegalVersion = Prisma.LegalRuleVersionGetPayload<{
+  include: { legalRule: true };
+}>;
+const legalRulesCache = createTtlCache<CatalogueLegalVersion[]>(CATALOG_TTL_MS);
 
 export function invalidateCatalogCache(): void {
   jurisdictionsCache.clear();
   legalRulesCache.clear();
-  brokerDirectoryCache.clear();
 }
 
 /** Test helper. Never call this from application code. */
@@ -51,58 +53,79 @@ export async function listActiveJurisdictions(): Promise<JurisdictionRecord[]> {
 }
 
 export async function listPublishedLegalRules(): Promise<LegalRuleSnapshot[]> {
-  return legalRulesCache.getOrLoad(async () => {
-    const versions = await prisma.legalRuleVersion.findMany({
-      where: { status: "PUBLISHED" },
+  // Cache immutable public versions, not a time-dependent eligibility decision.
+  // Scheduled changes and expiry apply on this very read, even inside the TTL.
+  const versions = await legalRulesCache.getOrLoad(() =>
+    prisma.legalRuleVersion.findMany({
+      where: {
+        status: { in: ["PUBLISHED", "SUPERSEDED", "ARCHIVED"] },
+        legalRule: { isActive: true, deletedAt: null, jurisdiction: { isActive: true } },
+      },
       include: { legalRule: true },
-      orderBy: [{ legalRuleId: "asc" }, { version: "desc" }],
-    });
-    const seen = new Set<string>();
-    const latest = versions.filter((version) => {
-      if (seen.has(version.legalRuleId)) return false;
-      seen.add(version.legalRuleId);
-      return true;
-    });
-
-    return latest.map((version) => ({
-      legalRuleId: version.legalRuleId,
-      legalRuleVersionId: version.id,
-      legalRuleKey: version.legalRule.key,
-      jurisdictionId: version.legalRule.jurisdictionId,
-      lawName: version.legalRule.lawName,
-      version: version.version,
-      supportedRequestTypes: version.supportedRequestTypes,
-      legalBasisText: version.legalBasisText,
-      deadlineDays: version.deadlineDays,
-      deadlineRule: version.deadlineRule,
-      verificationRequirements: version.verificationRequirements,
-      escalationPath: version.escalationPath,
-      escalationAuthority: version.escalationAuthority,
-      escalationUrl: version.escalationUrl,
-      templateClauses: version.templateClauses,
-      riskNotes: version.riskNotes,
-      requiresLegalReview: version.requiresLegalReview,
-      confidence: version.confidence,
-      sourceUrl: version.sourceUrl,
-      sourceTitle: version.sourceTitle,
-      lastReviewedAt: version.lastReviewedAt,
-      reviewedBy: version.reviewedBy,
-    }));
+      orderBy: [{ legalRuleId: "asc" }, { effectiveFrom: "desc" }, { version: "desc" }],
+    })
+  );
+  const now = new Date();
+  const seen = new Set<string>();
+  const latest = versions.filter((version) => {
+    if (version.effectiveFrom > now) return false;
+    if (seen.has(version.legalRuleId)) return false;
+    seen.add(version.legalRuleId);
+    // An expired/withdrawn replacement must not silently revive its predecessor.
+    return (
+      version.status === "PUBLISHED" &&
+      (!version.effectiveUntil || version.effectiveUntil > now)
+    );
   });
+
+  return latest.map((version) => ({
+    legalRuleId: version.legalRuleId,
+    legalRuleVersionId: version.id,
+    legalRuleKey: version.legalRule.key,
+    jurisdictionId: version.legalRule.jurisdictionId,
+    lawName: version.legalRule.lawName,
+    version: version.version,
+    supportedRequestTypes: version.supportedRequestTypes,
+    legalBasisText: version.legalBasisText,
+    deadlineDays: version.deadlineDays,
+    deadlineRule: version.deadlineRule,
+    verificationRequirements: version.verificationRequirements,
+    escalationPath: version.escalationPath,
+    escalationAuthority: version.escalationAuthority,
+    escalationUrl: version.escalationUrl,
+    templateClauses: version.templateClauses,
+    riskNotes: version.riskNotes,
+    requiresLegalReview: version.requiresLegalReview,
+    confidence: version.confidence,
+    sourceUrl: version.sourceUrl,
+    sourceTitle: version.sourceTitle,
+    lastReviewedAt: version.lastReviewedAt,
+    reviewedBy: version.reviewedBy,
+  }));
 }
 
 export async function findPublishedTemplate(input: {
   requestType: RequestType;
   jurisdictionId: string | null;
+  channel?: RequestChannel;
 }) {
-  const specific = input.jurisdictionId
-    ? await prisma.requestTemplate.findFirst({
+  const channel = input.channel ?? "EMAIL";
+  const jurisdictions = input.jurisdictionId ? [input.jurisdictionId, null] : [null];
+  // Jurisdiction language takes precedence. EMAIL is the shared plain-letter
+  // fallback for manual channels; a portal template never serves an email.
+  const channels: RequestChannel[] = channel === "EMAIL" ? [channel] : [channel, "EMAIL"];
+  for (const jurisdictionId of jurisdictions) {
+    for (const deliveryChannel of channels) {
+      const template = await prisma.requestTemplate.findFirst({
         where: {
           requestType: input.requestType,
-          jurisdictionId: input.jurisdictionId,
+          jurisdictionId,
+          channel: deliveryChannel,
           isActive: true,
           deletedAt: null,
+          versions: { some: { status: "PUBLISHED" } },
         },
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
         include: {
           versions: {
             where: { status: "PUBLISHED" },
@@ -110,96 +133,134 @@ export async function findPublishedTemplate(input: {
             take: 1,
           },
         },
-      })
-    : null;
+      });
+      if (template?.versions[0]) return { template, version: template.versions[0] };
+    }
+  }
+  return null;
+}
 
-  const generic = await prisma.requestTemplate.findFirst({
+/** A single narrow query for the new-request chooser, including generic templates. */
+export async function listPublishedTemplateTypes(jurisdictionId: string) {
+  const rows = await prisma.requestTemplate.findMany({
     where: {
-      requestType: input.requestType,
-      jurisdictionId: null,
       isActive: true,
       deletedAt: null,
+      OR: [{ jurisdictionId }, { jurisdictionId: null }],
+      versions: { some: { status: "PUBLISHED" } },
     },
-    include: {
-      versions: {
-        where: { status: "PUBLISHED" },
-        orderBy: { version: "desc" },
-        take: 1,
-      },
-    },
+    select: { requestType: true },
+    distinct: ["requestType"],
   });
-
-  const template = specific?.versions[0] ? specific : generic;
-  const version = template?.versions[0];
-  if (!template || !version) return null;
-  return { template, version };
+  return rows.map((row) => row.requestType);
 }
 
-function parseBrokerCategory(value: string | undefined): BrokerCategory | undefined {
-  if (!value) return undefined;
-  const parsed = brokerCategorySchema.safeParse(value);
-  return parsed.success ? parsed.data : undefined;
+const directoryListSchema = pageInputSchema.extend({
+  jurisdictionId: entityIdSchema.optional(),
+  category: z.union([z.literal("all"), brokerCategorySchema]).default("all"),
+  search: z.string().trim().max(100).default(""),
+});
+const DIRECTORY_SELECT = {
+  id: true,
+  createdAt: true,
+  legalName: true,
+  category: true,
+  isActive: true,
+  isDemoData: true,
+  productionSendingEnabled: true,
+  verificationStatus: true,
+  jurisdictionCoverage: {
+    where: { isActive: true },
+    select: { jurisdictionId: true, isActive: true, supportedRequestTypes: true },
+  },
+} satisfies Prisma.BrokerSelect;
+
+/** Public configuration only. Search and pages are bounded, without private fields. */
+export async function listBrokersForDirectory(raw: unknown = {}) {
+  const input = parseWithSchema(directoryListSchema, raw);
+  const where: Prisma.BrokerWhereInput = {
+    deletedAt: null,
+    ...(input.category !== "all" ? { category: input.category } : {}),
+    ...(input.search
+      ? {
+          OR: [
+            { legalName: { contains: input.search, mode: "insensitive" } },
+            { slug: { contains: input.search, mode: "insensitive" } },
+          ],
+        }
+      : {}),
+    ...(input.jurisdictionId
+      ? {
+          jurisdictionCoverage: {
+            some: { jurisdictionId: input.jurisdictionId, isActive: true },
+          },
+        }
+      : {}),
+  };
+  const [rows, total] = await Promise.all([
+    prisma.broker.findMany({
+      where: { AND: [where, createdBeforeCursor(input.cursor)] },
+      select: DIRECTORY_SELECT,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: input.limit + 1,
+    }),
+    prisma.broker.count({ where }),
+  ]);
+  return { ...cursorPage(rows, input.limit), total };
 }
 
-async function loadBrokersForDirectory(filters: {
-  jurisdictionId?: string;
-  category?: string;
-  search?: string;
-}) {
-  const category = parseBrokerCategory(filters.category);
-  const search = filters.search?.trim().slice(0, 80);
-
+/** Selected choices stay visible across search/page changes; input is bounded independently. */
+export async function getSelectedBrokersForChoice(raw: unknown) {
+  const ids = parseWithSchema(z.array(entityIdSchema).max(MAX_BROKERS_PER_WORKFLOW), raw);
+  if (!ids.length) return [];
   return prisma.broker.findMany({
-    where: {
-      deletedAt: null,
-      ...(category ? { category } : {}),
-      ...(search
-        ? {
-            OR: [
-              { legalName: { contains: search, mode: "insensitive" } },
-              { slug: { contains: search, mode: "insensitive" } },
-            ],
-          }
-        : {}),
-      ...(filters.jurisdictionId
-        ? {
-            jurisdictionCoverage: {
-              some: { jurisdictionId: filters.jurisdictionId, isActive: true },
-            },
-          }
-        : {}),
-    },
-    include: {
-      contactMethods: { where: { deletedAt: null, isActive: true } },
-      jurisdictionCoverage: { where: { isActive: true } },
-    },
-    orderBy: { legalName: "asc" },
-    take: DIRECTORY_TAKE,
+    where: { id: { in: ids }, deletedAt: null },
+    select: DIRECTORY_SELECT,
   });
-}
-
-export async function listBrokersForDirectory(filters: {
-  jurisdictionId?: string;
-  category?: string;
-  search?: string;
-}) {
-  const search = filters.search?.trim().slice(0, 80);
-  if (search) {
-    return loadBrokersForDirectory(filters);
-  }
-  const cacheKey = JSON.stringify({
-    jurisdictionId: filters.jurisdictionId ?? "",
-    category: filters.category ?? "",
-  });
-  return brokerDirectoryCache.getOrLoad(cacheKey, () => loadBrokersForDirectory(filters));
 }
 
 export async function getBrokerWithContacts(brokerId: string) {
   return prisma.broker.findFirst({
     where: { id: brokerId, deletedAt: null },
-    include: {
-      contactMethods: { where: { deletedAt: null } },
-      jurisdictionCoverage: true,
+    select: {
+      id: true,
+      legalName: true,
+      tradingNames: true,
+      category: true,
+      websiteUrl: true,
+      isActive: true,
+      isDemoData: true,
+      productionSendingEnabled: true,
+      verificationStatus: true,
+      lastVerifiedAt: true,
+      sourceUrl: true,
+      notes: true,
+      verificationRequirements: true,
+      contactMethods: {
+        where: { deletedAt: null, isActive: true },
+        orderBy: [{ priority: "asc" }, { id: "asc" }],
+        select: {
+          id: true,
+          type: true,
+          value: true,
+          label: true,
+          isVerified: true,
+          verifiedAt: true,
+          sourceUrl: true,
+          verificationNote: true,
+        },
+      },
+      jurisdictionCoverage: {
+        where: { isActive: true },
+        select: {
+          id: true,
+          supportedRequestTypes: true,
+          coverageType: true,
+          confidence: true,
+          notes: true,
+          jurisdiction: { select: { name: true } },
+        },
+      },
     },
   });
 }

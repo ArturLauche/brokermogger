@@ -10,6 +10,13 @@ import { describe, expect, it } from "vitest";
 import { isKnownClause } from "@/prisma/seeds/data/clauses";
 import { JURISDICTIONS } from "@/prisma/seeds/data/jurisdictions";
 import { LEGAL_RULES, type LegalRuleVersionSeed } from "@/prisma/seeds/data/legal-rules";
+import { deadlinePolicySchema } from "@/lib/jurisdiction/deadlines";
+import { FUTURE_US_PRIVACY_PACKS } from "@/lib/jurisdiction/futureUs";
+import {
+  GDPR_COUNTRIES,
+  EDPB_AUTHORITY_DIRECTORY,
+  EEA_GDPR_COMMENCEMENT_SOURCE,
+} from "@/lib/jurisdiction/eea";
 
 const ALL_VERSIONS: {
   ruleKey: string;
@@ -51,12 +58,18 @@ describe("legal rule seed data", () => {
     }
   });
 
-  it("publishes version 1 for every rule", () => {
+  it("publishes current rules and keeps new future statutory packs as drafts", () => {
+    const futureCodes = FUTURE_US_PRIVACY_PACKS.map((pack) => `US-${pack.region}`);
     for (const rule of LEGAL_RULES) {
       expect(rule.versions.length).toBeGreaterThan(0);
       for (const version of rule.versions) {
         expect(version.version).toBeGreaterThanOrEqual(1);
-        expect(version.status).toBe("PUBLISHED");
+        expect(version.status).toBe(
+          futureCodes.includes(rule.jurisdictionCode) &&
+            rule.key.endsWith("consumer-privacy-rights")
+            ? "DRAFT"
+            : "PUBLISHED"
+        );
         expect(version.supportedRequestTypes.length).toBeGreaterThan(0);
       }
     }
@@ -80,9 +93,10 @@ describe("legal rule seed data", () => {
         `${ruleKey} has no source title`
       ).toBeGreaterThan(5);
       expect(Number.isNaN(Date.parse(version.lastReviewedAt))).toBe(false);
-      expect(Date.parse(version.lastReviewedAt)).toBeGreaterThan(
-        Date.parse(version.effectiveFrom)
+      expect(Date.parse(version.lastReviewedAt)).toBeLessThanOrEqual(
+        Date.parse("2026-10-01T00:00:00Z")
       );
+      expect(Number.isNaN(Date.parse(version.effectiveFrom))).toBe(false);
       expect(version.reviewedBy).toBe("Brokermogger maintainers, unreviewed by counsel");
       expect(version.riskNotes.length).toBeGreaterThan(40);
       expect(version.changeNotes.length).toBeGreaterThan(10);
@@ -93,9 +107,10 @@ describe("legal rule seed data", () => {
     for (const { jurisdiction, ruleKey, version } of ALL_VERSIONS) {
       expect(version.confidence, `${ruleKey} claims HIGH confidence`).not.toBe("HIGH");
       if (version.confidence === "MEDIUM") {
-        expect(["DE", "GB"], `${ruleKey} claims MEDIUM outside GDPR`).toContain(
-          jurisdiction
-        );
+        expect(
+          [...GDPR_COUNTRIES.map((country) => country.code), "GB"],
+          `${ruleKey} claims MEDIUM outside GDPR`
+        ).toContain(jurisdiction);
       }
       expect(version.requiresLegalReview).toBe(true);
     }
@@ -147,45 +162,87 @@ describe("legal rule seed data", () => {
 
   it("does not assume a uniform federal deletion right in the United States", () => {
     const rules = LEGAL_RULES.filter((rule) => rule.jurisdictionCode === "US-OTHER");
-    expect(rules.length).toBeGreaterThanOrEqual(2);
-
-    const stateRule = rules.find((rule) => rule.key === "us-state-privacy-rights");
-    expect(stateRule?.versions[0]?.riskNotes).toMatch(
-      /no uniform federal deletion right/i
-    );
+    expect(rules).toHaveLength(1);
+    expect(rules.some((rule) => rule.key === "us-state-privacy-rights")).toBe(false);
 
     const voluntary = rules.find((rule) => rule.key === "us-broker-voluntary-opt-out");
     expect(voluntary?.versions[0]?.supportedRequestTypes).not.toContain("DELETION");
     expect(voluntary?.versions[0]?.deadlineDays).toBeNull();
   });
 
-  it("keeps the California deletion platform rule explicitly unverified", () => {
+  it("keeps DROP manual and subject to legal review without an ordinary letter deadline", () => {
     const rule = LEGAL_RULES.find((entry) => entry.key === "ca-delete-act-drop");
     const version = rule?.versions[0];
 
     expect(rule?.jurisdictionCode).toBe("US-CA");
     expect(version?.confidence).toBe("LOW");
     expect(version?.requiresLegalReview).toBe(true);
-    expect(version?.deadlineRule.verified).toBe(false);
-    expect(version?.riskNotes).toMatch(/verified against current California Privacy/i);
-    expect(version?.riskNotes).toMatch(/timing, eligibility, broker coverage/i);
+    expect(version?.deadlineRule.policy?.unit).toBe("NONE");
+    expect(version?.deadlineDays).toBeNull();
+    expect(version?.verificationRequirements.allowedChannels).toEqual(["DROP"]);
+    expect(version?.supportedRequestTypes).not.toContain("SUPPRESSION");
+    expect(version?.riskNotes).toMatch(/direct email is not a DROP submission/i);
   });
 
-  it("routes India through an unverified commencement warning", () => {
-    const version = versionsFor("IN")[0];
+  it("keeps India's statutory rights scheduled and offers an explicitly voluntary current pack", () => {
+    const statutory = LEGAL_RULES.find(
+      (rule) => rule.key === "dpdp-data-principal-rights"
+    )!;
+    const version = statutory.versions[0];
     expect(version?.confidence).toBe("LOW");
-    expect(version?.riskNotes).toMatch(/commencement and rule making status/i);
+    expect(version?.riskNotes).toMatch(/May 13, 2027/);
+    expect(version?.effectiveFrom).toBe("2027-05-12T18:30:00.000Z");
+    expect(statutory.retirePublishedBefore).toBe(version?.effectiveFrom);
     expect(version?.deadlineDays).toBeNull();
+    expect(version?.deadlineRule.policy?.unit).toBe("NONE");
+    expect(version?.deadlineRule.notes).toMatch(/grievance/i);
+    const voluntary = LEGAL_RULES.find(
+      (rule) => rule.key === "india-voluntary-privacy-request"
+    )!;
+    expect(voluntary.versions[0]?.legalBasisText).toMatch(/voluntary.*does not claim/i);
+    expect(voluntary.versions[0]?.effectiveUntil).toBe(version?.effectiveFrom);
   });
 
   it("gives GDPR jurisdictions a one month deadline with an extension", () => {
-    for (const jurisdiction of ["DE", "GB"]) {
+    for (const jurisdiction of [...GDPR_COUNTRIES.map((country) => country.code), "GB"]) {
       for (const version of versionsFor(jurisdiction)) {
-        expect(version.deadlineDays).toBe(30);
+        expect(version.deadlineDays).toBeNull();
         expect(version.deadlineRule.extension.possible).toBe(true);
-        expect(version.deadlineRule.extension.additionalDays).toBe(60);
+        expect(version.deadlineRule.extension.additionalDays).toBeNull();
+        expect(deadlinePolicySchema.parse(version.deadlineRule.policy)).toMatchObject({
+          unit: "CALENDAR_MONTHS",
+          period: 1,
+          startsFrom: "RECEIPT",
+          extension: { unit: "CALENDAR_MONTHS", period: 2, noticeRequired: true },
+        });
         expect(version.escalationAuthority).toBeDefined();
       }
     }
+  });
+
+  it("pins country authorities and the distinct EEA EFTA commencement without inventing local holidays", () => {
+    for (const country of GDPR_COUNTRIES) {
+      const versions = versionsFor(country.code);
+      expect(versions).toHaveLength(2);
+      for (const version of versions) {
+        expect(version.escalationAuthority).toBe(country.authority);
+        expect(version.escalationUrl).toBe(country.authorityUrl);
+        expect(version.escalationPath).toContain(country.name);
+        expect(version.riskNotes).toMatch(/national derogation/i);
+        expect(version.additionalSources.map((source) => source.url)).toContain(
+          EDPB_AUTHORITY_DIRECTORY
+        );
+        expect(version.deadlineRule.policy?.calendar).toBeNull();
+        expect(version.lastReviewedAt).toBe("2026-09-30T00:00:00.000Z");
+        expect(version.effectiveFrom).toBe(
+          country.eeaEfta ? "2018-07-20T00:00:00.000Z" : "2018-05-25T00:00:00.000Z"
+        );
+        if (country.eeaEfta)
+          expect(version.additionalSources.map((source) => source.url)).toContain(
+            EEA_GDPR_COMMENCEMENT_SOURCE
+          );
+      }
+    }
+    expect(versionsFor("DE")[0]?.escalationPath).toMatch(/state and federal/);
   });
 });

@@ -7,7 +7,6 @@
  * and a review date, and uncertain rules are flagged before they are used.
  */
 import { Section } from "@/components/marketing/section";
-import { Card, CardContent } from "@/components/ui/card";
 
 interface Coverage {
   place: string;
@@ -26,14 +25,14 @@ const COVERAGE: readonly Coverage[] = [
   {
     place: "Other United States states",
     prepares:
-      "Prepares deletion, opt-out and suppression requests where a state law or the broker's own published policy provides for them.",
+      "Prepares requests from explicit state packs, with each law's scope and exceptions. Voluntary opt-out and suppression use the broker's own policy.",
     limit:
       "Several states give no deletion right against data brokers at all. There the request is a voluntary ask and the broker may ignore it.",
   },
   {
-    place: "Germany and the European Union",
+    place: "European Union and EEA",
     prepares:
-      "Prepares erasure requests under Article 17 GDPR and objections under Article 21 GDPR, with the response deadline that the rule for the jurisdiction defines.",
+      "Prepares GDPR requests for all 27 EU countries, Iceland, Liechtenstein and Norway, with country-specific authority information and receipt-based calendar-month response targets.",
     limit:
       "It does not lodge a complaint with a supervisory authority for you and does not judge whether an exemption applies to your case.",
   },
@@ -48,14 +47,14 @@ const COVERAGE: readonly Coverage[] = [
     place: "Brazil",
     prepares: "Prepares deletion and access requests that refer to the LGPD.",
     limit:
-      "The shipped rules for Brazil are marked as needing legal review, and the broker directory contains few Brazilian entries.",
+      "The shipped rules need legal review. Recipient coverage, verification and the scope of each requested right must be checked before use.",
   },
   {
     place: "India",
     prepares:
-      "Prepares erasure and correction requests that refer to the Digital Personal Data Protection Act.",
+      "Prepares voluntary requests before DPDP rights commence and sourced statutory requests from May 13, 2027, including summary access, correction and erasure.",
     limit:
-      "Parts of that act are still being brought into force, so the rules ship with low confidence and are flagged for review.",
+      "A grievance period is not an initial request deadline. Consent, recipient coverage and the applicable procedure still need review.",
   },
   {
     place: "Australia",
@@ -79,23 +78,17 @@ export function CountryCoverage() {
       title="Where it works, and how far"
       description="The rule that applies is chosen per broker and per profile when a request is prepared. Every rule carries a source link, a confidence level and the date it was last reviewed."
     >
-      <ul className="grid gap-4 md:grid-cols-2">
+      <ul className="grid gap-x-10 gap-y-8 md:grid-cols-2">
         {COVERAGE.map((entry) => (
-          <li key={entry.place}>
-            <Card className="h-full">
-              <CardContent className="flex flex-col gap-2">
-                <h3 className="font-heading font-medium">{entry.place}</h3>
-                <p className="text-sm text-pretty text-muted-foreground">
-                  {entry.prepares}
-                </p>
-                <p className="text-sm text-pretty text-muted-foreground">
-                  <span className="font-medium text-foreground">
-                    What it does not do:{" "}
-                  </span>
-                  {entry.limit}
-                </p>
-              </CardContent>
-            </Card>
+          <li key={entry.place} className="flex flex-col gap-3 border-t pt-5">
+            <h3 className="font-heading font-semibold">{entry.place}</h3>
+            <p className="text-sm leading-6 text-pretty text-muted-foreground">
+              {entry.prepares}
+            </p>
+            <p className="text-sm leading-6 text-pretty text-muted-foreground">
+              <span className="font-medium text-foreground">What it does not do: </span>
+              {entry.limit}
+            </p>
           </li>
         ))}
       </ul>

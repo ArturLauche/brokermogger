@@ -12,6 +12,7 @@ declare module "next-auth" {
   interface User {
     role: UserRole;
     status: UserStatus;
+    timezone?: string;
   }
 
   interface Session {
@@ -22,6 +23,7 @@ declare module "next-auth" {
       image?: string | null;
       role: UserRole;
       status: UserStatus;
+      timezone?: string;
     };
     expires: string;
   }
@@ -31,5 +33,6 @@ declare module "@auth/core/adapters" {
   interface AdapterUser {
     role: UserRole;
     status: UserStatus;
+    timezone?: string;
   }
 }

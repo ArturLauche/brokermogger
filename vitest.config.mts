@@ -1,5 +1,4 @@
 import react from "@vitejs/plugin-react";
-import tsconfigPaths from "vite-tsconfig-paths";
 import { defineConfig } from "vitest/config";
 
 // Must run before React is imported. A leftover NODE_ENV=production (for
@@ -15,7 +14,7 @@ Object.assign(process.env, { NODE_ENV: "test" });
  *   integration  real PostgreSQL from docker compose (TEST_DATABASE_URL)
  */
 export default defineConfig({
-  plugins: [tsconfigPaths()],
+  resolve: { tsconfigPaths: true },
   test: {
     globals: true,
     passWithNoTests: false,
@@ -30,7 +29,8 @@ export default defineConfig({
         },
       },
       {
-        plugins: [tsconfigPaths(), react()],
+        resolve: { tsconfigPaths: true },
+        plugins: [react()],
         test: {
           name: "components",
           environment: "jsdom",

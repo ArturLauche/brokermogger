@@ -14,6 +14,8 @@ export const DISALLOWED_CRAWL_PREFIXES = [
   "/household",
   "/brokers",
   "/requests",
+  "/responses",
+  "/notifications",
   "/evidence",
   "/reports",
   "/settings",

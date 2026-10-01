@@ -6,14 +6,16 @@ import { exportAccountData, requestAccountDeletion } from "@/lib/account/service
 import { requireActor } from "@/lib/auth";
 import {
   addIdentifier,
+  updateOwnedIdentifier,
   revealOwnedIdentifier,
   softDeleteIdentifier,
   softDeleteProfile,
 } from "@/lib/db/repositories/profiles";
-import { identifierTypeSchema } from "@/lib/validation/enums";
+import { recordAudit } from "@/lib/audit/service";
+import { type ActionState, failedAction } from "@/lib/validation/actionResult";
+import { identifierInputSchema } from "@/lib/profiles/validation";
 import { formString, parseWithSchema } from "@/lib/validation/form";
 import { entityIdSchema } from "@/lib/validation/ids";
-import { z } from "zod";
 
 export async function revealIdentifierAction(identifierId: string): Promise<string> {
   const actor = await requireActor();
@@ -22,27 +24,48 @@ export async function revealIdentifierAction(identifierId: string): Promise<stri
   return revealed.value;
 }
 
-export async function addIdentifierAction(formData: FormData): Promise<void> {
+export type IdentifierFields = {
+  identifierId: string;
+  profileId: string;
+  type: string;
+  value: string;
+  label: string;
+};
+export async function saveIdentifierAction(
+  _: ActionState<IdentifierFields>,
+  data: FormData
+): Promise<ActionState<IdentifierFields>> {
   const actor = await requireActor();
-  const parsed = z
-    .object({
-      profileId: entityIdSchema,
-      type: identifierTypeSchema,
-      value: z.string().trim().min(1).max(200),
-    })
-    .safeParse({
-      profileId: formString(formData, "profileId"),
-      type: formString(formData, "type") || "OTHER",
-      value: formString(formData, "value").trim(),
+  const values: IdentifierFields = {
+    identifierId: formString(data, "identifierId"),
+    profileId: formString(data, "profileId"),
+    type: formString(data, "type"),
+    value: formString(data, "value"),
+    label: formString(data, "label"),
+  };
+  try {
+    const input = parseWithSchema(identifierInputSchema, values);
+    const result = values.identifierId
+      ? await updateOwnedIdentifier(
+          actor,
+          parseWithSchema(entityIdSchema, values.identifierId),
+          input
+        )
+      : await addIdentifier(
+          actor,
+          parseWithSchema(entityIdSchema, values.profileId),
+          input
+        );
+    await recordAudit({
+      actor,
+      action: values.identifierId ? "identifier.updated" : "identifier.created",
+      resourceType: "identifier",
+      resourceId: result.id,
     });
-  if (!parsed.success) {
-    redirect("/vault?error=validation");
+  } catch (error) {
+    return failedAction(error, values);
   }
-  await addIdentifier(actor, parsed.data.profileId, {
-    type: parsed.data.type,
-    value: parsed.data.value,
-  });
-  redirect("/vault");
+  redirect("/vault?saved=identifier");
 }
 
 export async function deleteIdentifierAction(formData: FormData): Promise<void> {

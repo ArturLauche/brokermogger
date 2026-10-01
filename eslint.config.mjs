@@ -17,6 +17,7 @@ const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
   globalIgnores([
+    ".tmp/**",
     ".next/**",
     "out/**",
     "build/**",
@@ -138,7 +139,7 @@ const eslintConfig = defineConfig([
     files: [
       "lib/config/env.ts",
       "next.config.ts",
-      "vitest.config.ts",
+      "vitest.config.mts",
       "playwright.config.ts",
       "prisma/**/*.ts",
       "scripts/**/*.ts",

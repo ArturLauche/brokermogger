@@ -20,6 +20,15 @@ permissions:
 
 jobs:
   build:
+    strategy:
+      matrix:
+        include:
+          - target: app
+            image_suffix: ""
+          - target: worker
+            image_suffix: "-worker"
+          - target: migrate
+            image_suffix: "-migrate"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -32,7 +41,7 @@ jobs:
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ghcr.io/${{ github.repository }}${{ matrix.image_suffix }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,format=long
@@ -49,8 +58,9 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile
+          target: ${{ matrix.target }}
           push: ${{ github.event_name == 'push' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target }}

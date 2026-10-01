@@ -17,6 +17,13 @@ import {
 import { resolveActiveProfileForRequest } from "@/app/_lib/active-profile";
 import { requireActorOrRedirect } from "@/lib/auth";
 import { listOwnedRequests } from "@/lib/db/repositories/requests";
+import { ListNavigation } from "@/components/common/list-navigation";
+import { ListFilters } from "@/components/common/list-filters";
+import { ListResultSummary } from "@/components/common/list-result-summary";
+import { REQUEST_STATUS_LABELS } from "@/components/common/status-badge";
+import { REQUEST_TYPE_LABELS } from "@/lib/requests/labels";
+import { readListResult } from "@/app/_lib/list-result";
+import { ListInputErrorPage } from "@/components/common/list-input-error";
 
 export const metadata = { title: "Requests" };
 export const dynamic = "force-dynamic";
@@ -24,12 +31,23 @@ export const dynamic = "force-dynamic";
 export default async function RequestsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ created?: string }>;
+  searchParams: Promise<{
+    created?: string;
+    search?: string;
+    status?: string;
+    requestType?: string;
+    cursor?: string;
+  }>;
 }) {
   const actor = await requireActorOrRedirect();
   const { active } = await resolveActiveProfileForRequest(actor);
-  const requests = await listOwnedRequests(actor, active?.id ?? null);
-  const { created } = await searchParams;
+  const params = await searchParams;
+  const result = await readListResult(
+    listOwnedRequests(actor, active?.id ?? null, params)
+  );
+  if (!result.ok) return <ListInputErrorPage title="Requests" path="/requests" />;
+  const page = result.value;
+  const { created } = params;
 
   return (
     <div className="flex flex-col gap-6">
@@ -49,11 +67,49 @@ export default async function RequestsPage({
           </AlertDescription>
         </Alert>
       ) : null}
-      {requests.length === 0 ? (
+      <ListFilters
+        path="/requests"
+        prefix="request"
+        searchLabel="Broker name or request reference"
+        values={params}
+        selects={[
+          {
+            name: "status",
+            label: "Status",
+            options: [
+              { value: "all", label: "All statuses" },
+              ...Object.entries(REQUEST_STATUS_LABELS).map(([value, label]) => ({
+                value,
+                label,
+              })),
+            ],
+          },
+          {
+            name: "requestType",
+            label: "Request type",
+            options: [
+              { value: "all", label: "All types" },
+              ...Object.entries(REQUEST_TYPE_LABELS).map(([value, label]) => ({
+                value,
+                label,
+              })),
+            ],
+          },
+        ]}
+      />
+      <ListResultSummary shown={page.items.length} total={page.total} noun="request" />
+      {page.items.length === 0 ? (
         <EmptyState
           icon={SendIcon}
-          title="No requests yet"
-          description="Choose brokers and generate drafts. Every outbound message needs your approval."
+          title={
+            params.search ||
+            (params.status && params.status !== "all") ||
+            (params.requestType && params.requestType !== "all") ||
+            params.cursor
+              ? "No matching requests"
+              : "No requests yet"
+          }
+          description="Change the filters or prepare a draft. Every outbound message needs your approval."
           action={
             <Button asChild>
               <Link href="/requests/new">Start new removal workflow</Link>
@@ -61,18 +117,18 @@ export default async function RequestsPage({
           }
         />
       ) : (
-        <Table>
+        <Table scrollLabel="Privacy requests">
           <TableHeader>
             <TableRow>
               <TableHead>Broker</TableHead>
               <TableHead>Type</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Deadline</TableHead>
+              <TableHead>Response target</TableHead>
               <TableHead>Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {requests.map((request) => (
+            {page.items.map((request) => (
               <TableRow key={request.id}>
                 <TableCell>
                   <Link className="underline" href={`/requests/${request.id}`}>
@@ -86,8 +142,8 @@ export default async function RequestsPage({
                   <StatusBadge kind="request" status={request.status} />
                 </TableCell>
                 <TableCell>
-                  {request.deadlineAt
-                    ? request.deadlineAt.toISOString().slice(0, 10)
+                  {request.deadlineOn
+                    ? `${request.deadlineOn.toISOString().slice(0, 10)}${request.deadlineIsEstimate ? " (estimate)" : ""}`
                     : "—"}
                 </TableCell>
                 <TableCell>
@@ -107,6 +163,17 @@ export default async function RequestsPage({
           </TableBody>
         </Table>
       )}
+      <ListNavigation
+        path="/requests"
+        filters={{
+          search: params.search,
+          status: params.status,
+          requestType: params.requestType,
+        }}
+        cursor={params.cursor}
+        nextCursor={page.nextCursor}
+        label="Request results"
+      />
     </div>
   );
 }

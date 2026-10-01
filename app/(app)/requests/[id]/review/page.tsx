@@ -1,16 +1,21 @@
-import { notFound } from "next/navigation";
+import Link from "next/link";
 
 import { DefinitionList } from "@/components/common/definition-list";
+import { ExternalLink } from "@/components/common/external-link";
+import { LetterPreview } from "@/components/common/letter-preview";
+import { MaskedValue } from "@/components/common/masked-value";
 import { PageHeader } from "@/components/common/page-header";
 import { StatusBadge } from "@/components/common/status-badge";
+import { SubmitButton } from "@/components/common/submit-button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireActorOrRedirect } from "@/lib/auth";
-import { isAppError } from "@/lib/core/errors";
-import { getOwnedRequest } from "@/lib/db/repositories/requests";
+import { loadPrivateRequest } from "@/app/_lib/private-request";
 import { formatIsoDate } from "@/lib/format/datetime";
-import { APPROVAL_CHECKBOX_LABEL } from "@/lib/requests/labels";
+import { responseTargetLabel } from "@/lib/jurisdiction/deadlines";
+import { can } from "@/lib/permissions/policy";
+import { readApprovalEnvelope } from "@/lib/requests/envelope";
+import { canTransition } from "@/lib/requests/stateMachine";
+import { maskEmail } from "@/lib/security/masking";
 
 import { returnToDraftAction } from "../../actions";
 import { ReviewApprovalForm } from "./review-form";
@@ -28,18 +33,26 @@ export default async function ReviewRequestPage({
   const actor = await requireActorOrRedirect();
   const { id } = await params;
   const { error } = await searchParams;
-
-  let request;
-  try {
-    request = await getOwnedRequest(actor, id);
-  } catch (caught) {
-    if (isAppError(caught) && caught.code === "NOT_FOUND") {
-      notFound();
-    }
-    throw caught;
-  }
-
+  const request = await loadPrivateRequest(actor, id);
   const snapshot = request.snapshots[0];
+  const legalVersion = request.legalRuleVersion;
+  const verification = legalVersion?.verificationRequirements;
+  const verificationNote =
+    verification &&
+    typeof verification === "object" &&
+    !Array.isArray(verification) &&
+    typeof verification.dataMinimisationNote === "string"
+      ? verification.dataMinimisationNote
+      : null;
+  const envelope = snapshot?.envelopeHash ? readApprovalEnvelope(snapshot) : null;
+  const canApprove =
+    can(actor, "request:approve", { ownerUserId: request.userId }).allowed &&
+    ["AWAITING_USER_APPROVAL", "MANUAL_REVIEW_REQUIRED"].includes(request.status);
+  const canEdit =
+    can(actor, "request:update", { ownerUserId: request.userId }).allowed &&
+    canTransition(request.status, "DRAFT", "USER") &&
+    !request.outboundEmails.length &&
+    !request.currentSnapshotSubmitted;
   const identifiers = Array.isArray(request.includedIdentifiers)
     ? (request.includedIdentifiers as { type?: string; masked?: string }[])
         .map((item) => item.masked ?? item.type ?? "")
@@ -48,25 +61,34 @@ export default async function ReviewRequestPage({
     : "—";
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6">
+    <div className="flex w-full max-w-4xl min-w-0 flex-col gap-8">
       <PageHeader
         title="Review this request"
-        description="Read the exact outbound text. Nothing is sent until you approve it."
+        description={
+          canApprove
+            ? "Check the destination, matching details, and exact message before approving."
+            : "View the recorded message and its current status. Any new message needs a fresh draft and approval."
+        }
+        actions={<StatusBadge kind="request" status={request.status} />}
       />
       {error ? (
         <Alert variant="destructive">
           <AlertTitle>This request could not be approved</AlertTitle>
           <AlertDescription>
             {error === "CONFLICT"
-              ? "This text changed. Reload before approving."
+              ? "The message or request state changed. Reload before approving."
               : error === "CONSENT_REQUIRED" || error === "CONSENT_INVALID"
                 ? "Consent is no longer valid for this profile."
-                : "Check the request and try again."}{" "}
+                : error === "LEGAL_RULE_UNAVAILABLE"
+                  ? "The legal rule changed or is no longer available. Return to the draft and regenerate it before reviewing again."
+                  : "Check the request and try again."}{" "}
             Error code: <code>{error}</code>
           </AlertDescription>
         </Alert>
       ) : null}
-      {request.manualReviewRequired && request.manualReviewReasons.length > 0 ? (
+      {canApprove &&
+      request.manualReviewRequired &&
+      request.manualReviewReasons.length ? (
         <Alert>
           <AlertTitle>Manual review required</AlertTitle>
           <AlertDescription>
@@ -75,66 +97,145 @@ export default async function ReviewRequestPage({
                 <li key={reason}>{reason}</li>
               ))}
             </ul>
-            The same confirmation still applies for this self-service review.
+            Check these points before confirming the message.
           </AlertDescription>
         </Alert>
       ) : null}
-      <Card>
-        <CardHeader>
-          <CardTitle>Summary</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <DefinitionList
-            layout="inline"
-            items={[
-              { term: "Profile", description: request.profile.displayName },
-              { term: "Broker", description: request.broker.legalName },
-              { term: "Jurisdiction", description: request.jurisdiction.name },
-              {
-                term: "Request type",
-                description: request.requestType.toLowerCase().replaceAll("_", " "),
-              },
-              { term: "Legal basis", description: request.legalBasisText },
-              { term: "Data included", description: identifiers || "—" },
-              {
-                term: "Destination",
-                description: request.destinationValue ?? "No verified destination",
-              },
-              { term: "Deadline", description: formatIsoDate(request.deadlineAt) },
-              {
-                term: "Manual review required",
-                description: request.manualReviewRequired ? "Yes" : "No",
-              },
-              {
-                term: "Final request text",
-                description: snapshot ? (
-                  <pre className="rounded-md bg-muted p-3 font-mono text-xs whitespace-pre-wrap">
-                    {`Subject: ${snapshot.subject}\n\n${snapshot.body}`}
-                  </pre>
-                ) : (
-                  "No snapshot"
-                ),
-              },
-            ]}
+      <section aria-labelledby="request-summary" className="space-y-4">
+        <h2 id="request-summary" className="text-lg font-semibold">
+          Message summary
+        </h2>
+        <DefinitionList
+          layout="inline"
+          items={[
+            { term: "Profile", description: request.profile.displayName },
+            { term: "Broker", description: request.broker.legalName },
+            { term: "Jurisdiction", description: request.jurisdiction.name },
+            {
+              term: "Request type",
+              description: request.requestType.toLowerCase().replaceAll("_", " "),
+            },
+            { term: "Data included", description: identifiers || "—" },
+            {
+              term: "Destination",
+              description:
+                envelope?.destination ??
+                request.destinationValue ??
+                "No verified destination",
+            },
+            {
+              term: "Channel",
+              description: (envelope?.channel ?? request.channel)
+                .toLowerCase()
+                .replaceAll("_", " "),
+            },
+            {
+              term: "Reply address",
+              description: envelope?.replyTo ? (
+                <MaskedValue
+                  maskedValue={maskEmail(envelope.replyTo)}
+                  value={envelope.replyTo}
+                  label="reply address"
+                />
+              ) : (
+                "Requires a new snapshot"
+              ),
+            },
+            {
+              term: responseTargetLabel(request.deadlineIsEstimate),
+              description: request.deadlineOn
+                ? formatIsoDate(request.deadlineOn)
+                : "Set after submission or receipt is recorded",
+            },
+          ]}
+        />
+        <details open={canApprove}>
+          <summary className="w-fit cursor-pointer py-2 text-sm font-medium">
+            Legal basis and review requirements
+          </summary>
+          <div className="max-w-prose space-y-4 py-3 text-sm leading-6 [overflow-wrap:anywhere]">
+            <p>{request.legalBasisText}</p>
+            {legalVersion ? (
+              <>
+                <p>
+                  <strong>Applicability and limits.</strong> {legalVersion.riskNotes}
+                </p>
+                {verificationNote ? (
+                  <p>
+                    <strong>Identity verification.</strong> {verificationNote}
+                  </p>
+                ) : null}
+                <p>
+                  <ExternalLink href={legalVersion.sourceUrl}>
+                    {legalVersion.sourceTitle}
+                  </ExternalLink>
+                  {" · "}Version {legalVersion.version}, reviewed{" "}
+                  {formatIsoDate(legalVersion.lastReviewedAt)}. Confidence:{" "}
+                  {legalVersion.confidence.toLowerCase()}.
+                  {legalVersion.requiresLegalReview
+                    ? " Legal review is still required."
+                    : ""}
+                </p>
+              </>
+            ) : (
+              <p className="text-muted-foreground">
+                This historical message has no linked legal version. Regenerate a draft
+                using the current catalogue before approving a new message.
+              </p>
+            )}
+          </div>
+        </details>
+      </section>
+      <section aria-labelledby="message-text" className="space-y-4">
+        <h2 id="message-text" className="text-lg font-semibold">
+          Exact message
+        </h2>
+        {snapshot ? (
+          <LetterPreview
+            subject={snapshot.subject}
+            body={snapshot.body}
+            label="Reveal the exact message (contains personal data)"
           />
-        </CardContent>
-      </Card>
-      <p className="sr-only">{APPROVAL_CHECKBOX_LABEL}</p>
-      {snapshot ? (
-        <ReviewApprovalForm requestId={request.id} contentHash={snapshot.contentHash} />
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            No message has been rendered yet.
+          </p>
+        )}
+      </section>
+      {canApprove && snapshot?.envelopeHash ? (
+        <section aria-labelledby="approve-title" className="space-y-4">
+          <h2 id="approve-title" className="text-lg font-semibold">
+            Approve this message
+          </h2>
+          <ReviewApprovalForm
+            requestId={request.id}
+            envelopeHash={snapshot.envelopeHash}
+            manual={request.channel !== "EMAIL"}
+          />
+        </section>
       ) : (
-        <Alert variant="destructive">
-          <AlertTitle>No rendered text</AlertTitle>
-          <AlertDescription>This request has no snapshot to approve.</AlertDescription>
-        </Alert>
+        <p className="border-t pt-6 text-sm leading-6 text-muted-foreground">
+          {canApprove
+            ? "This message has no complete approval envelope. Regenerate a draft before approving."
+            : "This request is not awaiting approval. Open its history to see submissions, replies, and available next actions."}
+        </p>
       )}
-      <form action={returnToDraftAction}>
-        <input type="hidden" name="requestId" value={request.id} />
-        <Button type="submit" variant="outline">
-          Back to draft
-        </Button>
-      </form>
-      <StatusBadge kind="request" status={request.status} />
+      <div className="flex flex-wrap items-center gap-4">
+        {canEdit ? (
+          <form action={returnToDraftAction}>
+            <input type="hidden" name="requestId" value={request.id} />
+            <SubmitButton variant="outline" pendingText="Opening draft…">
+              Back to draft
+            </SubmitButton>
+          </form>
+        ) : null}
+        <Link
+          href={`/requests/${id}`}
+          className="inline-flex min-h-11 items-center text-sm underline md:min-h-10"
+        >
+          Return to request
+        </Link>
+      </div>
     </div>
   );
 }

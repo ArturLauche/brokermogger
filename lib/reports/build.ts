@@ -8,7 +8,13 @@ export interface ReportRequestRow {
   status: string;
   legalBasis: string | null;
   deadlineAt: string | null;
+  deadlineOn?: string | null;
+  deadlineIsEstimate?: boolean;
+  deadlineBasis?: string | null;
+  deadlineNote?: string | null;
   sentAt: string | null;
+  /** Confirmed manual submission or a real provider acceptance; simulated sends are excluded. */
+  contactedAt?: string | null;
 }
 
 export interface ReportPayload {
@@ -17,6 +23,7 @@ export interface ReportPayload {
   dateFrom: string;
   dateTo: string;
   profileLabel: string;
+  timeZone: string;
   brokersContacted: string[];
   requests: ReportRequestRow[];
   openActions: string[];
@@ -32,6 +39,7 @@ export function buildReportPayload(input: {
   requests: ReportRequestRow[];
   truncated?: boolean;
   requestCountCap?: number;
+  timeZone?: string;
 }): ReportPayload {
   const completed = input.requests.filter((row) => row.status === "COMPLETED").length;
   const truncated = input.truncated === true;
@@ -39,6 +47,8 @@ export function buildReportPayload(input: {
     "This report lists what this instance prepared, approved and sent. It is not a measurement of remaining copies of your data.",
     "Brokers can refuse, ignore or keep records they are legally allowed to keep.",
     "Brokermogger is not a law firm and does not guarantee removal.",
+    "The range includes requests created on these calendar dates in the recorded account timezone. Statuses are read during generation and may change afterwards.",
+    "Brokers contacted counts recorded manual submissions and real provider acceptance. Simulated sends and drafts are excluded; acceptance does not prove delivery.",
     `${completed} of ${input.requests.length} listed requests are marked completed.`,
   ];
   if (truncated) {
@@ -52,7 +62,12 @@ export function buildReportPayload(input: {
     dateFrom: input.dateFrom.toISOString().slice(0, 10),
     dateTo: input.dateTo.toISOString().slice(0, 10),
     profileLabel: input.profileLabel,
-    brokersContacted: [...new Set(input.requests.map((row) => row.brokerName))],
+    timeZone: input.timeZone ?? "UTC",
+    brokersContacted: [
+      ...new Set(
+        input.requests.filter((row) => row.contactedAt).map((row) => row.brokerName)
+      ),
+    ],
     requests: input.requests,
     openActions: input.requests
       .filter((row) =>

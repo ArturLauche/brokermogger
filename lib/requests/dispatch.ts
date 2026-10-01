@@ -1,0 +1,94 @@
+import { z } from "zod";
+import { recordAudit } from "@/lib/audit/service";
+import { AppError } from "@/lib/core/errors";
+import {
+  beginApprovedDispatch,
+  finishApprovedDispatch,
+  recordAmbiguousDispatch,
+  holdBlockedDispatch,
+} from "@/lib/db/repositories/requestDispatch";
+import { getEmailProvider } from "@/lib/email";
+import { consumeBrokerSendThrottles } from "@/lib/email/throttles";
+import type { JobLease } from "@/lib/jobs/types";
+import type { ActorContext } from "@/lib/permissions/actor";
+import { parseWithSchema } from "@/lib/validation/form";
+import { entityIdSchema } from "@/lib/validation/ids";
+import { dispatchAttemptSchema } from "./dispatchAttempt";
+
+const dispatchSchema = z.object({
+  requestId: entityIdSchema,
+  snapshotId: entityIdSchema,
+  attempt: dispatchAttemptSchema,
+  job: z.object({ id: entityIdSchema, leaseToken: z.string().uuid() }),
+});
+
+export async function sendApprovedRequest(
+  actor: ActorContext,
+  requestId: string,
+  attempt: number,
+  snapshotId: string,
+  job: JobLease
+): Promise<{ message: string }> {
+  const input = parseWithSchema(dispatchSchema, { requestId, attempt, snapshotId, job });
+  let prepared;
+  try {
+    prepared = await beginApprovedDispatch(actor, input, false);
+  } catch (error) {
+    const message =
+      error instanceof AppError
+        ? await holdBlockedDispatch(actor, input, error.code)
+        : null;
+    if (message) return { message };
+    throw error;
+  }
+  if (prepared.kind === "stopped") return { message: prepared.message };
+  let providerInvoked = false;
+  try {
+    if (prepared.firstAttempt)
+      await consumeBrokerSendThrottles({
+        brokerId: prepared.brokerId,
+        destination: prepared.message.to.address,
+      });
+    // Recheck the complete gates after throttling, immediately before the provider call.
+    const current = await beginApprovedDispatch(actor, input);
+    if (current.kind === "stopped") return { message: current.message };
+    providerInvoked = true;
+    const result = await getEmailProvider().sendEmail(current.message);
+    const saved = await finishApprovedDispatch({
+      ...input,
+      ledgerId: current.ledgerId,
+      result,
+    });
+    if (!saved)
+      return {
+        message:
+          "Dispatch returned after the lease or request changed. Its outcome requires reconciliation.",
+      };
+    await recordAudit({
+      actor,
+      action: "request.sent",
+      resourceType: "removal_request",
+      resourceId: requestId,
+    });
+    return {
+      message:
+        result.provider === "MOCK"
+          ? "Approved request captured locally; no external message was sent."
+          : "The provider accepted the approved message.",
+    };
+  } catch (error) {
+    if (providerInvoked)
+      await recordAmbiguousDispatch({ ...input, ledgerId: prepared.ledgerId });
+    else if (error instanceof AppError) {
+      const message = await holdBlockedDispatch(actor, input, error.code);
+      if (message) return { message };
+    }
+    if (error instanceof AppError) throw error;
+    throw new AppError({
+      code: "EMAIL_FAILED",
+      message:
+        "The provider outcome could not be confirmed. The worker will reconcile it before retrying.",
+      cause: error,
+    });
+  }
+}

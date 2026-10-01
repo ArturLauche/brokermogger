@@ -9,19 +9,16 @@ import { mapPool } from "@/lib/async/pool";
 import { getSetting } from "@/lib/config/runtimeSettings";
 import {
   anonymiseDeletedAccount,
-  findAccountEmailById,
+  listAccountFilesForErasure,
+  finishAccountErasure,
 } from "@/lib/db/repositories/account";
 import {
   listExpiredTemporaryEvidence,
   listRetentionDueEvidence,
-  markEvidencePurged,
+  listUnfinishedFilePurges,
 } from "@/lib/db/repositories/evidence";
-import {
-  getNotification,
-  markNotificationEmailed,
-} from "@/lib/db/repositories/notifications";
 import { listUnprocessedWebhookEvents } from "@/lib/db/repositories/outboundEmail";
-import { getEmailProvider } from "@/lib/email";
+import { dispatchNotificationEmail } from "@/lib/notifications/service";
 import { monthsAgo } from "@/lib/jobs/datetime";
 import { runDeadlineWatch, runRecheckReminder } from "@/lib/jobs/deadlineWatch";
 import { processStoredEmailWebhook } from "@/lib/jobs/emailWebhook";
@@ -31,7 +28,8 @@ import { enqueueJob } from "@/lib/jobs/queue";
 import type { JobHandlerRegistry, JobResult } from "@/lib/jobs/types";
 import { systemActor } from "@/lib/permissions/actor";
 import { prepareFollowUpDraft, sendApprovedRequest } from "@/lib/requests/lifecycle";
-import { getStorage } from "@/lib/storage";
+import { purgePrivateFile } from "@/lib/storage/privateFiles";
+import { recordAudit } from "@/lib/audit/service";
 
 function recurringRepeat(
   job: { idempotencyKey: string },
@@ -44,13 +42,22 @@ function recurringRepeat(
 
 export function createJobHandlers(): JobHandlerRegistry {
   return {
+    async VERIFY_AUDIT_CHAIN(job): Promise<JobResult> {
+      const { verifyAuditForJob } = await import("@/lib/audit/verification");
+      const result = await verifyAuditForJob(job);
+      return {
+        ...result,
+        ...recurringRepeat(job, RECURRING_INTERVAL_SECONDS.VERIFY_AUDIT_CHAIN),
+      };
+    },
     async SEND_REQUEST(job): Promise<JobResult> {
       const actor = systemActor(job.id);
       const result = await sendApprovedRequest(
         actor,
         job.payload.removalRequestId,
         job.payload.attempt,
-        job.payload.snapshotId
+        job.payload.snapshotId,
+        job
       );
       return { message: result.message };
     },
@@ -60,40 +67,19 @@ export function createJobHandlers(): JobHandlerRegistry {
       const result = await prepareFollowUpDraft(
         actor,
         job.payload.removalRequestId,
-        job.payload.followUpNumber
+        job.payload.followUpNumber,
+        job,
+        job.payload.kind ?? "FOLLOW_UP"
       );
       return { message: result.message };
     },
 
     async DISPATCH_NOTIFICATION(job): Promise<JobResult> {
-      const notification = await getNotification(job.payload.notificationId);
-      if (!notification) {
-        return { message: "Notification no longer exists." };
-      }
-      if (notification.emailedAt) {
-        return { message: "Notification email already sent." };
-      }
-      if (notification.channel !== "EMAIL") {
-        return { message: "In-app notification only." };
-      }
-
-      const email = await findAccountEmailById(notification.userId);
-      if (!email) {
-        return { message: "Account has no email address." };
-      }
-
-      await getEmailProvider().sendNotificationEmail({
-        to: { address: email },
-        subject: notification.title,
-        text: notification.body,
-        notificationId: notification.id,
-      });
-      await markNotificationEmailed(notification.id);
-      return { message: "Notification email sent." };
+      return dispatchNotificationEmail(job);
     },
 
     async PROCESS_EMAIL_WEBHOOK(job): Promise<JobResult> {
-      const result = await processStoredEmailWebhook(job.payload.webhookEventId);
+      const result = await processStoredEmailWebhook(job.payload.webhookEventId, job);
       const leftover = await listUnprocessedWebhookEvents(1);
       const next = leftover[0];
       if (next && next.id !== job.payload.webhookEventId) {
@@ -101,6 +87,7 @@ export function createJobHandlers(): JobHandlerRegistry {
           type: "PROCESS_EMAIL_WEBHOOK",
           payload: { webhookEventId: next.id },
           idempotencyKey: `webhook:${next.id}`,
+          maxAttempts: 12,
         });
       }
       return result;
@@ -108,23 +95,45 @@ export function createJobHandlers(): JobHandlerRegistry {
 
     async GENERATE_REPORT(job): Promise<JobResult> {
       const { renderReportForJob } = await import("@/lib/reports/service");
-      return renderReportForJob(job.payload.reportId);
+      return renderReportForJob(job);
+    },
+
+    async GENERATE_ACCOUNT_EXPORT(job): Promise<JobResult> {
+      const { generateAccountExport } = await import("@/lib/exports/service");
+      return generateAccountExport(job);
     },
 
     async DELETE_ACCOUNT_DATA(job): Promise<JobResult> {
       const actor = systemActor(job.id);
       await anonymiseDeletedAccount(actor, job.payload.userId);
-      return { message: "Account identifiers anonymised and pending jobs cancelled." };
+      let files = await listAccountFilesForErasure(job.payload.userId);
+      while (files.length > 0) {
+        await mapPool(files, 5, purgePrivateFile);
+        files = await listAccountFilesForErasure(job.payload.userId);
+      }
+      await finishAccountErasure(actor, job.payload.userId);
+      await recordAudit({
+        actor,
+        action: "account.deletion_completed",
+        resourceType: "user",
+        resourceId: job.payload.userId,
+        targetUserId: job.payload.userId,
+      });
+      return {
+        message:
+          "Personal content and stored files erased. Minimal pseudonymous audit and consent proof remains under the retention policy.",
+      };
     },
 
     async PURGE_EVIDENCE(job): Promise<JobResult> {
       const months = await getSetting("retentionEvidenceMonths");
       const cutoff = monthsAgo(new Date(), months);
-      const files = await listRetentionDueEvidence(cutoff, 100);
-      const storage = getStorage();
+      const files = [
+        ...(await listUnfinishedFilePurges(100)),
+        ...(await listRetentionDueEvidence(cutoff, 100)),
+      ];
       await mapPool(files, 5, async (file) => {
-        await storage.delete(file.storageKey);
-        await markEvidencePurged(file.id);
+        await purgePrivateFile(file);
       });
       return {
         message: `Purged ${files.length} evidence files.`,
@@ -134,27 +143,29 @@ export function createJobHandlers(): JobHandlerRegistry {
 
     async PURGE_TEMP_ID_FILES(job): Promise<JobResult> {
       const files = await listExpiredTemporaryEvidence(100);
-      const storage = getStorage();
       await mapPool(files, 5, async (file) => {
-        await storage.delete(file.storageKey);
-        await markEvidencePurged(file.id);
+        await purgePrivateFile(file);
       });
       return {
-        message: `Purged ${files.length} temporary identity files.`,
+        message: `Purged ${files.length} expired temporary files.`,
         ...recurringRepeat(job, RECURRING_INTERVAL_SECONDS.PURGE_TEMP_ID_FILES),
       };
     },
 
     async DEADLINE_WATCH(job): Promise<JobResult> {
-      const result = await runDeadlineWatch(job.payload.windowDays);
+      const result = await runDeadlineWatch(
+        job.payload.windowDays,
+        job,
+        job.payload.progress
+      );
       return {
-        ...result,
         ...recurringRepeat(job, RECURRING_INTERVAL_SECONDS.DEADLINE_WATCH),
+        ...result,
       };
     },
 
     async RECHECK_REMINDER(job): Promise<JobResult> {
-      return runRecheckReminder(job.payload.removalRequestId);
+      return runRecheckReminder(job.payload.removalRequestId, job);
     },
 
     async RETENTION_SWEEP(job): Promise<JobResult> {
@@ -163,8 +174,8 @@ export function createJobHandlers(): JobHandlerRegistry {
         return result;
       }
       return {
-        ...result,
         ...recurringRepeat(job, RECURRING_INTERVAL_SECONDS.RETENTION_SWEEP),
+        ...result,
       };
     },
   };

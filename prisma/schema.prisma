@@ -225,6 +225,14 @@ enum RequestStatus {
   FAILED
 }
 
+enum DeadlineBasis {
+  RECORDED_RECEIPT
+  DISPATCH_ESTIMATE
+  PROVIDER_DELIVERY_ESTIMATE
+  SIMULATED_DISPATCH
+  LEGACY_ESTIMATE
+}
+
 enum RequestEventType {
   CREATED
   STATUS_CHANGE
@@ -277,6 +285,7 @@ enum EvidenceKind {
   SCREENSHOT
   IDENTITY_DOCUMENT
   REPORT
+  ACCOUNT_EXPORT
   OTHER
 }
 
@@ -284,6 +293,14 @@ enum EvidenceEncryption {
   NONE
   SERVER_SIDE
   CLIENT_SIDE_AES_GCM
+  APPLICATION_AES_GCM
+}
+
+enum StorageObjectState {
+  UPLOADING
+  READY
+  PURGE_PENDING
+  PURGED
 }
 
 enum NotificationType {
@@ -300,6 +317,8 @@ enum NotificationType {
   ACCOUNT_SECURITY_EVENT
   FAIR_USE_LIMIT_REACHED
   HOUSEHOLD_CONSENT_UPDATE
+  REPORT_READY
+  ACCOUNT_EXPORT_READY
 }
 
 enum NotificationChannel {
@@ -339,12 +358,14 @@ enum JobType {
   DISPATCH_NOTIFICATION
   PROCESS_EMAIL_WEBHOOK
   GENERATE_REPORT
+  GENERATE_ACCOUNT_EXPORT
   DELETE_ACCOUNT_DATA
   PURGE_EVIDENCE
   PURGE_TEMP_ID_FILES
   DEADLINE_WATCH
   RECHECK_REMINDER
   RETENTION_SWEEP
+  VERIFY_AUDIT_CHAIN
 }
 
 enum JobStatus {
@@ -382,6 +403,15 @@ enum EmailStatus {
   SUPPRESSED
 }
 
+enum DispatchState {
+  PREPARED
+  DISPATCHING
+  ACCEPTED
+  AMBIGUOUS
+  RECONCILIATION_REQUIRED
+  CANCELLED
+}
+
 enum EmailProviderKind {
   MOCK
   SANDBOX
@@ -400,6 +430,18 @@ enum ReportFormat {
   PDF
 }
 
+enum AccountExportMode {
+  MASKED
+  SENSITIVE
+}
+
+enum AccountExportStatus {
+  PENDING
+  GENERATING
+  READY
+  FAILED
+}
+
 // ---------------------------------------------------------------------------
 // Auth.js core tables
 // ---------------------------------------------------------------------------
@@ -408,6 +450,9 @@ model User {
   id            String     @id @default(cuid())
   /// Always stored lowercase. Uniqueness is enforced case-insensitively.
   email         String     @unique
+  /// Legacy email becomes a non-deliverable account alias after backfill.
+  emailEnc      String?
+  emailBi       String?    @unique
   emailVerified DateTime?
   name          String?
   image         String?
@@ -436,11 +481,14 @@ model User {
   evidenceFiles      EvidenceFile[]
   notifications      Notification[]
   reports            Report[]
+  exports            AccountExport[]
   quota              UserQuota?
   adminActions       AdminAction[]      @relation("AdminActionActor")
   adminActionsTarget AdminAction[]      @relation("AdminActionTarget")
   householdConsents  HouseholdConsent[] @relation("HouseholdConsentRequester")
   outboundEmails     OutboundEmail[]
+  brokerResponses    BrokerResponse[]
+  inboundMailboxes   InboundMailbox[]
 
   @@index([status])
   @@index([role])
@@ -1008,6 +1056,21 @@ model RemovalRequest {
   legalBasisText     String
   deadlineDays       Int?
   deadlineAt         DateTime?
+  /// Inclusive response target date. deadlineAt is the first instant AFTER this local day.
+  deadlineOn         DateTime? @db.Date
+  deadlineAnchorOn   DateTime? @db.Date
+  deadlineBasis      DeadlineBasis?
+  deadlineIsEstimate Boolean @default(true)
+  deadlineTimezone   String?
+  deadlineNote       String?
+  deadlinePolicyVersion Int?
+  /// Pins the initial submitted message so follow-ups cannot restart the response clock.
+  deadlineSnapshotId String?
+  /// The target last warned about; a corrected response date can receive a fresh reminder.
+  deadlineWarningForAt DateTime?
+  /// The exact target and submitted-reminder count handled by the deadline watcher.
+  deadlineHandledForAt DateTime?
+  deadlineHandledFollowUpCount Int?
 
   manualReviewRequired   Boolean   @default(false)
   manualReviewReasons    String[]  @default([])
@@ -1026,6 +1089,8 @@ model RemovalRequest {
   approvedAt              DateTime?
   approvedByUserId        String?
   approvalConsentRecordId String?
+  approvedSnapshotId      String?
+  approvedEnvelopeHash    String?
 
   sentAt          DateTime?
   deliveredAt     DateTime?
@@ -1061,8 +1126,10 @@ model RemovalRequest {
   notifications  Notification[]
   consentRecords ConsentRecord[]
   outboundEmails OutboundEmail[]
+  manualSubmissions ManualSubmission[]
 
   @@index([userId, status])
+  @@index([userId, createdAt, id])
   @@index([profileId, status])
   @@index([brokerId, status])
   @@index([status, deadlineAt])
@@ -1104,8 +1171,14 @@ model RequestSnapshot {
   removalRequestId String
   version          Int
 
-  subject String
-  body    String
+  /// Empty for encrypted snapshots. Kept for the resumable legacy backfill.
+  subject String @default("")
+  body    String @default("")
+  payloadEnc String?
+  erasedAt DateTime?
+  envelopeVersion Int?
+  envelopeEnc String?
+  envelopeHash String?
 
   templateVersionId  String?
   legalRuleVersionId String?
@@ -1124,19 +1197,40 @@ model RequestSnapshot {
   updatedAt DateTime @updatedAt
 
   removalRequest RemovalRequest @relation(fields: [removalRequestId], references: [id], onDelete: Cascade)
+  manualSubmission ManualSubmission?
 
   @@unique([removalRequestId, version])
   @@index([contentHash])
 }
 
+/// A user-recorded submission of an approved snapshot through a manual channel.
+model ManualSubmission {
+  id String @id @default(cuid())
+  removalRequestId String
+  snapshotId String @unique
+  submittedOn DateTime @db.Date
+  receivedOn DateTime? @db.Date
+  evidenceFileId String?
+  recordedByUserId String
+  createdAt DateTime @default(now())
+  removalRequest RemovalRequest @relation(fields: [removalRequestId], references: [id], onDelete: Cascade)
+  snapshot RequestSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  evidenceFile EvidenceFile? @relation(fields: [evidenceFileId], references: [id], onDelete: SetNull)
+  @@index([removalRequestId, createdAt])
+}
+
 model BrokerResponse {
   id               String         @id @default(cuid())
-  removalRequestId String
-  brokerId         String
+  userId           String
+  removalRequestId String?
+  brokerId         String?
   receivedAt       DateTime
+  /// User-supplied calendar date for manually recorded correspondence.
+  receivedOn       DateTime? @db.Date
   channel          RequestChannel @default(EMAIL)
 
   fromAddress String?
+  fromAddressEnc String?
   subjectEnc  String?
   bodyEnc     String?
   bodyPreview String?
@@ -1145,6 +1239,15 @@ model BrokerResponse {
   classificationConfidence LegalConfidence              @default(LOW)
   classifiedBy             ActorType                    @default(SYSTEM)
   requiresUserAction       Boolean                      @default(false)
+  confirmedAt              DateTime?
+  confirmedById            String?
+  classificationRevision   Int @default(0)
+  appliedStatus            RequestStatus?
+  suggestedClassification  BrokerResponseClassification @default(UNCLEAR)
+  providerEventId          String? @unique
+  submissionKey            String? @unique
+  /// Versioned encrypted original provider/legacy metadata, never rendered as HTML.
+  metadataEnc              String?
 
   evidenceFileId String?
   rawMetadata    Json    @default("{}")
@@ -1154,11 +1257,26 @@ model BrokerResponse {
   deletedAt   DateTime?
   createdById String?
 
-  removalRequest RemovalRequest @relation(fields: [removalRequestId], references: [id], onDelete: Cascade)
-  broker         Broker         @relation(fields: [brokerId], references: [id])
+  user           User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  removalRequest RemovalRequest? @relation(fields: [removalRequestId], references: [id], onDelete: Cascade)
+  broker         Broker?         @relation(fields: [brokerId], references: [id])
+  webhookEvents  EmailWebhookEvent[]
 
   @@index([removalRequestId, receivedAt])
   @@index([classification])
+  @@index([userId, createdAt, id])
+}
+
+/// Random reply addresses belong to one account; message references never identify an owner.
+model InboundMailbox {
+  id String @id @default(cuid())
+  userId String
+  domain String
+  addressEnc String
+  addressBi String @unique
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([userId, domain])
 }
 
 // ---------------------------------------------------------------------------
@@ -1180,6 +1298,10 @@ model EvidenceFile {
 
   encryption      EvidenceEncryption @default(SERVER_SIDE)
   encryptionKeyId String?
+  storageState StorageObjectState @default(READY)
+  purgeRequestedAt DateTime?
+  purgedAt DateTime?
+  identityConsentRecordId String?
 
   filenameEnc    String?
   filenameMasked String?
@@ -1202,11 +1324,14 @@ model EvidenceFile {
   profile        UserProfile?    @relation(fields: [profileId], references: [id], onDelete: SetNull)
   removalRequest RemovalRequest? @relation(fields: [removalRequestId], references: [id], onDelete: SetNull)
   reports        Report[]
+  exports        AccountExport[]
+  manualSubmissions ManualSubmission[]
 
   @@index([userId, kind])
   @@index([removalRequestId])
   @@index([isTemporary, expiresAt])
   @@index([deletedAt])
+  @@index([storageState, updatedAt])
 }
 
 model Notification {
@@ -1227,6 +1352,13 @@ model Notification {
   dismissedAt DateTime?
   emailedAt   DateTime?
 
+  /// Email is separately opted in; legacy or in-app notifications have no consent ID.
+  emailConsentId String?
+  emailDispatchState DispatchState?
+  emailDispatchStartedAt DateTime?
+  emailLeaseToken String?
+  emailProvider EmailProviderKind?
+
   /// Stable key to avoid duplicate notifications for the same trigger.
   dedupeKey String?
   metadata  Json    @default("{}")
@@ -1241,6 +1373,7 @@ model Notification {
   @@unique([userId, dedupeKey])
   @@index([userId, readAt])
   @@index([userId, createdAt])
+  @@index([userId, createdAt, id])
 }
 
 model Report {
@@ -1253,6 +1386,17 @@ model Report {
   dateTo   DateTime
   format   ReportFormat @default(PDF)
   status   ReportStatus @default(PENDING)
+
+  /// Calendar labels stay in dateFrom/dateTo; these instants include the entire end day.
+  timeZone String @default("UTC")
+  rangeStartAt DateTime
+  rangeEndAt DateTime
+  submissionKey String? @unique
+  jobId String? @unique
+  generationLeaseToken String?
+  sourceCutoffAt DateTime?
+  processedRequests Int @default(0)
+  totalRequests Int @default(0)
 
   evidenceFileId String?
   /// Aggregated, non-sensitive summary rendered in the UI.
@@ -1267,9 +1411,38 @@ model Report {
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   profile      UserProfile?  @relation(fields: [profileId], references: [id], onDelete: SetNull)
   evidenceFile EvidenceFile? @relation(fields: [evidenceFileId], references: [id], onDelete: SetNull)
+  job BackgroundJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
 
   @@index([userId, status])
+  @@index([userId, createdAt, id])
   @@index([deletedAt])
+}
+
+/// Temporary owner-requested JSON exports. Never stores the exported plaintext.
+model AccountExport {
+  id String @id @default(cuid())
+  userId String
+  mode AccountExportMode
+  status AccountExportStatus @default(PENDING)
+  submissionKey String @unique
+  jobId String? @unique
+  generationLeaseToken String?
+  sourceCutoffAt DateTime?
+  processedRecords Int @default(0)
+  consentedAt DateTime?
+  consentVersion Int?
+  consentStatementHash String?
+  evidenceFileId String?
+  expiresAt DateTime?
+  generatedAt DateTime?
+  error String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job BackgroundJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  evidenceFile EvidenceFile? @relation(fields: [evidenceFileId], references: [id], onDelete: SetNull)
+  @@index([userId, createdAt, id])
 }
 
 // ---------------------------------------------------------------------------
@@ -1356,11 +1529,13 @@ model BackgroundJob {
   lockedAt       DateTime?
   lockedBy       String?
   lockExpiresAt  DateTime?
+  /// Fences every worker mutation; replaced on each claim and cleared on release.
+  leaseToken     String?
   attemptCount   Int       @default(0)
   maxAttempts    Int       @default(5)
   lastError      String?
   payloadJson    Json      @default("{}")
-  /// Unique per logical unit of work. Guarantees at-most-once side effects.
+  /// Unique per logical unit of work. Handlers must reconcile partial external effects.
   idempotencyKey String    @unique
 
   relatedUserId    String?
@@ -1373,12 +1548,46 @@ model BackgroundJob {
   updatedAt DateTime @updatedAt
 
   logs BackgroundJobLog[]
+  report Report?
+  accountExport AccountExport?
+  auditVerifications AuditChainVerification[]
 
   @@index([status, runAt])
   @@index([type, status])
   @@index([relatedUserId])
   @@index([relatedRequestId])
   @@index([lockExpiresAt])
+}
+
+/// Instance diagnostics only: no hostname, account identity or personal payload.
+model WorkerHeartbeat {
+  id String @id
+  startedAt DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  stoppedAt DateTime?
+
+  @@index([lastSeenAt])
+}
+
+/// The last complete checks are shown without scanning the audit log during a page read.
+model AuditChainVerification {
+  id String @id @default(cuid())
+  jobId String?
+  startedAt DateTime
+  completedAt DateTime @default(now())
+  firstSequence BigInt?
+  lastSequence BigInt?
+  lastHash String?
+  anchorHash String?
+  checkedCount Int
+  isValid Boolean
+  problemSequence BigInt?
+  problemKind String?
+
+  job BackgroundJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@index([completedAt, id])
+  @@index([jobId])
 }
 
 model BackgroundJobLog {
@@ -1421,12 +1630,23 @@ model OutboundEmail {
 
   fromAddress String
   replyTo     String?
+  replyToEnc  String?
   subjectEnc  String
   bodyHash    String
 
   /// Attempt counter used for the dedupe constraint together with purpose.
   attempt           Int     @default(1)
   providerMessageId String?
+  snapshotId String?
+  approvalEnvelopeHash String?
+  approvalConsentRecordId String?
+  dispatchState DispatchState @default(PREPARED)
+  dispatchToken String?
+  reconciledAt DateTime?
+  reconciledById String?
+  dispatchStartedAt DateTime?
+  lastDispatchAt DateTime?
+  idempotencyKey String? @unique
 
   sentAt       DateTime?
   deliveredAt  DateTime?
@@ -1457,22 +1677,31 @@ model EmailWebhookEvent {
   /// Provider event id, used for idempotent ingestion.
   eventId   String @unique
   eventType String
+  providerMessageId String?
 
-  payloadJson       Json
+  /// Empty for encrypted events; legacy values are migrated and cleared.
+  payloadJson       Json @default("{}")
+  payloadEnc        String?
+  ownerUserId       String?
   signatureVerified Boolean @default(false)
 
   receivedAt      DateTime  @default(now())
   processedAt     DateTime?
   processingError String?
   outboundEmailId String?
+  brokerResponseId String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   outboundEmail OutboundEmail? @relation(fields: [outboundEmailId], references: [id], onDelete: SetNull)
+  brokerResponse BrokerResponse? @relation(fields: [brokerResponseId], references: [id], onDelete: Cascade)
 
   @@index([processedAt])
   @@index([eventType, receivedAt])
+  @@index([ownerUserId])
+  @@index([brokerResponseId])
+  @@index([providerMessageId, processedAt])
 }
 
 // ---------------------------------------------------------------------------

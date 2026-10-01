@@ -7,85 +7,88 @@
  *  - queues a follow-up draft that still requires approval,
  *  - reminds the user to re-check a broker listing themselves (no scraping).
  *
- * Side effects are enqueued before a status change that would hide the request
- * from the next pass, so a failed enqueue is retried. Recheck jobs that fire
- * after a terminal status are a no-op.
+ * State, queued preparation and notification commit together under a lease.
+ * Reminders recheck the current state inside their publication transaction.
  */
-import type { RequestStatus } from "@prisma/client";
-
 import { recordAudit } from "@/lib/audit/service";
 import { getSetting } from "@/lib/config/runtimeSettings";
 import { isAppError } from "@/lib/core/errors";
-import { createNotification } from "@/lib/db/repositories/notifications";
 import {
-  getOwnedRequest,
+  scheduleOverdueRequest,
+  recordDeadlineWarning,
+  recordRecheckReminder,
+} from "@/lib/db/repositories/requestDeadlines";
+import {
   listDeadlineWarningRequests,
   listOverdueWaitingRequests,
 } from "@/lib/db/repositories/requests";
-import { enqueueJob } from "@/lib/jobs/queue";
+import type { DeadlineCursor } from "@/lib/db/repositories/requests";
+import { checkpointDeadlineWatchProgress } from "@/lib/db/repositories/deadlineProgress";
+import { hasCurrentLease } from "@/lib/db/repositories/jobs";
+import { parseJobPayload } from "./payloads";
 import { createLogger } from "@/lib/observability/logger";
 import { systemActor } from "@/lib/permissions/actor";
-import { markNoResponse } from "@/lib/requests/lifecycle";
-import { WAITING_STATUSES } from "@/lib/requests/stateMachine";
 
 import { daysFromNow } from "./datetime";
-import type { JobResult } from "./types";
+import type { JobResult, JobLease, DeadlineWatchProgress } from "./types";
 
 const log = createLogger("jobs.deadlines");
 const BATCH = 50;
 const MAX_BATCHES = 20;
 
-const RECHECK_REMINDER_STATUSES = new Set<RequestStatus>([
-  ...WAITING_STATUSES,
-  "NO_RESPONSE",
-  "FOLLOW_UP_SCHEDULED",
-  "ESCALATION_RECOMMENDED",
-  "PARTIALLY_COMPLETED",
-]);
+export { isRecheckReminderApplicable } from "@/lib/requests/reminders";
 
-export function isRecheckReminderApplicable(status: RequestStatus): boolean {
-  return RECHECK_REMINDER_STATUSES.has(status);
-}
-
-export async function runDeadlineWatch(windowDays: number): Promise<JobResult> {
-  const now = new Date();
+export async function runDeadlineWatch(
+  windowDays: number,
+  job: JobLease,
+  savedProgress?: DeadlineWatchProgress
+): Promise<JobResult> {
+  const input = parseJobPayload("DEADLINE_WATCH", {
+    windowDays,
+    progress: savedProgress,
+  });
+  const now = input.progress ? new Date(input.progress.now) : new Date();
   const warningDays = await getSetting("followUpDeadlineWarningDays");
   const firstReminderDays = await getSetting("followUpFirstReminderDays");
-  const actor = systemActor("deadline-watch");
-  const warningBefore = daysFromNow(now, Math.min(windowDays, warningDays));
+  const maxFollowUps = await getSetting("followUpMaxAttempts");
+  const actor = systemActor(job.id);
+  const warningBefore = input.progress
+    ? new Date(input.progress.warningBefore)
+    : daysFromNow(now, Math.min(windowDays, warningDays));
+  const progress: DeadlineWatchProgress = input.progress ?? {
+    now: now.toISOString(),
+    warningBefore: warningBefore.toISOString(),
+    warningsDone: false,
+  };
+  const resumeCursor = (
+    cursor: DeadlineWatchProgress["warningAfter"]
+  ): DeadlineCursor | undefined =>
+    cursor ? { id: cursor.id, deadlineAt: new Date(cursor.deadlineAt) } : undefined;
+  const stopped = {
+    message: "Deadline scan stopped because its worker lease is no longer current.",
+  };
 
   let warned = 0;
-  for (let i = 0; i < MAX_BATCHES; i += 1) {
+  let warningCursor = resumeCursor(progress.warningAfter);
+  for (let i = 0; !progress.warningsDone && i < MAX_BATCHES; i += 1) {
+    if (!(await hasCurrentLease(job))) return stopped;
     const warnings = await listDeadlineWarningRequests({
       now,
       warningBefore,
       take: BATCH,
+      ...(warningCursor ? { after: warningCursor } : {}),
     });
-    if (warnings.length === 0) break;
     for (const request of warnings) {
       try {
-        const notification = await createNotification({
-          user: { connect: { id: request.userId } },
-          profile: { connect: { id: request.profileId } },
-          removalRequest: { connect: { id: request.id } },
-          type: "DEADLINE_APPROACHING",
-          channel: "EMAIL",
-          severity: "WARNING",
-          title: "Response date approaching",
-          body: "A broker request is approaching the response date recorded for it. This is a reminder, not a guarantee that the broker will answer.",
-          actionUrl: `/requests/${request.id}`,
-          dedupeKey: `deadline-warning:${request.id}`,
-        });
-        if (notification.emailedAt === null && notification.channel === "EMAIL") {
-          await enqueueJob({
-            type: "DISPATCH_NOTIFICATION",
-            payload: { notificationId: notification.id },
-            idempotencyKey: `notify:${notification.id}`,
-            relatedUserId: request.userId,
-            relatedRequestId: request.id,
-          });
-        }
-        warned += 1;
+        if (
+          await recordDeadlineWarning(actor, {
+            requestId: request.id,
+            now,
+            warningBefore,
+            job,
+          })
+        )
+          warned += 1;
       } catch (error) {
         log.warn(
           {
@@ -96,41 +99,37 @@ export async function runDeadlineWatch(windowDays: number): Promise<JobResult> {
         );
       }
     }
-    if (warnings.length < BATCH) break;
+    progress.warningsDone = warnings.length < BATCH;
+    if (warnings.length === BATCH) {
+      const last = warnings.at(-1)!;
+      warningCursor = { deadlineAt: last.deadlineAt!, id: last.id };
+      progress.warningAfter = { deadlineAt: last.deadlineAt!.toISOString(), id: last.id };
+    }
+    if (!(await checkpointDeadlineWatchProgress(job, progress))) return stopped;
   }
 
   const seenOverdue = new Set<string>();
+  let overdueCursor = resumeCursor(progress.overdueAfter);
+  let overdueDone = false;
   let marked = 0;
   let followUpsQueued = 0;
   for (let i = 0; i < MAX_BATCHES; i += 1) {
-    const overdue = await listOverdueWaitingRequests(now, BATCH);
+    if (!(await hasCurrentLease(job))) return stopped;
+    const overdue = await listOverdueWaitingRequests(now, BATCH, overdueCursor);
     const fresh = overdue.filter((request) => !seenOverdue.has(request.id));
-    if (fresh.length === 0) break;
+    if (fresh.length === 0 && overdue.length > 0) break;
     for (const request of fresh) {
       seenOverdue.add(request.id);
       try {
-        const followUpNumber = request.followUpCount + 1;
-        const created = await enqueueJob({
-          type: "PREPARE_FOLLOW_UP",
-          payload: { removalRequestId: request.id, followUpNumber },
-          idempotencyKey: `follow-up:${request.id}:${followUpNumber}`,
-          runAt: daysFromNow(now, firstReminderDays),
-          relatedUserId: request.userId,
-          relatedRequestId: request.id,
+        const result = await scheduleOverdueRequest(actor, {
+          requestId: request.id,
+          now,
+          firstReminderDays,
+          maxFollowUps,
+          job,
         });
-        if (created.created) followUpsQueued += 1;
-
-        await enqueueJob({
-          type: "RECHECK_REMINDER",
-          payload: { removalRequestId: request.id },
-          idempotencyKey: `recheck:${request.id}`,
-          runAt: daysFromNow(now, firstReminderDays),
-          relatedUserId: request.userId,
-          relatedRequestId: request.id,
-        });
-
-        await markNoResponse(actor, request.id);
-        marked += 1;
+        if (result.marked) marked += 1;
+        if (result.queued) followUpsQueued += 1;
       } catch (error) {
         log.warn(
           {
@@ -141,61 +140,43 @@ export async function runDeadlineWatch(windowDays: number): Promise<JobResult> {
         );
       }
     }
+    overdueDone = overdue.length < BATCH;
+    if (overdue.length === BATCH) {
+      const last = overdue.at(-1)!;
+      overdueCursor = { deadlineAt: last.deadlineAt!, id: last.id };
+      progress.overdueAfter = { deadlineAt: last.deadlineAt!.toISOString(), id: last.id };
+    }
+    if (!(await checkpointDeadlineWatchProgress(job, progress))) return stopped;
+    if (overdueDone) break;
   }
+
+  const complete = progress.warningsDone && overdueDone;
+  if (complete && !(await checkpointDeadlineWatchProgress(job))) return stopped;
 
   log.info({ warned, marked, followUpsQueued }, "Deadline watch pass complete");
   return {
     message: "Deadline watch pass complete.",
     metadata: { warned, marked, followUpsQueued },
+    ...(!complete ? { repeatAfterSeconds: 1 } : {}),
   };
 }
 
-export async function runRecheckReminder(removalRequestId: string): Promise<JobResult> {
-  const actor = systemActor(`recheck:${removalRequestId}`);
-  let request;
-  try {
-    request = await getOwnedRequest(actor, removalRequestId);
-  } catch (error) {
-    if (isAppError(error) && error.code === "NOT_FOUND") {
-      return { message: "Request no longer exists." };
-    }
-    throw error;
-  }
-
-  if (!isRecheckReminderApplicable(request.status)) {
+export async function runRecheckReminder(
+  removalRequestId: string,
+  job: JobLease
+): Promise<JobResult> {
+  const actor = systemActor(job.id);
+  const created = await recordRecheckReminder(actor, removalRequestId, job);
+  if (!created)
     return {
-      message: `Recheck reminder skipped; the request is ${request.status}.`,
+      message: "This reminder is no longer applicable or its worker lease expired.",
     };
-  }
-
-  const notification = await createNotification({
-    user: { connect: { id: request.userId } },
-    profile: { connect: { id: request.profileId } },
-    removalRequest: { connect: { id: request.id } },
-    type: "RECHECK_RECOMMENDED",
-    channel: "EMAIL",
-    severity: "ACTION_REQUIRED",
-    title: "Recheck this broker listing",
-    body: "The response date for this request has passed. Open the broker's own published page and check whether the listing is still there. This product does not scrape or log in on your behalf.",
-    actionUrl: `/requests/${request.id}`,
-    dedupeKey: `recheck:${request.id}`,
-  });
-
-  await enqueueJob({
-    type: "DISPATCH_NOTIFICATION",
-    payload: { notificationId: notification.id },
-    idempotencyKey: `notify:${notification.id}`,
-    relatedUserId: request.userId,
-    relatedRequestId: request.id,
-  });
-
   await recordAudit({
     actor,
     action: "request.status_changed",
     resourceType: "removal_request",
-    resourceId: request.id,
+    resourceId: removalRequestId,
     metadata: { reminder: "recheck" },
   });
-
   return { message: "Recheck reminder recorded." };
 }

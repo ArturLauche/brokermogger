@@ -9,6 +9,11 @@
 import type { UserRole, UserStatus } from "@prisma/client";
 
 import { prisma } from "@/lib/db/client";
+import {
+  accountEmailIndex,
+  encryptedAccountEmail,
+  readAccountEmail,
+} from "@/lib/security/accountEmail";
 
 export interface AccountSummary {
   id: string;
@@ -19,28 +24,44 @@ export interface AccountSummary {
   emailVerified: Date | null;
   lastLoginAt: Date | null;
   deletedAt: Date | null;
+  deletionRequestedAt: Date | null;
 }
 
 const ACCOUNT_SELECT = {
   id: true,
   email: true,
+  emailEnc: true,
   name: true,
   role: true,
   status: true,
   emailVerified: true,
   lastLoginAt: true,
   deletedAt: true,
+  deletionRequestedAt: true,
 } as const;
 
 export async function findAccountById(userId: string): Promise<AccountSummary | null> {
-  return prisma.user.findUnique({ where: { id: userId }, select: ACCOUNT_SELECT });
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: ACCOUNT_SELECT,
+  });
+  return user ? readAccountEmail(user) : null;
 }
 
 export async function findAccountByEmail(email: string): Promise<AccountSummary | null> {
-  return prisma.user.findUnique({
-    where: { email: email.trim().toLowerCase() },
+  const user = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { emailBi: accountEmailIndex(email) },
+        {
+          emailEnc: null,
+          email: { equals: email.trim().toLowerCase(), mode: "insensitive" },
+        },
+      ],
+    },
     select: ACCOUNT_SELECT,
   });
+  return user ? readAccountEmail(user) : null;
 }
 
 /**
@@ -60,7 +81,7 @@ export async function initialiseNewAccount(input: {
     prisma.user.update({
       where: { id: input.userId },
       data: {
-        email,
+        ...encryptedAccountEmail(input.userId, email),
         ...(input.promoteToInstanceAdmin ? { role: "INSTANCE_ADMIN" as UserRole } : {}),
       },
       select: ACCOUNT_SELECT,
@@ -73,7 +94,7 @@ export async function initialiseNewAccount(input: {
     }),
   ]);
 
-  return user;
+  return readAccountEmail(user);
 }
 
 /**
@@ -85,11 +106,12 @@ export async function markSignedIn(
   when = new Date()
 ): Promise<AccountSummary | null> {
   try {
-    return await prisma.user.update({
+    const user = await prisma.user.update({
       where: { id: userId },
       data: { lastLoginAt: when },
       select: ACCOUNT_SELECT,
     });
+    return readAccountEmail(user);
   } catch {
     return null;
   }

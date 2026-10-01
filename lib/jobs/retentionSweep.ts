@@ -10,9 +10,10 @@ import { getSetting } from "@/lib/config/runtimeSettings";
 import {
   countExpiredTemporaryEvidence,
   countRetentionDueEvidence,
+  countUnfinishedFilePurges,
   listExpiredTemporaryEvidence,
   listRetentionDueEvidence,
-  markEvidencePurged,
+  listUnfinishedFilePurges,
 } from "@/lib/db/repositories/evidence";
 import {
   countClosedRequestsDueForRetention,
@@ -21,6 +22,10 @@ import {
 } from "@/lib/db/repositories/requests";
 import {
   countAuditLogsOlderThan,
+  countAuditVerificationsOlderThan,
+  deleteAuditVerificationsOlderThan,
+  countExpiredUnmatchedDelivery,
+  expireUnmatchedDelivery,
   countConsentRecordsOlderThan,
   countJobLogsOlderThan,
   countNotificationsOlderThan,
@@ -37,7 +42,7 @@ import {
 import { createLogger } from "@/lib/observability/logger";
 import { systemActor } from "@/lib/permissions/actor";
 import { countExpiredRateLimitBuckets, purgeExpiredBuckets } from "@/lib/rateLimit";
-import { getStorage } from "@/lib/storage";
+import { purgePrivateFile } from "@/lib/storage/privateFiles";
 import { mapPool } from "@/lib/async/pool";
 
 import { daysAgo, monthsAgo } from "./datetime";
@@ -77,6 +82,7 @@ export async function runRetentionSweep(input: { dryRun: boolean }): Promise<Job
 
   const counts = {
     evidence: 0,
+    unfinishedFilePurgesRemaining: 0,
     temporaryIdentity: 0,
     closedRequests: 0,
     closedRequestSnapshots: 0,
@@ -85,12 +91,18 @@ export async function runRetentionSweep(input: { dryRun: boolean }): Promise<Job
     notifications: 0,
     outboundEmail: 0,
     webhookEvents: 0,
+    expiredUnmatchedDelivery: 0,
     auditLogs: 0,
+    auditVerifications: 0,
     consentRecords: 0,
     rateLimitBuckets: 0,
   };
 
   if (input.dryRun) {
+    counts.unfinishedFilePurgesRemaining = await countUnfinishedFilePurges();
+    counts.expiredUnmatchedDelivery = await countExpiredUnmatchedDelivery(
+      daysAgo(now, 1)
+    );
     const [
       evidence,
       temporaryIdentity,
@@ -100,6 +112,7 @@ export async function runRetentionSweep(input: { dryRun: boolean }): Promise<Job
       outboundEmail,
       webhookEvents,
       auditLogs,
+      auditVerifications,
       consentRecords,
       rateLimitBuckets,
     ] = await Promise.all([
@@ -111,6 +124,7 @@ export async function runRetentionSweep(input: { dryRun: boolean }): Promise<Job
       countOutboundEmailsOlderThan(emailCutoff),
       countProcessedWebhookEventsOlderThan(emailCutoff),
       countAuditLogsOlderThan(auditCutoff),
+      countAuditVerificationsOlderThan(auditCutoff),
       countConsentRecordsOlderThan(consentCutoff),
       countExpiredRateLimitBuckets(now),
     ]);
@@ -123,6 +137,7 @@ export async function runRetentionSweep(input: { dryRun: boolean }): Promise<Job
       outboundEmail,
       webhookEvents,
       auditLogs,
+      auditVerifications,
       consentRecords,
       rateLimitBuckets,
     });
@@ -133,10 +148,18 @@ export async function runRetentionSweep(input: { dryRun: boolean }): Promise<Job
     };
   }
 
-  const storage = getStorage();
-
-  counts.evidence = await purgeEvidenceBatch(evidenceCutoff, storage);
-  counts.temporaryIdentity = await purgeTemporaryIdentity(storage);
+  counts.expiredUnmatchedDelivery = await drainCount((take) =>
+    expireUnmatchedDelivery(daysAgo(now, 1), take)
+  );
+  const unfinishedPurged = await drain(
+    () => listUnfinishedFilePurges(BATCH),
+    async (files) => {
+      await mapPool(files, 5, purgePrivateFile);
+      return files.length;
+    }
+  );
+  counts.evidence = unfinishedPurged + (await purgeEvidenceBatch(evidenceCutoff));
+  counts.temporaryIdentity = await purgeTemporaryIdentity();
   counts.closedRequests = await drain(
     () => listClosedRequestsDueForRetention(closedCutoff, BATCH),
     async (rows) => {
@@ -160,10 +183,14 @@ export async function runRetentionSweep(input: { dryRun: boolean }): Promise<Job
   counts.auditLogs = await drainCount((take) =>
     deleteAuditLogsOlderThan(auditCutoff, take)
   );
+  counts.auditVerifications = await drainCount((take) =>
+    deleteAuditVerificationsOlderThan(auditCutoff, take)
+  );
   counts.consentRecords = await drainCount((take) =>
     deleteConsentRecordsOlderThan(consentCutoff, take)
   );
   counts.rateLimitBuckets = await purgeExpiredBuckets(now);
+  counts.unfinishedFilePurgesRemaining = await countUnfinishedFilePurges();
 
   await recordAudit({
     actor: systemActor("retention-sweep"),
@@ -172,37 +199,38 @@ export async function runRetentionSweep(input: { dryRun: boolean }): Promise<Job
     metadata: counts,
   });
 
-  log.info(counts, "Retention sweep complete");
-  return { message: "Retention sweep complete.", metadata: counts };
+  const message =
+    counts.unfinishedFilePurgesRemaining > 0
+      ? "Retention pass finished; unfinished file purges remain queued."
+      : "Retention sweep complete.";
+  log.info(counts, message);
+  return {
+    message,
+    metadata: counts,
+    ...(counts.unfinishedFilePurgesRemaining > 0 ? { repeatAfterSeconds: 1 } : {}),
+  };
 }
 
-async function purgeEvidenceBatch(
-  cutoff: Date,
-  storage: ReturnType<typeof getStorage>
-): Promise<number> {
+async function purgeEvidenceBatch(cutoff: Date): Promise<number> {
   let purged = 0;
   for (let i = 0; i < MAX_BATCHES; i += 1) {
     const files = await listRetentionDueEvidence(cutoff, BATCH);
     if (files.length === 0) break;
     await mapPool(files, 5, async (file) => {
-      await storage.delete(file.storageKey);
-      await markEvidencePurged(file.id);
+      await purgePrivateFile(file);
     });
     purged += files.length;
   }
   return purged;
 }
 
-async function purgeTemporaryIdentity(
-  storage: ReturnType<typeof getStorage>
-): Promise<number> {
+async function purgeTemporaryIdentity(): Promise<number> {
   let purged = 0;
   for (let i = 0; i < MAX_BATCHES; i += 1) {
     const files = await listExpiredTemporaryEvidence(BATCH);
     if (files.length === 0) break;
     await mapPool(files, 5, async (file) => {
-      await storage.delete(file.storageKey);
-      await markEvidencePurged(file.id);
+      await purgePrivateFile(file);
     });
     purged += files.length;
   }

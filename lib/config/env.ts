@@ -51,6 +51,13 @@ const rawSchema = z.object({
   EMAIL_REPLY_TO: z.email().optional(),
   RESEND_API_KEY: z.string().optional(),
   RESEND_WEBHOOK_SECRET: z.string().optional(),
+  RESEND_RECEIVING_DOMAIN: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .max(253)
+    .regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/)
+    .optional(),
   EMAIL_SANDBOX_REDIRECT_TO: z.email().optional().or(z.literal("")),
   MOCK_EMAIL_DIR: z.string().default(".mail"),
   ALLOW_EXTERNAL_SENDING: booleanFromString.default(false),
@@ -68,6 +75,7 @@ const rawSchema = z.object({
   JOB_BATCH_SIZE: z.coerce.number().int().min(1).max(100).default(5),
   JOB_LOCK_SECONDS: z.coerce.number().int().min(10).max(3600).default(300),
   JOB_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(5),
+  WORKER_HEALTH_FILE: z.string().optional(),
   CRON_SECRET: z.string().optional(),
 
   METRICS_TOKEN: z.string().optional(),
@@ -113,12 +121,20 @@ function parseKeyring(raw: string): EncryptionKeyEntry[] {
     const separatorIndex = trimmed.indexOf(":");
     if (separatorIndex <= 0) {
       throw new Error(
-        `ENCRYPTION_KEYS entry "${trimmed}" is malformed. Expected "<keyId>:<base64 key>".`
+        'ENCRYPTION_KEYS contains a malformed entry. Expected "<keyId>:<base64 key>".'
       );
     }
 
     const keyId = trimmed.slice(0, separatorIndex);
-    const material = Buffer.from(trimmed.slice(separatorIndex + 1), "base64");
+    if (
+      !/^[A-Za-z0-9_-]{1,64}$/.test(keyId) ||
+      entries.some((entry) => entry.keyId === keyId)
+    ) {
+      throw new Error(
+        "ENCRYPTION_KEYS must use unique key IDs containing only letters, numbers, underscores or hyphens (up to 64 characters)."
+      );
+    }
+    const material = decodeKey(trimmed.slice(separatorIndex + 1), "ENCRYPTION_KEYS");
 
     if (material.byteLength !== 32) {
       throw new Error(
@@ -136,8 +152,32 @@ function parseKeyring(raw: string): EncryptionKeyEntry[] {
   return entries;
 }
 
+function decodeKey(value: string, field: string): Buffer {
+  const key = Buffer.from(value, "base64");
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value) || key.toString("base64") !== value) {
+    throw new Error(`${field} must contain canonical base64 key material.`);
+  }
+  return key;
+}
+
+function isExampleKey(key: Buffer): boolean {
+  return (
+    key.every((byte) => byte === key[0]) ||
+    /dev-only|test-|do-not-use|placeholder/i.test(key.toString("utf8"))
+  );
+}
+
 function crossFieldChecks(parsed: RawEnv): string[] {
   const problems: string[] = [];
+
+  if (
+    parsed.RESEND_RECEIVING_DOMAIN &&
+    (!parsed.RESEND_API_KEY || !parsed.RESEND_WEBHOOK_SECRET)
+  ) {
+    problems.push(
+      "RESEND_RECEIVING_DOMAIN requires RESEND_API_KEY and RESEND_WEBHOOK_SECRET for authenticated content retrieval."
+    );
+  }
 
   if (parsed.EMAIL_PROVIDER === "resend") {
     if (!parsed.RESEND_API_KEY) {
@@ -207,6 +247,13 @@ function readEnvFlag(name: string): boolean {
 
 function buildEnv(): AppEnv {
   const skipValidation = readEnvFlag("SKIP_ENV_VALIDATION");
+  // Read dynamically so the build phase is not compiled into the runtime bundle.
+  const phaseName = "NEXT_PHASE";
+  if (skipValidation && process.env[phaseName] !== "phase-production-build") {
+    throw new Error(
+      "SKIP_ENV_VALIDATION is only permitted while compiling with next build. Remove it from the runtime environment."
+    );
+  }
   const source: NodeJS.ProcessEnv = skipValidation
     ? { ...PLACEHOLDER_ENV, ...process.env }
     : process.env;
@@ -241,9 +288,21 @@ function buildEnv(): AppEnv {
     );
   }
 
-  const blindIndexKey = Buffer.from(parsed.BLIND_INDEX_KEY, "base64");
+  const blindIndexKey = decodeKey(parsed.BLIND_INDEX_KEY, "BLIND_INDEX_KEY");
   if (blindIndexKey.byteLength < 32) {
     throw new Error("BLIND_INDEX_KEY must decode to at least 32 bytes.");
+  }
+  if (!skipValidation && parsed.APP_ENV === "production") {
+    if (keyring.some((entry) => isExampleKey(entry.key)) || isExampleKey(blindIndexKey)) {
+      throw new Error(
+        "Encryption and blind-index keys must not use example, test or build placeholder material in production."
+      );
+    }
+    if (/placeholder|test-|build-time/i.test(parsed.AUTH_SECRET)) {
+      throw new Error(
+        "AUTH_SECRET must not use a test or build placeholder in production."
+      );
+    }
   }
 
   return {

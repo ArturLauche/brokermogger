@@ -4,22 +4,93 @@
 import type { EvidenceKind, Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db/client";
-import { NotFoundError } from "@/lib/core/errors";
+import { AppError, NotFoundError } from "@/lib/core/errors";
 import type { ActorContext } from "@/lib/permissions/actor";
-import { requirePermission } from "@/lib/permissions/policy";
+import { isCrossAccountAccess, requirePermission } from "@/lib/permissions/policy";
+import { recordAuditOrThrow } from "@/lib/audit/service";
+import { invalidateAccountExportsInTx } from "./accountExports";
+import { lockActiveAccount } from "./access";
+import { evidenceListSchema } from "@/lib/evidence/queries";
+import { parseWithSchema } from "@/lib/validation/form";
+import { entityIdSchema } from "@/lib/validation/ids";
+import { createdBeforeCursor, cursorPage } from "@/lib/pagination";
 
-export async function listOwnedEvidence(actor: ActorContext, profileId: string | null) {
+export async function listOwnedEvidence(
+  actor: ActorContext,
+  profileId: string | null,
+  raw: unknown = {}
+) {
   requirePermission(actor, "evidence:read", { ownerUserId: actor.userId });
-  return prisma.evidenceFile.findMany({
-    where: {
-      userId: actor.userId,
-      deletedAt: null,
-      ...(profileId ? { profileId } : {}),
-    },
-    include: { removalRequest: { include: { broker: true } } },
-    orderBy: { createdAt: "desc" },
-    take: 100,
-  });
+  const input = parseWithSchema(evidenceListSchema, raw);
+  const ownedProfile =
+    !profileId ||
+    Boolean(
+      await prisma.userProfile.findFirst({
+        where: {
+          id: parseWithSchema(entityIdSchema, profileId),
+          ownerUserId: actor.userId,
+          deletedAt: null,
+        },
+        select: { id: true },
+      })
+    );
+  const now = new Date();
+  const where: Prisma.EvidenceFileWhereInput = {
+    userId: actor.userId,
+    user: { status: "ACTIVE", deletionRequestedAt: null },
+    deletedAt: null,
+    storageState: "READY",
+    kind: input.kind === "all" ? { not: "ACCOUNT_EXPORT" } : input.kind,
+    ...(input.requestId ? { removalRequestId: input.requestId } : {}),
+    ...(!ownedProfile ? { id: { in: [] } } : {}),
+    AND: [
+      ...(profileId ? [{ OR: [{ profileId }, { profileId: null }] }] : []),
+      ...(input.expiry === "available"
+        ? [{ OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }]
+        : input.expiry === "expired"
+          ? [{ expiresAt: { lte: now } }]
+          : []),
+      ...(input.search
+        ? [
+            {
+              OR: [
+                {
+                  filenameMasked: {
+                    contains: input.search,
+                    mode: "insensitive" as const,
+                  },
+                },
+                {
+                  removalRequest: {
+                    broker: {
+                      legalName: { contains: input.search, mode: "insensitive" as const },
+                    },
+                  },
+                },
+              ],
+            },
+          ]
+        : []),
+    ],
+  };
+  const [rows, total] = await Promise.all([
+    prisma.evidenceFile.findMany({
+      where: { AND: [where, createdBeforeCursor(input.cursor)] },
+      select: {
+        id: true,
+        createdAt: true,
+        kind: true,
+        expiresAt: true,
+        byteSize: true,
+        filenameMasked: true,
+        removalRequest: { select: { id: true, broker: { select: { legalName: true } } } },
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: input.limit + 1,
+    }),
+    prisma.evidenceFile.count({ where }),
+  ]);
+  return { ...cursorPage(rows, input.limit), total };
 }
 
 export async function getOwnedEvidence(actor: ActorContext, evidenceId: string) {
@@ -30,6 +101,16 @@ export async function getOwnedEvidence(actor: ActorContext, evidenceId: string) 
     throw new NotFoundError("This file does not exist.");
   }
   requirePermission(actor, "evidence:read", { ownerUserId: file.userId });
+  if (isCrossAccountAccess(actor, { ownerUserId: file.userId })) {
+    await recordAuditOrThrow({
+      actor,
+      action: "admin.user_data_viewed",
+      resourceType: "evidence_file",
+      resourceId: file.id,
+      targetUserId: file.userId,
+    });
+    return { ...file, filenameEnc: null, metadata: {} };
+  }
   return file;
 }
 
@@ -39,26 +120,240 @@ export async function getOwnedEvidenceForDownload(
 ) {
   const file = await getOwnedEvidence(actor, evidenceId);
   requirePermission(actor, "evidence:download", { ownerUserId: file.userId });
+  if (
+    file.storageState !== "READY" ||
+    file.purgedAt ||
+    (file.expiresAt && file.expiresAt <= new Date())
+  ) {
+    throw new NotFoundError("This file is expired or no longer available.");
+  }
+  const owner = await prisma.user.findFirst({
+    where: {
+      id: file.userId,
+      status: "ACTIVE",
+      deletedAt: null,
+      deletionRequestedAt: null,
+    },
+    select: { id: true },
+  });
+  if (!owner) throw new NotFoundError("This file is no longer available.");
   return file;
 }
 
-export async function createEvidenceFile(data: Prisma.EvidenceFileCreateInput) {
-  return prisma.evidenceFile.create({ data });
+export async function scheduleOwnedEvidencePurge(actor: ActorContext, id: string) {
+  const ref = await prisma.evidenceFile.findUnique({
+    where: { id },
+    select: { userId: true },
+  });
+  if (!ref) throw new NotFoundError("This file does not exist.");
+  requirePermission(actor, "evidence:delete", { ownerUserId: ref.userId });
+  return prisma.$transaction(async (tx) => {
+    await lockActiveAccount(tx, ref.userId);
+    const file = await tx.evidenceFile.findUniqueOrThrow({ where: { id } });
+    if (file.kind !== "ACCOUNT_EXPORT")
+      await invalidateAccountExportsInTx(tx, file.userId);
+    return tx.evidenceFile.update({
+      where: { id },
+      data: {
+        storageState: "PURGE_PENDING",
+        deletedAt: new Date(),
+        purgeRequestedAt: new Date(),
+      },
+    });
+  });
+}
+
+export async function hasPendingVerification(actor: ActorContext, requestId: string) {
+  const request = await prisma.removalRequest.findFirst({
+    where: { id: requestId, deletedAt: null },
+    select: { userId: true },
+  });
+  if (!request) throw new NotFoundError("This request does not exist.");
+  requirePermission(actor, "evidence:upload", { ownerUserId: request.userId });
+  return Boolean(
+    await prisma.removalRequest.findFirst({
+      where: {
+        id: requestId,
+        status: "BROKER_REQUESTED_VERIFICATION",
+        responses: {
+          some: {
+            classification: "VERIFICATION_REQUESTED",
+            confirmedAt: { not: null },
+            deletedAt: null,
+          },
+        },
+      },
+      select: { id: true },
+    })
+  );
+}
+
+export interface PrivateFileIntent {
+  id: string;
+  userId: string;
+  profileId: string | null;
+  removalRequestId: string | null;
+  kind: EvidenceKind;
+  storageKey: string;
+  storageBackend: string;
+  contentType: string;
+  byteSize: number;
+  checksumSha256: string;
+  encryptionKeyId: string;
+  filenameEnc: string;
+  filenameMasked: string;
+  expiresAt: Date | null;
+  identityConsentRecordId: string | null;
+}
+
+export async function createPrivateFileIntent(
+  actor: ActorContext,
+  input: PrivateFileIntent
+) {
+  requirePermission(actor, "evidence:upload", { ownerUserId: input.userId });
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT 1 FROM "User" WHERE "id" = ${input.userId} FOR UPDATE`;
+    const owner = await tx.user.findFirst({
+      where: {
+        id: input.userId,
+        status: "ACTIVE",
+        deletionRequestedAt: null,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (!owner)
+      throw new AppError({ code: "FORBIDDEN", message: "This account is not active." });
+    if (
+      input.profileId &&
+      !(await tx.userProfile.findFirst({
+        where: { id: input.profileId, ownerUserId: input.userId, deletedAt: null },
+        select: { id: true },
+      }))
+    ) {
+      throw new NotFoundError("This profile does not exist.");
+    }
+    if (
+      input.removalRequestId &&
+      !(await tx.removalRequest.findFirst({
+        where: {
+          id: input.removalRequestId,
+          userId: input.userId,
+          ...(input.profileId ? { profileId: input.profileId } : {}),
+          deletedAt: null,
+        },
+        select: { id: true },
+      }))
+    ) {
+      throw new NotFoundError("This request does not exist.");
+    }
+    if (input.kind === "IDENTITY_DOCUMENT") {
+      const verification =
+        input.removalRequestId &&
+        (await tx.removalRequest.findFirst({
+          where: {
+            id: input.removalRequestId,
+            userId: input.userId,
+            deletedAt: null,
+            status: "BROKER_REQUESTED_VERIFICATION",
+            responses: {
+              some: {
+                classification: "VERIFICATION_REQUESTED",
+                confirmedAt: { not: null },
+                deletedAt: null,
+              },
+            },
+          },
+          select: { profileId: true },
+        }));
+      const consent =
+        input.identityConsentRecordId &&
+        (await tx.consentRecord.findFirst({
+          where: {
+            id: input.identityConsentRecordId,
+            actorUserId: input.userId,
+            removalRequestId: input.removalRequestId,
+            purpose: "IDENTITY_VERIFICATION",
+            revokedAt: null,
+          },
+          select: { id: true },
+        }));
+      if (!verification || !consent)
+        throw new AppError({
+          code: "CONSENT_INVALID",
+          message:
+            "A current broker verification request and your explicit storage consent are required.",
+        });
+    }
+    return tx.evidenceFile.create({
+      data: {
+        ...input,
+        encryption: "APPLICATION_AES_GCM",
+        storageState: "UPLOADING",
+        isTemporary: input.expiresAt !== null,
+        createdById: actor.isSystem ? null : actor.userId,
+      },
+    });
+  });
+}
+
+export async function markPrivateFileReady(id: string) {
+  const updated = await prisma.evidenceFile.updateMany({
+    where: {
+      id,
+      storageState: "UPLOADING",
+      deletedAt: null,
+      user: { status: "ACTIVE", deletionRequestedAt: null },
+    },
+    data: { storageState: "READY" },
+  });
+  if (updated.count !== 1)
+    throw new AppError({
+      code: "CONFLICT",
+      message: "This upload was cancelled while being stored.",
+    });
+  return prisma.evidenceFile.findUniqueOrThrow({ where: { id } });
+}
+
+export async function markPrivateFilePurgePending(id: string) {
+  return prisma.evidenceFile.updateMany({
+    where: { id, storageState: { not: "PURGED" } },
+    data: {
+      storageState: "PURGE_PENDING",
+      purgeRequestedAt: new Date(),
+      deletedAt: new Date(),
+    },
+  });
+}
+
+function unfinishedFilePurgesWhere(): Prisma.EvidenceFileWhereInput {
+  return {
+    OR: [
+      { storageState: "PURGE_PENDING" },
+      {
+        storageState: "UPLOADING",
+        updatedAt: { lt: new Date(Date.now() - 60 * 60 * 1000) },
+      },
+    ],
+  };
+}
+
+export async function countUnfinishedFilePurges() {
+  return prisma.evidenceFile.count({ where: unfinishedFilePurgesWhere() });
+}
+
+export async function listUnfinishedFilePurges(take = 100) {
+  return prisma.evidenceFile.findMany({
+    where: unfinishedFilePurgesWhere(),
+    take,
+    orderBy: { updatedAt: "asc" },
+  });
 }
 
 export async function markEvidenceAccessed(id: string) {
   return prisma.evidenceFile.update({
     where: { id },
     data: { accessCount: { increment: 1 }, lastAccessedAt: new Date() },
-  });
-}
-
-export async function softDeleteEvidence(actor: ActorContext, evidenceId: string) {
-  const file = await getOwnedEvidence(actor, evidenceId);
-  requirePermission(actor, "evidence:delete", { ownerUserId: file.userId });
-  return prisma.evidenceFile.update({
-    where: { id: evidenceId },
-    data: { deletedAt: new Date() },
   });
 }
 
@@ -111,7 +406,14 @@ export async function countExpiredTemporaryEvidence(): Promise<number> {
 export async function markEvidencePurged(id: string) {
   return prisma.evidenceFile.update({
     where: { id },
-    data: { deletedAt: new Date() },
+    data: {
+      deletedAt: new Date(),
+      purgedAt: new Date(),
+      storageState: "PURGED",
+      filenameEnc: null,
+      filenameMasked: null,
+      metadata: {},
+    },
   });
 }
 

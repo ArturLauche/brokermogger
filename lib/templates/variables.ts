@@ -77,7 +77,8 @@ export const TEMPLATE_VARIABLES: readonly TemplateVariableDefinition[] = [
     name: "request.deadlineDate",
     kind: "date",
     required: false,
-    description: "Date by which a response is expected, ISO formatted.",
+    description:
+      "Response target date, ISO formatted and marked as an estimate when receipt or timing is uncertain.",
     maxLength: 30,
     example: "2026-09-30",
   },
@@ -87,14 +88,14 @@ export const TEMPLATE_VARIABLES: readonly TemplateVariableDefinition[] = [
     required: true,
     description: "Reference code so the broker and the user can correlate replies.",
     maxLength: 40,
-    example: "BM-4F2A9C",
+    example: "BM-1234567890ABCDEF1234567890ABCDEF",
   },
   {
     name: "broker.name",
     kind: "inline",
     required: true,
     description: "Broker trading name as addressed in the message.",
-    maxLength: 160,
+    maxLength: 200,
     example: "Example People Search",
   },
   {
@@ -102,7 +103,7 @@ export const TEMPLATE_VARIABLES: readonly TemplateVariableDefinition[] = [
     kind: "inline",
     required: false,
     description: "Registered legal entity name, when known.",
-    maxLength: 160,
+    maxLength: 200,
     example: "Example People Search LLC",
   },
   {

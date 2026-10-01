@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { resolveJurisdiction } from "@/lib/jurisdiction/resolve";
 import type { JurisdictionRecord, LegalRuleSnapshot } from "@/lib/jurisdiction/types";
+import { GDPR_COUNTRIES } from "@/lib/jurisdiction/eea";
 
 const jurisdictions: JurisdictionRecord[] = [
   {
@@ -83,14 +84,33 @@ describe("resolveJurisdiction", () => {
     expect(resolved.notes.join(" ")).toMatch(/no uniform federal deletion right/i);
   });
 
-  it("uses the Germany GDPR pack for other EU countries", () => {
+  it("does not borrow Germany's authority when the actual country pack is missing", () => {
+    expect(() =>
+      resolveJurisdiction(
+        { countryCode: "FR", region: null, residencyConfirmed: true },
+        jurisdictions,
+        [rule({ jurisdictionId: "j-de" })]
+      )
+    ).toThrow(/not in the shipped jurisdiction packs/);
+  });
+
+  it("prefers a supported US state over voluntary fallback regardless of row order", () => {
+    const texas: JurisdictionRecord = {
+      id: "j-tx",
+      code: "US-TX",
+      name: "Texas",
+      countryCode: "US",
+      region: "TX",
+      isActive: true,
+    };
     const resolved = resolveJurisdiction(
-      { countryCode: "FR", region: null, residencyConfirmed: true },
-      jurisdictions,
-      [rule({ jurisdictionId: "j-de" })]
+      { countryCode: "US", region: "tx", residencyConfirmed: true },
+      [...jurisdictions, texas],
+      [rule({ jurisdictionId: texas.id })]
     );
-    expect(resolved.jurisdiction.code).toBe("DE");
-    expect(resolved.notes.join(" ")).toMatch(/GDPR/);
+    expect(resolved.jurisdiction.code).toBe("US-TX");
+    expect(resolved.availableRequestTypes).toContain("DELETION");
+    expect(resolved.notes).toEqual([]);
   });
 
   it("refuses to invent a pack when residency is not confirmed", () => {
@@ -101,5 +121,29 @@ describe("resolveJurisdiction", () => {
         [rule({ jurisdictionId: "j-de" })]
       )
     ).toThrow();
+  });
+
+  it.each(GDPR_COUNTRIES)("resolves $name to its own pack and rules", (country) => {
+    const record: JurisdictionRecord = {
+      id: `j-${country.code}`,
+      code: country.code,
+      name: country.name,
+      countryCode: country.code,
+      region: null,
+      isActive: true,
+    };
+    const available = [
+      ...jurisdictions.filter((entry) => entry.code !== country.code),
+      record,
+    ];
+    const resolved = resolveJurisdiction(
+      { countryCode: country.code.toLowerCase(), region: null, residencyConfirmed: true },
+      available,
+      [rule({ jurisdictionId: record.id })]
+    );
+    expect(resolved.jurisdiction.code).toBe(country.code);
+    expect(resolved.rules).toHaveLength(1);
+    expect(resolved.rules[0]?.jurisdictionId).toBe(record.id);
+    expect(resolved.notes).toEqual([]);
   });
 });

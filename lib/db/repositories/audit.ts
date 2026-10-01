@@ -16,7 +16,7 @@ import {
   type UserRole,
 } from "@prisma/client";
 
-import { prisma } from "@/lib/db/client";
+import { prisma, type PrismaTransaction } from "@/lib/db/client";
 
 /** Advisory lock key shared by every writer of the audit chain. */
 const CHAIN_LOCK_NAME = "brokermogger_audit_chain";
@@ -47,6 +47,12 @@ export interface AppendedAuditLog {
   createdAt: Date;
 }
 
+/** Narrow write port: domain services never receive a database transaction. */
+export type AuditLogAppender = (
+  input: AuditLogInsert,
+  computeHash: (previousHash: string | null) => string
+) => Promise<AppendedAuditLog>;
+
 /** Row shape needed to recompute the chain. */
 export interface AuditChainRow {
   id: string;
@@ -63,7 +69,7 @@ export interface AuditChainRow {
   createdAt: Date;
 }
 
-const CHAIN_SELECT = {
+export const CHAIN_SELECT = {
   id: true,
   sequence: true,
   actorUserId: true,
@@ -89,50 +95,57 @@ export async function appendAuditLog(
   input: AuditLogInsert,
   computeHash: (previousHash: string | null) => string
 ): Promise<AppendedAuditLog> {
-  return prisma.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe(
-      `SELECT pg_advisory_xact_lock(hashtext($1))`,
-      CHAIN_LOCK_NAME
-    );
+  return prisma.$transaction((tx) => appendAuditLogInTransaction(tx, input, computeHash));
+}
 
-    const previous = await tx.auditLog.findFirst({
-      orderBy: { sequence: "desc" },
-      select: { hash: true },
-    });
+/** Keep mandatory proof and the operation it describes in the same commit. */
+export async function appendAuditLogInTransaction(
+  tx: PrismaTransaction,
+  input: AuditLogInsert,
+  computeHash: (previousHash: string | null) => string
+): Promise<AppendedAuditLog> {
+  await tx.$executeRawUnsafe(
+    `SELECT pg_advisory_xact_lock(hashtext($1))`,
+    CHAIN_LOCK_NAME
+  );
 
-    const prevHash = previous?.hash ?? null;
-    const hash = computeHash(prevHash);
-
-    const created = await tx.auditLog.create({
-      data: {
-        actorType: input.actorType,
-        actorUserId: input.actorUserId,
-        actorRole: input.actorRole,
-        action: input.action,
-        resourceType: input.resourceType,
-        resourceId: input.resourceId,
-        targetUserId: input.targetUserId,
-        outcome: input.outcome,
-        reason: input.reason,
-        ipHash: input.ipHash,
-        userAgentHash: input.userAgentHash,
-        requestId: input.requestId,
-        metadata: input.metadata as Prisma.InputJsonObject,
-        prevHash,
-        hash,
-        createdAt: input.createdAt,
-      },
-      select: {
-        id: true,
-        sequence: true,
-        prevHash: true,
-        hash: true,
-        createdAt: true,
-      },
-    });
-
-    return created;
+  const previous = await tx.auditLog.findFirst({
+    orderBy: { sequence: "desc" },
+    select: { hash: true },
   });
+
+  const prevHash = previous?.hash ?? null;
+  const hash = computeHash(prevHash);
+
+  const created = await tx.auditLog.create({
+    data: {
+      actorType: input.actorType,
+      actorUserId: input.actorUserId,
+      actorRole: input.actorRole,
+      action: input.action,
+      resourceType: input.resourceType,
+      resourceId: input.resourceId,
+      targetUserId: input.targetUserId,
+      outcome: input.outcome,
+      reason: input.reason,
+      ipHash: input.ipHash,
+      userAgentHash: input.userAgentHash,
+      requestId: input.requestId,
+      metadata: input.metadata as Prisma.InputJsonObject,
+      prevHash,
+      hash,
+      createdAt: input.createdAt,
+    },
+    select: {
+      id: true,
+      sequence: true,
+      prevHash: true,
+      hash: true,
+      createdAt: true,
+    },
+  });
+
+  return created;
 }
 
 export interface AuditChainWindow {
