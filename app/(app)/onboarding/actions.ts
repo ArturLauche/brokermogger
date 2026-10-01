@@ -6,6 +6,7 @@ import { requireActor } from "@/lib/auth";
 import { secureCookiesEnabled } from "@/lib/auth/cookies";
 import { ACTIVE_PROFILE_COOKIE } from "@/lib/profiles/active";
 import { saveOnboardingProfile } from "@/lib/profiles/onboarding";
+import { parseAdditionalOnboardingIdentifiers } from "@/lib/profiles/onboardingIdentifiers";
 import { failedAction, type ActionState } from "@/lib/validation/actionResult";
 import { formCheckbox, formString } from "@/lib/validation/form";
 
@@ -41,27 +42,11 @@ export async function saveOnboarding(
     phones: formString(formData, "phones"),
     location: formString(formData, "location"),
   };
-  const sources: (keyof OnboardingFields)[] = [];
-  const rows = (
-    field: "previousNames" | "extraEmails" | "phones" | "location",
-    type: "PREVIOUS_NAME" | "EMAIL" | "PHONE" | "APPROXIMATE_LOCATION"
-  ) =>
-    values[field]
-      .split("\n")
-      .map((value) => value.trim())
-      .filter(Boolean)
-      .map((value) => {
-        sources.push(field);
-        return { type, value };
-      });
-  const identifiers = [
-    ...rows("previousNames", "PREVIOUS_NAME"),
-    ...rows("extraEmails", "EMAIL"),
-    ...rows("phones", "PHONE"),
-    ...rows("location", "APPROXIMATE_LOCATION"),
-  ];
+  let sources: (keyof OnboardingFields)[] = [];
   let result;
   try {
+    const parsed = parseAdditionalOnboardingIdentifiers(values);
+    sources = parsed.sources;
     result = await saveOnboardingProfile(actor, {
       profileId: values.profileId || null,
       complete: formString(formData, "intent") !== "save",
@@ -73,7 +58,7 @@ export async function saveOnboarding(
         region: values.region || null,
         residencyConfirmed: values.residencyConfirmed === "true",
       },
-      identifiers,
+      identifiers: parsed.identifiers,
     });
   } catch (error) {
     const failed = failedAction(error, values);

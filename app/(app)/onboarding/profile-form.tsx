@@ -7,6 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { initialActionState } from "@/lib/validation/actionResult";
+import {
+  MAX_ONBOARDING_IDENTIFIERS,
+  MAX_ONBOARDING_IDENTIFIER_TEXT_LENGTH,
+} from "@/lib/profiles/limits";
 import { saveOnboarding, type OnboardingFields } from "./actions";
 
 export function OnboardingForm({ initial }: { initial: OnboardingFields }) {
@@ -25,8 +29,9 @@ export function OnboardingForm({ initial }: { initial: OnboardingFields }) {
       <section className="space-y-5 border-t pt-6">
         <h2 className="text-lg font-semibold">Additional matching details</h2>
         <p className="text-sm text-muted-foreground">
-          Optional. Add one value per line. Saved values remain in your data vault, where
-          you can edit or delete them.
+          Optional. Add one value per line, up to {MAX_ONBOARDING_IDENTIFIERS} distinct
+          details per save. Saved values remain in your data vault, where you can edit or
+          delete them.
         </p>
         {(
           [
@@ -59,7 +64,7 @@ export function OnboardingForm({ initial }: { initial: OnboardingFields }) {
               id={field}
               name={field}
               rows={2}
-              maxLength={400}
+              maxLength={MAX_ONBOARDING_IDENTIFIER_TEXT_LENGTH}
               defaultValue={state.values[field]}
               aria-invalid={Boolean(state.fieldErrors[field])}
               aria-describedby={`${field}-hint ${field}-error`}
