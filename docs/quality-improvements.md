@@ -66,26 +66,51 @@ a statutory period or a new automatic sending rule.
 
 The development Dependabot group included major toolchain upgrades. It now groups
 only minor/patch releases. Major updates remain separate compatibility work;
-package versions, the lockfile, Node pins and CI gates were not changed.
+Node/framework pins remain unchanged. The review follow-up updates compatible
+transitive security fixes and introduces a bounded development exception.
 
-## Dependency blockers
+## Dependency review follow-up
 
-PR [#39](https://github.com/ArturLauche/brokermogger/pull/39) remains open at
+PR [#39](https://github.com/ArturLauche/brokermogger/pull/39) was originally reviewed at
 `39447997411b21a0538069f418769bb90c29f773`. Its October 8
 [CI run](https://github.com/ArturLauche/brokermogger/actions/runs/37784751876)
-failed at installation. A clean npm 10.9.4 install of its current manifests still
+failed at installation. A clean npm 10.9.4 install of those manifests
 fails with `EUSAGE`, missing `msw@2.15.0` and associated dependencies. npm 11
 accepts that revision, so testing only the newer installer hides the failure.
 The unchanged main manifests install cleanly with npm 10 and npm 11; Docker
 also exercised the pinned Node 22 runtimes. No legacy peer-resolution flag was
-used. The feature PR does not repair or update #39's separate branch.
+used. In response to the owner review, #39 is repaired on its own branch with
+compatible minor/patch updates. TypeScript 7, Prisma 7, ESLint 10, MSW 3,
+Vitest 5 and Node 26 types remain separate migration work. The Vite React plugin
+update is also deferred after npm 10 exposed an optional Babel 8 peer conflict.
+Neither branch depends on merging the other.
 
-The unchanged dependency tree reports 14 audit findings with the initial npm 11
+The original dependency tree reported 14 audit findings with the initial npm 11
 installation (2 moderate, 11 high, 1 critical). The critical advisory concerns
 transitive `proxy-addr` ([GHSA-jqcg-44mw-7w3h](https://github.com/advisories/GHSA-jqcg-44mw-7w3h)).
-The CI `npm audit --audit-level=moderate` gate remains enabled. Dependency
-remediation is an explicit blocker to declaring this PR CI-ready, so the PR is a
-draft rather than claiming every CI gate is green.
+Compatible lockfile updates resolve six of seven underlying advisories, including
+both production findings. The remaining braces advisory has no patched upstream
+release. The full audit still runs at moderate severity; its narrow, dev-only,
+advisory-specific exception expires on November 11 and has fail-closed policy
+tests. CI also runs an unfiltered production audit. See the exact
+[inventory, changes and exception](dependency-security.md). A green policy gate
+does not mean the raw full audit has zero findings.
+
+The owner review reproduced a previously missed defect: admission used
+best-effort auditing after its counter transaction. An audit failure could permit
+a token/email without a proof. `withMagicLinkAdmission()` now binds both counter
+writes and `recordAuditOrThrow()` to the same Prisma transaction using narrow
+ports. Existing chain locking and lock order remain intact. Database triggers
+inject rejected and suppressed audit/counter writes; regressions assert rollback,
+generic known/unknown/JSON/form replies, no tokens or emails, retry only in a fresh
+request, single-flight callback/provider checks and concurrent chain integrity.
+The two initial injection tests failed before the implementation fix.
+
+`npm run check:deployment -- --public` now makes missing trusted attribution or
+disabled abuse protection an explicit deployment preflight failure. The ordinary
+check warns while permitting local/single-user setups. It cannot attest to ingress
+topology; documented checks cover header overwrite, blocked direct ingress and
+forged headers from controlled sources.
 
 ## Operational and privacy review
 
@@ -126,9 +151,9 @@ independent human approvals.
 
 ## Prioritised follow-up work
 
-1. Repair #39's lockfile under the pinned CI installer and split its TypeScript,
-   Prisma, ESLint, Vitest and MSW major upgrades. Independently resolve the
-   inherited audit findings, starting with production-reachable dependencies.
+1. Replace the expiring braces exception with a patched release when available.
+   Evaluate TypeScript, Prisma, ESLint, MSW, Vitest, Babel/plugin and Node-type
+   migrations in independent compatibility PRs.
 2. Verify real broker methods/coverage with operators and primary-source evidence.
    A validated import preview could follow once a licensed source and a repeatable
    review process exist; it must retain dry-run, duplicates, provenance,

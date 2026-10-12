@@ -7,6 +7,9 @@
  * The gate memoises its decision per address blind index for this request only.
  * Concurrent checks share the same promise; callers cannot mark a quota as
  * consumed. Neither request-local decisions nor identifiers survive the request.
+ * A rejected promise is retained too: every check in this request fails closed
+ * without retrying the transaction. After rollback, a new HTTP request may retry
+ * with a fresh context; there is no cached cross-request admission or charge.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { HashedRequestContext } from "./requestContext";

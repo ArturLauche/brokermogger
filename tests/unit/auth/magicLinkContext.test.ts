@@ -44,3 +44,31 @@ it("retains a failed gate so a later delivery check cannot bypass it", async () 
   });
   expect(check).toHaveBeenCalledTimes(1);
 });
+
+it("shares concurrent rejections and permits a retry only in a fresh request", async () => {
+  const failure = new Error("synthetic rolled-back admission");
+  const check = vi.fn<() => Promise<boolean>>(async () => {
+    throw failure;
+  });
+  await withMagicLinkContext(context, async () => {
+    const results = await Promise.allSettled(
+      Array.from({ length: 8 }, () =>
+        oncePerMagicLinkRequest("synthetic-subject-index", check)
+      )
+    );
+    expect(
+      results.every((result) => result.status === "rejected" && result.reason === failure)
+    ).toBe(true);
+    check.mockImplementation(async () => true);
+    await expect(oncePerMagicLinkRequest("synthetic-subject-index", check)).rejects.toBe(
+      failure
+    );
+    expect(check).toHaveBeenCalledTimes(1);
+  });
+  await withMagicLinkContext(context, async () => {
+    await expect(oncePerMagicLinkRequest("synthetic-subject-index", check)).resolves.toBe(
+      true
+    );
+  });
+  expect(check).toHaveBeenCalledTimes(2);
+});

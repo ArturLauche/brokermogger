@@ -1,5 +1,6 @@
 /** Shared pre-issuance gate for form and direct Auth.js requests. */
-import { anonymousAuditActor, recordAudit } from "@/lib/audit/service";
+import { anonymousAuditActor, recordAuditOrThrow } from "@/lib/audit/service";
+import { withMagicLinkAdmission } from "@/lib/db/repositories/magicLinkAdmission";
 import { consumePolicies, magicLinkPerEmail, magicLinkPerIp } from "@/lib/rateLimit";
 import { assertValidEmailAddress } from "@/lib/security/sanitize";
 import { currentMagicLinkContext, oncePerMagicLinkRequest } from "./magicLinkContext";
@@ -14,35 +15,44 @@ export async function authorizeMagicLinkRequest(identifier: string): Promise<boo
   const emailIndex = emailIndexFor(address);
   return oncePerMagicLinkRequest(emailIndex!, async () => {
     const context = await readRequestContext();
-    const [byEmail, byNetwork] = await consumePolicies([
-      { policy: magicLinkPerEmail, key: address },
-      { policy: magicLinkPerIp, key: context.ipHash ?? "unknown-network" },
-    ]);
-    const allowed = byEmail!.allowed && byNetwork!.allowed;
-    await recordAudit({
-      actor: anonymousAuditActor(context.requestId, {
-        ipHash: context.ipHash,
-        userAgentHash: context.userAgentHash,
-        emailIndex,
-      }),
-      action: allowed ? "auth.magic_link.requested" : "auth.magic_link.rate_limited",
-      resourceType: "user",
-      ...(allowed
-        ? {}
-        : {
-            outcome: "DENIED" as const,
-            reason: "The operational limit for sign in links was reached.",
+    return withMagicLinkAdmission(async (ports) => {
+      const [byEmail, byNetwork] = await consumePolicies(
+        [
+          { policy: magicLinkPerEmail, key: address },
+          { policy: magicLinkPerIp, key: context.ipHash ?? "unknown-network" },
+        ],
+        new Date(),
+        ports.incrementBuckets
+      );
+      const allowed = byEmail!.allowed && byNetwork!.allowed;
+      await recordAuditOrThrow(
+        {
+          actor: anonymousAuditActor(context.requestId, {
+            ipHash: context.ipHash,
+            userAgentHash: context.userAgentHash,
+            emailIndex,
           }),
-      metadata: {
-        entryPoint: currentMagicLinkContext()?.entryPoint ?? "auth_api",
-        emailLimitReached: !byEmail!.allowed,
-        networkLimitReached: !byNetwork!.allowed,
-        retryAfterSeconds: Math.max(
-          byEmail!.retryAfterSeconds,
-          byNetwork!.retryAfterSeconds
-        ),
-      },
+          action: allowed ? "auth.magic_link.requested" : "auth.magic_link.rate_limited",
+          resourceType: "user",
+          ...(allowed
+            ? {}
+            : {
+                outcome: "DENIED" as const,
+                reason: "The operational limit for sign in links was reached.",
+              }),
+          metadata: {
+            entryPoint: currentMagicLinkContext()?.entryPoint ?? "auth_api",
+            emailLimitReached: !byEmail!.allowed,
+            networkLimitReached: !byNetwork!.allowed,
+            retryAfterSeconds: Math.max(
+              byEmail!.retryAfterSeconds,
+              byNetwork!.retryAfterSeconds
+            ),
+          },
+        },
+        ports.appendAuditLog
+      );
+      return allowed;
     });
-    return allowed;
   });
 }

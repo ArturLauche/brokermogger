@@ -1,5 +1,8 @@
 # Verification of the October 2026 change
 
+The first table records the original PR verification. The owner-review follow-up
+below supersedes its dependency blocker and adds mandatory audit rollback tests.
+
 Base: `2a030780539d998dc93220e189512ca0bce80453` (`main`, fetched again before
 committing). Local runtime: Node 24.21.0 / npm 11.19.0. Docker exercised the pinned
 Node 22.23.2 images. All fixtures were synthetic, email was mock and external
@@ -48,3 +51,40 @@ drafts remain inactive and sending disabled.
 The manual design detector reported no findings. Viewports were 1440 and 375 CSS
 pixels. The long legal review filter keeps the mobile search field usable; the
 browser regression requires at least 240 pixels of search width at 375 pixels.
+
+## Owner-review follow-up
+
+Installation used **npm 10.9.4** on local Node 24.21.0; Docker smoke used the pinned
+Node 22.23.2 runtimes. Dedicated databases keep the feature suite, failure
+injection and the separately repaired #39 from resetting each other's fixtures.
+
+- Two new audit failure-injection tests failed on the original implementation:
+  both explicit SQL failure and a trigger silently suppressing insertion left
+  committed counters. They pass after mandatory proof and counters share one
+  transaction. Suppressed Prisma `create()` responses cause the existing Prisma
+  6 engine to emit a panic diagnostic; the test deliberately injects that failure
+  and proves rollback and fail-closed admission, followed by successful recovery.
+- The latest focused authentication/counter/audit-chain run passes **38 tests**,
+  including an appender returning null, both rejected and suppressed counter
+  writes, existing-counter rollback on quota rejection, same-request failed
+  single-flight checks, fresh-request recovery and mixed concurrent audit writers.
+- **518 unit/component tests** pass. Typecheck, lint, formatting, environment
+  consistency, production build and all **17 browser journeys** pass. Production
+  Docker smoke passes encrypted downloads, storage/DB restore and resumed erasure.
+- The unfiltered production audit passes with **zero findings**. The full
+  `npm run audit:dependencies` gate passes with the documented braces-only,
+  development-only exception expiring **November 11**. The raw full audit still
+  reports eight high dependent package entries; it is not reported as clean.
+- The explicit public preflight exits with failure for unknown network attribution
+  and prints the instance-wide login-denial warning. The default check preserves
+  local/single-user use; configured ingress still requires a real network check.
+
+The real browser also rechecked the generic confirmation and shared-network
+explanation at [1440 pixels](review-check-email-desktop.png) and
+[375 pixels](review-check-email-mobile.png); the mobile document has no horizontal
+overflow. The operator deployment warning and ingress checklist are documented
+without introducing a public IP diagnostic or any quota exemption.
+
+Full integration and exact-commit CI results are recorded in the PR review reply.
+The PR stays draft until all required checks pass; the local passes do not stand
+in for a completed GitHub verify job.

@@ -22,6 +22,12 @@ broker methods and consent separately; starting the instance does not authorize
 broker contact. Use the [private-storage upgrade procedure](upgrade-private-storage.md)
 when migrating an existing instance.
 
+Before a public multi-user deployment, run `npm run check:deployment -- --public`
+with its actual environment and follow the [reverse-proxy trust boundary checks](authentication-abuse-controls.md#configuring-an-ingress).
+Without trusted attribution every caller shares ten sign-in attempts per hour,
+so one caller can deny login to the entire instance. Select a header only after
+the ingress overwrites it and direct application access is blocked.
+
 Set `SECURITY_CONTACT_EMAIL` to a monitored operator address. Until configured,
 `/.well-known/security.txt` returns 404 and no placeholder contact appears on the
 sign-in error screen. Configured disclosure files use RFC 3339 expiry dates and

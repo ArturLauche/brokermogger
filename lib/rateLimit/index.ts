@@ -19,6 +19,7 @@ import {
   incrementBuckets,
   readBucketCount,
   reserveWeightedRequestCreate,
+  type BucketIncrementer,
 } from "@/lib/db/repositories/rateLimit";
 import { createLogger } from "@/lib/observability/logger";
 import { hashContextValue } from "@/lib/security/crypto";
@@ -179,7 +180,8 @@ export async function consumePolicy(
 /** One attempt against multiple policies, using one clock and one transaction. */
 export async function consumePolicies(
   inputs: readonly { policy: RateLimitPolicy; key: string }[],
-  now = new Date()
+  now = new Date(),
+  increment: BucketIncrementer = incrementBuckets
 ): Promise<RateLimitResult[]> {
   const requests = inputs.map(({ policy, key }) => ({ ...policy, key }));
   if (!env.RATE_LIMIT_ENABLED)
@@ -190,7 +192,7 @@ export async function consumePolicies(
     windowStart: windowStartFor(now, request.windowSeconds),
     windowSeconds: request.windowSeconds,
   }));
-  const counts = await incrementBuckets(identities);
+  const counts = await increment(identities);
   return requests.map((request, index) =>
     buildResult(counts[index]!, request, identities[index]!.windowStart, now)
   );

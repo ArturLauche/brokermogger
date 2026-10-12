@@ -174,6 +174,20 @@ describe("recordAudit", () => {
 
     expect(result).toBeNull();
   });
+
+  it.each([null, undefined])(
+    "rejects a silent %s result on the mandatory audit path",
+    async (result) => {
+      appendAuditLog.mockResolvedValueOnce(result);
+      await expect(
+        recordAuditOrThrow({
+          actor: anonymousAuditActor("synthetic-mandatory-audit"),
+          action: "auth.magic_link.requested",
+          resourceType: "user",
+        })
+      ).rejects.toMatchObject({ code: "INTERNAL_ERROR" });
+    }
+  );
 });
 
 describe("canonical payload", () => {

@@ -1,0 +1,21 @@
+{
+  "advisoryUrl": "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm",
+  "package": "braces",
+  "version": "3.0.3",
+  "severity": "high",
+  "owner": "ArturLauche (repository maintainer)",
+  "expiresAt": "2026-11-11T00:00:00.000Z",
+  "evidence": "docs/dependency-security.md",
+  "reason": "No patched upstream release. Only dev-only lint/component-generator glob paths using repository-controlled patterns are accepted; production and any other advisory remain blocked.",
+  "affectedPackages": [
+    "braces",
+    "micromatch",
+    "fast-glob",
+    "@next/eslint-plugin-next",
+    "@shadcn/registry",
+    "eslint-config-next",
+    "@ts-morph/common",
+    "ts-morph",
+    "shadcn"
+  ]
+}

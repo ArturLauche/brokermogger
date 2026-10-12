@@ -131,9 +131,14 @@ export const authConfig: NextAuthConfig = {
       // A string redirect stops Auth.js before token creation and email delivery.
       // Match the allowed response so quotas do not reveal account/address state.
       if (email?.verificationRequest) {
-        return (await authorizeMagicLinkRequest(user.email ?? ""))
-          ? true
-          : new URL(MAGIC_LINK_VERIFY_PATH, env.APP_BASE_URL).href;
+        try {
+          if (await authorizeMagicLinkRequest(user.email ?? "")) return true;
+        } catch {
+          // Admission rolled back. Do not expose address/account-specific
+          // failures, and never proceed to token issuance or delivery.
+          log.error("Magic link admission failed; no sign-in link was issued");
+        }
+        return new URL(MAGIC_LINK_VERIFY_PATH, env.APP_BASE_URL).href;
       }
 
       const account =

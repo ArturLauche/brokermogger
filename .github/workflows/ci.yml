@@ -64,7 +64,8 @@ jobs:
           NODE_ENV: development
           npm_config_engine_strict: "true"
       - run: npx prisma generate
-      - run: npm audit --audit-level=moderate
+      - run: npm audit --omit=dev --audit-level=moderate
+      - run: npm run audit:dependencies
       - run: npx prisma migrate deploy
       - run: npm run check:env
       - run: npm run typecheck

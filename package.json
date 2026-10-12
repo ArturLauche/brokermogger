@@ -37,6 +37,8 @@
     "start:standalone": "node .next/standalone/server.js",
     "verify": "npm run check:env && npm run typecheck && npm run lint && npm run format:check && npm run test",
     "check:env": "tsx scripts/check-env-consistency.ts",
+    "check:deployment": "tsx scripts/check-deployment.ts",
+    "audit:dependencies": "tsx scripts/audit-dependencies.ts",
     "test:docker": "bash scripts/docker-smoke.sh",
     "benchmark:calendar": "node --expose-gc --import tsx scripts/benchmark-calendar.ts",
     "benchmark:database": "node --expose-gc --import tsx tests/performance/database.ts"

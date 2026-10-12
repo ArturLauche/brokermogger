@@ -50,13 +50,22 @@ export async function incrementBucket(identity: BucketIdentity): Promise<number>
   return incrementBucketOn(prisma, identity);
 }
 
-/** Both authentication counters commit together or neither does. */
-export async function incrementBuckets(identities: readonly BucketIdentity[]) {
-  return prisma.$transaction(async (tx) => {
+/** Narrow port for counting a set of policies in a caller-owned transaction. */
+export type BucketIncrementer = (
+  identities: readonly BucketIdentity[]
+) => Promise<number[]>;
+
+/** Both counters commit together, optionally with the caller's mandatory proof. */
+export async function incrementBuckets(
+  identities: readonly BucketIdentity[],
+  transaction?: PrismaTransaction
+): Promise<number[]> {
+  const increment = async (tx: PrismaTransaction) => {
     const counts: number[] = [];
     for (const identity of identities) counts.push(await incrementBucketOn(tx, identity));
     return counts;
-  });
+  };
+  return transaction ? increment(transaction) : prisma.$transaction(increment);
 }
 
 async function incrementBucketOn(
