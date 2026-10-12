@@ -59,8 +59,11 @@ import * as bucketRepository from "@/lib/db/repositories/rateLimit";
 import * as auditRepository from "@/lib/db/repositories/audit";
 import { getEmailProvider } from "@/lib/email";
 import type { EmailConfig } from "@auth/core/providers/email";
+import { env } from "@/lib/config/env";
 
-const origin = "http://localhost:3000";
+// Verify the configured canonical, independently of a framework/request host.
+// CI uses the numeric loopback address; local fixtures commonly use localhost.
+const origin = new URL(env.APP_BASE_URL).origin;
 async function csrf() {
   const response = await GET(new Request(`${origin}/api/auth/csrf`) as NextRequest);
   const { csrfToken } = (await response.json()) as { csrfToken: string };

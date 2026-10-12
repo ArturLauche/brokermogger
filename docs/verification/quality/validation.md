@@ -88,3 +88,11 @@ without introducing a public IP diagnostic or any quota exemption.
 Full integration and exact-commit CI results are recorded in the PR review reply.
 The PR stays draft until all required checks pass; the local passes do not stand
 in for a completed GitHub verify job.
+
+The first review-fix CI run exposed a fixture error: auth integration assertions
+hardcoded `localhost`, while CI configures `APP_BASE_URL` as `127.0.0.1`. All twelve
+failures were exact-origin mismatches; the other 306 integration tests passed.
+The failure reproduces locally under CI's URL settings. Assertions now derive the
+expected canonical from validated configuration, while hostile request-host tests
+and exact redirect/JSON equality checks remain. Both loopback configurations are
+verified explicitly; no application policy or CI setting is changed for this fix.
