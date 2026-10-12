@@ -136,3 +136,15 @@ authentication/audit-focused run passes **39 tests**; the full integration resul
 is recorded in the PR. Rebuilt standalone browser verification passes **17
 journeys without retries**, and the rebuilt production Docker smoke passes private
 downloads, encrypted shared storage, backup restoration and resumed erasure.
+
+CI at `5494490` completed every required job but needed one correspondence retry;
+`8a3ee8b` completed all 15 dependency-branch browser journeys on the first attempt.
+The feature failure was an action/fixture race: after clicking retry, the helper
+could read the still-failed job before the server action committed. Holding the
+retry POST reproduced the same zero-row guarded update deterministically. The
+journey now checks the disabled pending button, releases the POST, and waits for
+the scheduled heading before driving the worker. Final-reminder scheduling uses
+the same UI completion boundary. The regression uses no arbitrary sleep and
+retains strict job eligibility, lease fencing and approval assertions. This test
+correction is shared by both branches; production code and CI retry policy stay
+unchanged. The PR records fresh exact-head verification before readiness.
