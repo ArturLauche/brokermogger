@@ -67,7 +67,7 @@ npm run test:e2e
 npm run db:migrate
 npm run db:seed
 npm run check:env
-npm run check:deployment # warns about shared network login allowance
+npm run check:deployment # strict public configuration check; --single-user for private use
 npm run audit:dependencies
 ```
 

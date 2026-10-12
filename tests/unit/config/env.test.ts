@@ -33,6 +33,7 @@ describe("environment cross-field checks", () => {
     vi.stubEnv("EMAIL_PROVIDER", "sandbox");
     vi.stubEnv("EMAIL_SANDBOX_REDIRECT_TO", "sandbox@example.org");
     vi.stubEnv("STORAGE_BACKEND", "local");
+    vi.stubEnv("TRUSTED_PROXY_IP_HEADER", "x-real-ip");
     vi.stubEnv("ENCRYPTION_KEYS", "v1:ZGV2LW9ubHkta2V5LWRvLW5vdC11c2UtaW4tcHJvZAA=");
     resetEnvCacheForTests();
     expect(() => getEnv()).toThrow(/example|test|placeholder/);
@@ -86,4 +87,43 @@ describe("environment cross-field checks", () => {
 
     expect(() => getEnv()).toThrow(/APP_BASE_URL must use https in production/);
   });
+});
+
+function productionConfiguration() {
+  vi.stubEnv("APP_ENV", "production");
+  vi.stubEnv("APP_BASE_URL", "https://privacy.example.org");
+  vi.stubEnv("AUTH_SECRET", randomBytes(32).toString("base64"));
+  vi.stubEnv("EMAIL_PROVIDER", "sandbox");
+  vi.stubEnv("EMAIL_SANDBOX_REDIRECT_TO", "sandbox@example.org");
+  vi.stubEnv("STORAGE_BACKEND", "local");
+  vi.stubEnv("ENCRYPTION_KEYS", `v1:${randomBytes(32).toString("base64")}`);
+  vi.stubEnv("BLIND_INDEX_KEY", randomBytes(32).toString("base64"));
+  vi.stubEnv("TRUSTED_PROXY_IP_HEADER", "none");
+  vi.stubEnv("ALLOW_SHARED_AUTH_NETWORK_BUCKET", "false");
+  vi.stubEnv("RATE_LIMIT_ENABLED", "true");
+  resetEnvCacheForTests();
+}
+
+it("rejects unattributed production login unless shared-bucket use is acknowledged", () => {
+  productionConfiguration();
+  expect(() => getEnv()).toThrow(/ALLOW_SHARED_AUTH_NETWORK_BUCKET/);
+});
+
+it("permits an explicitly acknowledged private production shared bucket", () => {
+  productionConfiguration();
+  vi.stubEnv("ALLOW_SHARED_AUTH_NETWORK_BUCKET", "true");
+  expect(getEnv().TRUSTED_PROXY_IP_HEADER).toBe("none");
+});
+
+it("accepts production attribution selected for an independently verified ingress", () => {
+  productionConfiguration();
+  vi.stubEnv("TRUSTED_PROXY_IP_HEADER", "x-real-ip");
+  expect(getEnv().TRUSTED_PROXY_IP_HEADER).toBe("x-real-ip");
+});
+
+it("never permits disabled production abuse controls, including private instances", () => {
+  productionConfiguration();
+  vi.stubEnv("ALLOW_SHARED_AUTH_NETWORK_BUCKET", "true");
+  vi.stubEnv("RATE_LIMIT_ENABLED", "false");
+  expect(() => getEnv()).toThrow(/RATE_LIMIT_ENABLED/);
 });

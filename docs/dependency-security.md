@@ -47,6 +47,13 @@ entries, unsupported versions, severity changes, registry errors and expired
 exceptions fail. CI separately runs the unfiltered production audit at moderate
 severity. Regression tests exercise each boundary. No blanket package exclusion
 or global threshold reduction is used.
+The scanner has a five-minute subprocess deadline and fails closed on timeout
+or partial output. Each accepted-exception report prints the remaining days;
+within 14 days of expiry it emits a GitHub Actions warning. The scheduled
+dependency-security workflow runs both gates every Monday at 07:17 UTC on the
+default branch (after merge), with manual dispatch available. It detects stale
+exceptions even without a new PR; expiry remains blocking and cannot be waived
+by a warning.
 
 The raw full `npm audit --audit-level=moderate` still reports eight high package
 entries caused by this one unpatched advisory and exits unsuccessfully. Report
@@ -56,4 +63,5 @@ clean raw scan; the production scan has zero vulnerabilities after the updates.
 The separately repaired #39 updates shadcn to 4.21.1, which extracts part of the
 same CLI into `@shadcn/registry`. Its verified dev-only glob paths cause a ninth
 dependent entry for the same braces advisory; that specific wrapper is included
-in the exception too. There is no additional excepted advisory.
+in #39's exception. #40's list contains only its eight installed affected
+packages; the absent wrapper was removed. There is no additional excepted advisory.

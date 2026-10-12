@@ -29,8 +29,11 @@ own `bm_e2e_quality` test schema.
 The browser suite caught and verified fixes for differing first-leg redirect
 origins and readiness text changing checkbox names. The email-limited direct
 attempt also consumes a network attempt, as before; the combined form/API fixture
-therefore correctly expects nine emitted links from sixteen counted attempts,
-not an exemption for rejected email attempts.
+therefore observed nine emitted links from sixteen counted attempts in one fixed
+window, without exempting rejected email attempts. The later rollover correction
+aggregates every network window and compares issuance with committed admission
+proofs, so a boundary crossing cannot choose an arbitrary bucket or assume a
+single window's emission count.
 
 The full integration suite covers existing ownership/approval isolation,
 transaction failure, worker fencing/retries, duplicate webhooks, deletion,
@@ -148,3 +151,57 @@ the same UI completion boundary. The regression uses no arbitrary sleep and
 retains strict job eligibility, lease fencing and approval assertions. This test
 correction is shared by both branches; production code and CI retry policy stay
 unchanged. The PR records fresh exact-head verification before readiness.
+
+## Additional twelve-finding review
+
+The production/development Compose defaults now publish the app on loopback.
+Docker smoke parses all three shipped files (with the development app profile
+enabled and without resolving secrets), then verifies production build/runtime,
+encrypted downloads, database/object restore and resumed erasure. This completed
+locally with Docker 29.7.1 on the configured Docker host; it does not attest to an
+operator's firewall or alternate ingress. The trust guide documents existing
+container recreation, private proxy networks, direct routing and older Docker
+loopback limitations.
+
+Failing-before evidence includes **19 unit regressions** for deployment/default
+checks, malformed counter-port results, scanner deadlines and invalid browser
+URLs, plus the two standalone lock tests (about seven seconds before correction)
+and the missing protected auth metric. The counter tests verify bounded failure,
+complete rollback and recovery. New metrics checks exclude attributed, older and
+unrelated proofs and verify that unauthorized metric reads are denied.
+
+Local checks pass a clean npm **10.9.4** install, **42** environment variables,
+typecheck, lint, formatting, **554 unit/component tests in 82 files**, production
+compilation, **17 Chromium journeys with retries disabled**, and Docker smoke.
+The scanner force-termination assertion was rerun after the final signal option
+was added. The full database suite passes **324 tests in 48 files** (1,110.74
+seconds locally), including the existing auth rollback/concurrency and new
+standalone contention, future-lease and protected-metrics regressions. New-head
+CI is recorded in the PR; prior green CI is not claimed for a new commit while
+its checks run.
+
+The actual deployment CLI returns failure by default and with `--public` for
+unconfigured attribution, succeeds only with a visible private-mode opt-out or
+a selected header, and warns for appending-forwarded-chain risk. Passing checks
+explicitly say network trust is unverified. Production startup tests require
+trusted attribution or private shared-bucket acknowledgement and always refuse
+disabled enforcement. Both upstream audit gates pass according to the documented
+policy: production has zero findings; the raw full audit retains eight dev-only
+entries for the exact November 11 exception. No expiry bypass was introduced.
+
+The browser auth regression aggregates all fixed windows and checks token/email
+counts against committed admission proofs rather than assuming a single window.
+It explicitly asserts untrusted proxy configuration. The correspondence test
+observes the future timestamp/status/attempt/lease before advancing its target; a
+database regression proves future jobs are unclaimable until due. T3 browser
+inspection of the rebuilt confirmation screen at **1440×900** and **375×812**
+found no console errors or horizontal overflow; existing committed screenshots
+remain representative because this follow-up changes no UI markup.
+
+Shared scanner, expiry reporting, weekly workflow and fixture corrections were
+also applied independently to #39: **501 unit/component tests**, **seven focused
+lease integration tests** and **15 browser journeys without retries** pass. Its
+nine-package inventory retains the installed `@shadcn/registry` wrapper; this
+branch removes that absent entry. Neither branch changes supported toolchain
+majors, broker activation, legal contents, encryption, request approval or
+external-sending gates during this follow-up.

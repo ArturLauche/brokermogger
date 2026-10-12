@@ -10,6 +10,7 @@ import { randomUUID } from "node:crypto";
 
 import { prisma, type PrismaTransaction } from "@/lib/db/client";
 import { AppError } from "@/lib/core/errors";
+import { withRateLimitTransaction } from "@/lib/db/rateLimitTransaction";
 
 export interface BucketIdentity {
   scope: string;
@@ -47,7 +48,7 @@ class MonthlyQuotaRollback extends AppError {
 
 /** Atomically increments the counter for one window and returns the new value. */
 export async function incrementBucket(identity: BucketIdentity): Promise<number> {
-  return incrementBucketOn(prisma, identity);
+  return withRateLimitTransaction((tx) => incrementBucketOn(tx, identity));
 }
 
 /** Narrow port for counting a set of policies in a caller-owned transaction. */
@@ -65,7 +66,7 @@ export async function incrementBuckets(
     for (const identity of identities) counts.push(await incrementBucketOn(tx, identity));
     return counts;
   };
-  return transaction ? increment(transaction) : prisma.$transaction(increment);
+  return transaction ? increment(transaction) : withRateLimitTransaction(increment);
 }
 
 async function incrementBucketOn(

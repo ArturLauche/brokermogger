@@ -38,6 +38,14 @@ Gauges:
 - `brokermogger_deletion_backlog`
 - `brokermogger_deletion_oldest_seconds`
 - `brokermogger_file_purge_backlog`
+- `brokermogger_auth_unknown_network_attempts_24h`
+
+The auth gauge counts committed sign-in admission attempts (accepted or denied
+by quota) whose audit has no attributed IP in the last 24 hours. It excludes
+rolled-back admission failures. Monitor unexpected increases after configuring
+trusted proxy attribution; missing or appended/invalid headers share a network
+allowance. The metric contains no per-IP/email labels and uses existing retained
+audit proofs, rather than storing another identifier or plaintext diagnostic.
 
 Queue age measures the oldest due pending/retryable job; future scheduled work
 is excluded. A zero age with no due work is normal. Deletion remains pending until

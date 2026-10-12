@@ -3,6 +3,17 @@ set -euo pipefail
 umask 077
 
 cd "$(dirname "$0")/.."
+# Check the actual shipped publication settings without resolving any secrets.
+node --input-type=module <<'JS'
+import { execFileSync } from 'node:child_process';
+import assert from 'node:assert/strict';
+for (const file of ['docker-compose.prod.yml', 'docker-compose.yml', 'docker/compose.smoke.yml']) {
+  const config = JSON.parse(execFileSync('docker', ['compose', '--profile', 'app', '-f', file, 'config', '--no-interpolate', '--format', 'json'], { encoding: 'utf8' }));
+  const ports = config.services.app.ports;
+  assert.ok(ports.length > 0 && ports.every(port => ['127.0.0.1', '::1'].includes(port.host_ip)), `${file} must publish app ports only on loopback.`);
+}
+process.stdout.write('Shipped Compose app port boundaries passed.\n');
+JS
 mkdir -p .tmp
 smoke_directory=$(mktemp -d .tmp/docker-smoke.XXXXXX)
 smoke_environment="$smoke_directory/runtime.env"

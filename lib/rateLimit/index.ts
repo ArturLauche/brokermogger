@@ -11,7 +11,7 @@
  *    decision is still logged at debug level so that the switch is visible.
  */
 import { env } from "@/lib/config/env";
-import { RateLimitError } from "@/lib/core/errors";
+import { AppError, RateLimitError } from "@/lib/core/errors";
 import {
   countExpiredBuckets,
   deleteExpiredBuckets,
@@ -193,6 +193,17 @@ export async function consumePolicies(
     windowSeconds: request.windowSeconds,
   }));
   const counts = await increment(identities);
+  if (
+    counts.length !== identities.length ||
+    identities.some(
+      (_, index) => !Number.isSafeInteger(counts[index]) || counts[index]! < 1
+    )
+  ) {
+    throw new AppError({
+      code: "INTERNAL_ERROR",
+      message: "The rate limit counter results could not be verified.",
+    });
+  }
   return requests.map((request, index) =>
     buildResult(counts[index]!, request, identities[index]!.windowStart, now)
   );

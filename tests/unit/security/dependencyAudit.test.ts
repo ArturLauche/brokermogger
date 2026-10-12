@@ -30,6 +30,15 @@ it("expires without needing a code or configuration change", () => {
     evaluateDependencyAudit(report, lock, new Date("2026-11-11T00:00:00Z")).blocking
   ).toEqual(["braces", "micromatch"]);
 });
+it("reports the remaining exception lifetime and the exact expiry boundary", () => {
+  expect(
+    evaluateDependencyAudit(report, lock, new Date("2026-11-04T00:00:00Z"))
+      .exceptionDaysRemaining
+  ).toBe(7);
+  const expired = evaluateDependencyAudit(report, lock, new Date("2026-11-11T00:00:00Z"));
+  expect(expired.exceptionDaysRemaining).toBe(0);
+  expect(expired.blocking).toEqual(["braces", "micromatch"]);
+});
 it("blocks a runtime copy even of the excepted package", () => {
   expect(
     evaluateDependencyAudit(

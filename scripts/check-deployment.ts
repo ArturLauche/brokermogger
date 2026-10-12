@@ -9,15 +9,23 @@ const log = createLogger("deployment-preflight");
 // application logging is silent or restricted to errors.
 log.level = "info";
 const flags = process.argv.slice(2);
-if (flags.some((flag) => flag !== "--public")) {
-  log.error("Usage: npm run check:deployment -- [--public]");
+if (
+  flags.some((flag) => flag !== "--public" && flag !== "--single-user") ||
+  (flags.includes("--public") && flags.includes("--single-user"))
+) {
+  log.error("Usage: npm run check:deployment -- [--public | --single-user]");
   process.exitCode = 1;
 } else {
-  const result = deploymentPreflight(env, flags.includes("--public"));
+  const singleUser = flags.includes("--single-user");
+  const result = deploymentPreflight(env, !singleUser);
+  if (singleUser)
+    log.warn(
+      "NOT VERIFIED FOR PUBLIC USE: explicitly checking a private single-user instance."
+    );
   for (const warning of result.warnings) log.warn(warning);
   if (!result.ready) process.exitCode = 1;
   else
     log.info(
-      "Configuration checked. Verify that ingress overwrites the selected header and that direct application access is blocked; this preflight cannot attest to network topology."
+      "Configuration checked. NETWORK TRUST NOT VERIFIED: confirm ingress overwrites the selected header and direct application access is blocked; this preflight cannot attest to network topology."
     );
 }

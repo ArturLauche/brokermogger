@@ -11,6 +11,8 @@ const scan = spawnSync(
   {
     encoding: "utf8",
     maxBuffer: 16 * 1024 * 1024,
+    timeout: 300_000,
+    killSignal: "SIGKILL",
   }
 );
 try {
@@ -24,8 +26,13 @@ try {
   );
   if (result.accepted.length) {
     process.stderr.write(
-      `Temporary dev-only exception: ${result.exception.advisoryUrl}; owner ${result.exception.owner}; expires ${result.exception.expiresAt}. Affected entries: ${result.accepted.join(", ")}. Evidence: ${result.exception.evidence}.\n`
+      `Temporary dev-only exception: ${result.exception.advisoryUrl}; owner ${result.exception.owner}; expires ${result.exception.expiresAt} (${result.exceptionDaysRemaining} days remaining). Affected entries: ${result.accepted.join(", ")}. Evidence: ${result.exception.evidence}.\n`
     );
+    if (result.exceptionDaysRemaining <= 14) {
+      process.stderr.write(
+        `::warning title=Dependency exception expires soon::${result.exceptionDaysRemaining} days remain before the braces development exception expires. Replace the affected tooling or update to a reviewed patched release; expiry still blocks this gate.\n`
+      );
+    }
   }
   if (result.blocking.length) {
     process.stderr.write(`Dependency audit failed: ${result.blocking.join(", ")}.\n`);

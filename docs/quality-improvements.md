@@ -106,11 +106,55 @@ generic known/unknown/JSON/form replies, no tokens or emails, retry only in a fr
 request, single-flight callback/provider checks and concurrent chain integrity.
 The two initial injection tests failed before the implementation fix.
 
-`npm run check:deployment -- --public` now makes missing trusted attribution or
-disabled abuse protection an explicit deployment preflight failure. The ordinary
-check warns while permitting local/single-user setups. It cannot attest to ingress
-topology; documented checks cover header overwrite, blocked direct ingress and
-forged headers from controlled sources.
+`npm run check:deployment` makes missing trusted attribution or disabled abuse
+protection an explicit deployment preflight failure by default. `--single-user`
+selects a visibly advisory private-instance check; `--public` remains strict.
+Production startup also rejects these settings unless private shared-bucket use
+is explicitly acknowledged (disabled enforcement is always refused). The check
+cannot attest to ingress topology; documented checks cover header overwrite,
+blocked direct ingress and forged headers from controlled sources.
+
+## Additional deployment and review safeguards
+
+The subsequent twelve-finding review exposed a confirmed unsafe deployment
+example: the production Compose app port was published on every interface even
+though trusted-header documentation required blocking direct access. Both shipped
+app bindings now use loopback; Docker smoke parses all three actual Compose files
+and rejects unrestricted app publication. The guide covers existing-container
+recreation, private containerized proxies, direct routing and Docker versions
+whose loopback publication alone does not establish isolation.
+
+Other findings were engineering weaknesses: production could silently share one
+login bucket or disable enforcement; default preflight was advisory; appending
+forwarded chains lacked an operational signal; standalone counters and the audit
+subprocess had inconsistent or absent deadlines. Production now refuses disabled
+enforcement and requires configured attribution or an explicit private-instance
+shared-bucket acknowledgement. Public preflight is strict by default, private
+mode is visibly advisory, and passing configuration cannot attest network trust.
+The existing protected metrics endpoint counts committed unattributed auth
+attempts for the last day without new identifiers or public diagnostics.
+
+Single/batched counters and mandatory admission share a bounded database helper.
+Malformed counter-port cardinality or values throw `INTERNAL_ERROR`, preserving
+the surrounding admission rollback. Browser guards now explain missing/malformed
+URLs without echoing their input. The auth journey aggregates all fixed windows,
+compares token/email issuance with committed proofs and explicitly verifies the
+untrusted-header fixture. Delayed jobs are observed before advancing them; a
+database regression proves future work cannot be claimed prematurely.
+
+The audit subprocess has a five-minute forced-termination budget. The absent
+`@shadcn/registry` entry was removed from this branch's exception; #39 retains its
+own installed wrapper. Every exception report prints days remaining and warns in
+Actions within 14 days of expiry. A weekly workflow runs both gates after merge.
+The suggested non-blocking expiry was rejected: expired exceptions still fail.
+Shared audit and isolated-fixture changes are copied to #39 independently; its
+application/proxy configuration and supported dependency versions stay separate.
+
+Production operators must review the new startup requirements before upgrading.
+Private acknowledgement never raises the allowance or enables real sending. No
+schema migration, broker activation, legal conclusion or personal-data retention
+change accompanies these safeguards. Final local and new-head CI evidence is
+recorded in the validation document and pull requests.
 
 ## Operational and privacy review
 

@@ -16,6 +16,7 @@ import {
 } from "@/lib/rateLimit";
 
 import { testPrisma } from "../../helpers/db";
+import { incrementBucket, incrementBuckets } from "@/lib/db/repositories/rateLimit";
 
 const WINDOW_SECONDS = 60;
 
@@ -204,3 +205,54 @@ it("fails closed and rolls back both counters when a database trigger suppresses
     await testPrisma.$executeRawUnsafe(`DROP FUNCTION synthetic_skip_bucket()`);
   }
 });
+
+it.each(["single", "batch"] as const)(
+  "bounds standalone %s counter contention and recovers after rollback",
+  async (mode) => {
+    const identity = {
+      scope: "test.bounded.counter",
+      key: "synthetic-hash",
+      windowStart: new Date("2026-10-13T12:00:00Z"),
+      windowSeconds: 60,
+    };
+    await incrementBucket(identity);
+    let acquired!: () => void;
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      acquired = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const blocker = testPrisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT "id" FROM "RateLimitBucket" WHERE "scope" = ${identity.scope} FOR UPDATE`;
+        acquired();
+        await released;
+      },
+      { maxWait: 2_000, timeout: 10_000 }
+    );
+    const cleanup = setTimeout(release, 7_000);
+    try {
+      await Promise.race([ready, blocker]);
+      const started = performance.now();
+      const operation =
+        mode === "single"
+          ? incrementBucket(identity)
+          : incrementBuckets([
+              { ...identity, key: "first-write-must-roll-back" },
+              identity,
+            ]);
+      await expect(operation).rejects.toThrow();
+      expect(performance.now() - started).toBeLessThan(4_500);
+      const rows = await testPrisma.rateLimitBucket.findMany();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.count).toBe(1);
+    } finally {
+      clearTimeout(cleanup);
+      release();
+      await blocker;
+    }
+    expect(await incrementBucket(identity)).toBe(2);
+  }
+);

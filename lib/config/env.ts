@@ -42,6 +42,7 @@ const rawSchema = z.object({
   TRUSTED_PROXY_IP_HEADER: z
     .enum(["none", "x-real-ip", "x-forwarded-for"])
     .default("none"),
+  ALLOW_SHARED_AUTH_NETWORK_BUCKET: booleanFromString.default(false),
   AUTH_MAGIC_LINK_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(900),
   INSTANCE_ADMIN_EMAILS: z.string().default(""),
 
@@ -213,6 +214,17 @@ function crossFieldChecks(parsed: RawEnv): string[] {
   }
 
   if (parsed.APP_ENV === "production") {
+    if (!parsed.RATE_LIMIT_ENABLED) {
+      problems.push("RATE_LIMIT_ENABLED must be true in production.");
+    }
+    if (
+      parsed.TRUSTED_PROXY_IP_HEADER === "none" &&
+      !parsed.ALLOW_SHARED_AUTH_NETWORK_BUCKET
+    ) {
+      problems.push(
+        "Production login requires a verified ingress-overwritten TRUSTED_PROXY_IP_HEADER. For a private single-user instance only, explicitly acknowledge the shared ten-attempts-per-hour allowance with ALLOW_SHARED_AUTH_NETWORK_BUCKET=true; any caller can exhaust it for the entire instance."
+      );
+    }
     if (!parsed.APP_BASE_URL.startsWith("https://")) {
       problems.push("APP_BASE_URL must use https in production.");
     }

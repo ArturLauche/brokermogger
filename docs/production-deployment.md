@@ -22,11 +22,22 @@ broker methods and consent separately; starting the instance does not authorize
 broker contact. Use the [private-storage upgrade procedure](upgrade-private-storage.md)
 when migrating an existing instance.
 
-Before a public multi-user deployment, run `npm run check:deployment -- --public`
+The app's published port is loopback-only (`127.0.0.1:3000:3000`), for a reverse
+proxy on the Docker host. Existing installations must update any older
+`3000:3000` bindings, including overrides, and recreate the app before trusting
+headers. For a containerized proxy, remove publication and use a controlled
+private network; follow the trust guide below for direct-routing/firewall checks.
+
+Before a public multi-user deployment, run `npm run check:deployment`
 with its actual environment and follow the [reverse-proxy trust boundary checks](authentication-abuse-controls.md#configuring-an-ingress).
 Without trusted attribution every caller shares ten sign-in attempts per hour,
 so one caller can deny login to the entire instance. Select a header only after
 the ingress overwrites it and direct application access is blocked.
+Production app and worker startup refuse disabled rate limiting or unconfigured
+attribution. Only a private single-user instance should explicitly acknowledge
+shared-bucket use with `ALLOW_SHARED_AUTH_NETWORK_BUCKET=true`; run its advisory
+check with `npm run check:deployment -- --single-user`. Public configuration
+checks remain strict even when that private-use acknowledgement is set.
 
 Set `SECURITY_CONTACT_EMAIL` to a monitored operator address. Until configured,
 `/.well-known/security.txt` returns 404 and no placeholder contact appears on the

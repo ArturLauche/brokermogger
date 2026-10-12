@@ -38,6 +38,9 @@ Contended bucket or audit-chain locks fail closed and roll back without leaving
 bucket charges, tokens or email. A fresh request can retry after the lock holder
 finishes. These limits do not change other audit writers or account-erasure
 transactions; they cannot guarantee successful admission during sustained overload.
+Standalone single and batched counter increments use the same database budget;
+caller-owned increments inherit the surrounding transaction's budget. Malformed
+counter-port results raise `INTERNAL_ERROR` rather than producing an invalid allowance.
 
 Issued callback links are pinned to `APP_BASE_URL`'s origin, preserving the Auth.js
 callback path and token query. `AUTH_URL` should also identify the public origin.
@@ -56,11 +59,18 @@ Any one caller can exhaust that shared allowance and deny sign-in to everyone
 for the current window. This conservative fallback protects against email abuse;
 it is unsuitable as the intended client attribution for a public multi-user service.
 
-Run `npm run check:deployment` with the actual deployment environment to see an
-explicit warning. Before opening a public multi-user instance, run
-`npm run check:deployment -- --public`; it exits unsuccessfully if trusted IP
-attribution is unconfigured or rate limiting is disabled. This checks configuration
-only and cannot attest that a firewall or proxy is correctly deployed.
+Production startup rejects disabled rate limiting and unconfigured attribution.
+For a private single-user instance, `ALLOW_SHARED_AUTH_NETWORK_BUCKET=true`
+explicitly acknowledges the ten-attempts-per-hour shared allowance and its
+instance-wide denial risk. Keep it false for a public multi-user service; it does
+not exempt any caller from enforcement or establish proxy trust.
+
+Run `npm run check:deployment` with the actual deployment environment before
+opening the service. It is strict by default and exits unsuccessfully if trusted
+IP attribution is unconfigured or rate limiting is disabled; `--public` retains
+the same behavior. `--single-user` explicitly selects an advisory private-instance
+check and prints **NOT VERIFIED FOR PUBLIC USE**. Configuration checks cannot
+attest that a firewall or proxy is correctly deployed, even when they pass.
 
 `AUTH_TRUST_HOST` is Auth.js host trust, **not** authorization to trust client-IP
 headers. Setting it does not enable IP attribution.
@@ -75,6 +85,22 @@ To use `x-real-ip` or `x-forwarded-for`, all of these must be true:
    IP. Do not append a caller-provided chain or use its leftmost hop.
 3. Only that header is selected in `TRUSTED_PROXY_IP_HEADER`. There is no fallback
    to another, potentially untrusted header.
+
+The shipped production and development Compose app ports are now bound to
+`127.0.0.1:3000:3000`. For an existing deployment, replace `3000:3000` in every
+Compose/override file and recreate the app container before enabling header
+trust. Confirm `docker compose -f docker-compose.prod.yml port app 3000` reports
+`127.0.0.1:3000`. A host-local proxy can use that address. A proxy in another
+container needs a controlled private network to `app:3000`; remove the app's
+published port in that deployment and exclude untrusted containers from its
+network. A proxy on another host requires an explicit private network/firewall
+boundary; do not restore an unrestricted public binding.
+
+Loopback publication does not protect against trusted-host processes, containers
+on the same network, or deliberately enabled direct routing. Docker versions
+older than 28 also permit same-L2 access to some loopback-published ports; upgrade
+or enforce an independently checked ingress firewall. See
+[Docker's port publication and direct-routing guidance](https://docs.docker.com/engine/network/port-publishing/).
 
 For a single public Nginx ingress with clients connecting directly to it:
 
@@ -111,6 +137,14 @@ The `x-forwarded-for` option also accepts **one** numeric address only. Commas,
 ports, hostnames and IPv6 zone identifiers are rejected. Equivalent IPv6 forms
 are canonicalised before hashing. Rejecting an attribution falls back to the
 shared quota; it does not reject a legitimate sign-in outright.
+The preflight warns about appended chains when this option is selected, while
+allowing a correctly overwritten single numeric address. The token-protected
+`/api/metrics` exposes `brokermogger_auth_unknown_network_attempts_24h`: committed
+sign-in admission attempts without attribution in the past 24 hours, including
+quota denials and excluding rolled-back failures. A growing value on a public
+instance warrants checking missing/invalid headers and every ingress path. This
+aggregate derives from existing mandatory audits, has no IP/email labels, and
+does not add a public diagnostic endpoint or retain new personal data.
 
 ## Verification
 
