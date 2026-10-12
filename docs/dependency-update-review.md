@@ -93,3 +93,12 @@ mock provider fixtures are unchanged.
 The regenerated lock still retains MSW 2.15.0 through Vitest's optional peer
 resolution. No install-size or advisory-count reduction is claimed; all retained
 package versions are unchanged by this declaration cleanup.
+
+CI at `8a3ee8b` passes all mandatory jobs and all 15 browser journeys without a
+retry. The feature branch's matching journey exposed an additional action/fixture
+race: a worker helper could run before the retry POST committed, while its job was
+still failed. A controlled deferred POST reproduces the zero-row assertion. The
+shared test now checks the pending state and waits for the scheduled UI before
+driving the unchanged worker; final reminders wait for scheduling too. There is
+no arbitrary sleep, production change or relaxation of job eligibility, fencing,
+approval assertions or CI retries. Fresh exact-head CI is recorded in the PR.

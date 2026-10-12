@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "./fixtures";
 import { PrismaClient } from "@prisma/client";
+import type { Route } from "@playwright/test";
 import { seedJurisdictions } from "../prisma/seeds/jurisdictions";
 import { seedLegalRules } from "../prisma/seeds/legalRules";
 import { seedRequestTemplates } from "../prisma/seeds/templates";
@@ -138,7 +139,34 @@ test("edits and approves a manual request, records submission, then confirms a r
   await expect(
     page.getByRole("heading", { name: "Follow-up preparation needs a retry" })
   ).toBeVisible();
-  await page.getByRole("button", { name: "Retry preparation", exact: true }).click();
+  // Hold the retry POST so the fixture exercises an action still in flight.
+  let releaseRetry!: () => void;
+  const retryGate = new Promise<void>((resolve) => {
+    releaseRetry = resolve;
+  });
+  const retryPattern = `**/requests/${requestId}**`;
+  const delayRetry = async (route: Route) => {
+    if (route.request().method() === "POST" && route.request().headers()["next-action"])
+      await retryGate;
+    await route.continue();
+  };
+  await page.route(retryPattern, delayRetry);
+  try {
+    await page.getByRole("button", { name: "Retry preparation", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Scheduling…", exact: true })
+    ).toBeDisabled();
+    await expect(
+      page.getByRole("heading", { name: "Follow-up preparation needs a retry" })
+    ).toBeVisible();
+    releaseRetry();
+    await expect(
+      page.getByRole("heading", { name: "Follow-up scheduled", exact: true })
+    ).toBeVisible();
+  } finally {
+    releaseRetry();
+    await page.unrouteAll({ behavior: "wait" });
+  }
   await processFollowUp(requestId);
   await page.getByRole("button", { name: "Refresh status" }).click();
   await expect(page.getByRole("link", { name: "Review", exact: true })).toBeVisible();
@@ -160,6 +188,9 @@ test("edits and approves a manual request, records submission, then confirms a r
   await page.getByRole("button", { name: "Record submission", exact: true }).click();
   await expect(page).toHaveURL(/saved=submission/);
   await page.getByRole("button", { name: "Prepare final reminder", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Final reminder scheduled", exact: true })
+  ).toBeVisible();
   await processFollowUp(requestId, false, 2);
   await page.getByRole("button", { name: "Refresh status" }).click();
   await page.getByRole("link", { name: "Review", exact: true }).click();
