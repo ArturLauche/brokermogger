@@ -16,6 +16,7 @@ import {
   countExpiredBuckets,
   deleteExpiredBuckets,
   incrementBucket,
+  incrementBuckets,
   readBucketCount,
   reserveWeightedRequestCreate,
 } from "@/lib/db/repositories/rateLimit";
@@ -173,6 +174,26 @@ export async function consumePolicy(
     windowSeconds: policy.windowSeconds,
     ...(overrides.now ? { now: overrides.now } : {}),
   });
+}
+
+/** One attempt against multiple policies, using one clock and one transaction. */
+export async function consumePolicies(
+  inputs: readonly { policy: RateLimitPolicy; key: string }[],
+  now = new Date()
+): Promise<RateLimitResult[]> {
+  const requests = inputs.map(({ policy, key }) => ({ ...policy, key }));
+  if (!env.RATE_LIMIT_ENABLED)
+    return requests.map((request) => bypassResult(request, "RATE_LIMIT_ENABLED=false"));
+  const identities = requests.map((request) => ({
+    scope: request.scope,
+    key: hashKey(request.scope, request.key),
+    windowStart: windowStartFor(now, request.windowSeconds),
+    windowSeconds: request.windowSeconds,
+  }));
+  const counts = await incrementBuckets(identities);
+  return requests.map((request, index) =>
+    buildResult(counts[index]!, request, identities[index]!.windowStart, now)
+  );
 }
 
 export async function checkPolicy(

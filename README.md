@@ -118,6 +118,10 @@ using `GITHUB_TOKEN`.
 
 ## Security
 
+See [magic-link abuse controls and reverse-proxy IP trust](docs/authentication-abuse-controls.md)
+before exposing or upgrading a multi-user instance. Forwarding headers are ignored
+by default; untrusted callers share the operational network allowance.
+
 See [SECURITY.md](SECURITY.md), [docs/asvs.md](docs/asvs.md) and [docs/privacy-retention.md](docs/privacy-retention.md). Report vulnerabilities to the address in `SECURITY_CONTACT_EMAIL`.
 
 ## Licence

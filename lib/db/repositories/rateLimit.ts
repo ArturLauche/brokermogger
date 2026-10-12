@@ -47,11 +47,27 @@ class MonthlyQuotaRollback extends AppError {
 
 /** Atomically increments the counter for one window and returns the new value. */
 export async function incrementBucket(identity: BucketIdentity): Promise<number> {
+  return incrementBucketOn(prisma, identity);
+}
+
+/** Both authentication counters commit together or neither does. */
+export async function incrementBuckets(identities: readonly BucketIdentity[]) {
+  return prisma.$transaction(async (tx) => {
+    const counts: number[] = [];
+    for (const identity of identities) counts.push(await incrementBucketOn(tx, identity));
+    return counts;
+  });
+}
+
+async function incrementBucketOn(
+  db: Queryable,
+  identity: BucketIdentity
+): Promise<number> {
   const expiresAt = new Date(
     identity.windowStart.getTime() + identity.windowSeconds * 1000
   );
 
-  const rows = await prisma.$queryRaw<{ count: number }[]>`
+  const rows = await db.$queryRaw<{ count: number }[]>`
     INSERT INTO "RateLimitBucket" (
       "id", "scope", "key", "windowStart", "windowSeconds", "count", "expiresAt",
       "createdAt", "updatedAt"
@@ -66,7 +82,12 @@ export async function incrementBucket(identity: BucketIdentity): Promise<number>
     RETURNING "count"
   `;
 
-  return rows[0]?.count ?? 1;
+  if (!rows[0])
+    throw new AppError({
+      code: "INTERNAL_ERROR",
+      message: "The rate limit counter could not be recorded.",
+    });
+  return rows[0].count;
 }
 
 /**

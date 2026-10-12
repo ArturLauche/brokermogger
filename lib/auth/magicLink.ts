@@ -8,17 +8,16 @@
  * development") also holds for sign in links.
  *
  * Two extra jobs happen here:
- *  - the rate limit is enforced when the request did not come through our own
- *    `/login` action, so the raw Auth.js endpoint cannot be used to flood an
- *    inbox,
+ *  - the shared pre-issuance rate decision is rechecked without consuming a
+ *    second attempt, including when this provider is invoked directly,
  *  - the send is written to the outbound email ledger, so a user can see that a
  *    link was sent and delivery webhooks can be correlated later.
  */
 import type { EmailProviderKind } from "@prisma/client";
 import type { EmailProviderSendVerificationRequestParams } from "@auth/core/providers/email";
 
-import { anonymousAuditActor, recordAudit } from "@/lib/audit/service";
-import { AppError } from "@/lib/core/errors";
+import { AppError, RateLimitError } from "@/lib/core/errors";
+import { env } from "@/lib/config/env";
 import { findAccountByEmail } from "@/lib/db/repositories/users";
 import { getEmailProvider } from "@/lib/email";
 import {
@@ -29,11 +28,10 @@ import {
 import { buildMagicLinkMessage, instanceFromAddress } from "@/lib/email/messages";
 import type { MagicLinkEmailInput } from "@/lib/email/types";
 import { createLogger } from "@/lib/observability/logger";
-import { consumePolicy, magicLinkPerEmail } from "@/lib/rateLimit";
 import { assertValidEmailAddress } from "@/lib/security/sanitize";
 
-import { currentMagicLinkContext } from "./magicLinkContext";
-import { emailIndexFor, readRequestContext } from "./requestContext";
+import { authorizeMagicLinkRequest } from "./magicLinkRateLimit";
+import { magicLinkUrlForInstance } from "./redirect";
 
 const log = createLogger("auth.magic-link");
 
@@ -45,15 +43,13 @@ export async function sendMagicLinkVerificationRequest(
   params: EmailProviderSendVerificationRequestParams
 ): Promise<void> {
   const address = assertValidEmailAddress(params.identifier, "email");
-  const context = currentMagicLinkContext();
-
-  if (!context?.rateLimitConsumed) {
-    await enforceDirectApiRateLimit(address);
+  if (!(await authorizeMagicLinkRequest(address))) {
+    throw new RateLimitError("The operational limit for sign in links was reached.", 1);
   }
 
   const input: MagicLinkEmailInput = {
     to: { address },
-    url: params.url,
+    url: magicLinkUrlForInstance(params.url, env.APP_BASE_URL),
     expiresAt: params.expires,
   };
 
@@ -92,50 +88,6 @@ export async function sendMagicLinkVerificationRequest(
     }
     throw error;
   }
-}
-
-/**
- * Defence in depth for `POST /api/auth/signin/magic-link`. Our own login action
- * consumes the limit before it calls Auth.js, so this path only runs when the
- * endpoint was called directly.
- */
-async function enforceDirectApiRateLimit(address: string): Promise<void> {
-  const decision = await consumePolicy(magicLinkPerEmail, address);
-  const requestContext = await readRequestContext();
-  const actor = anonymousAuditActor(requestContext.requestId, {
-    ipHash: requestContext.ipHash,
-    userAgentHash: requestContext.userAgentHash,
-    emailIndex: emailIndexFor(address),
-  });
-
-  if (decision.allowed) {
-    await recordAudit({
-      actor,
-      action: "auth.magic_link.requested",
-      resourceType: "user",
-      metadata: { entryPoint: "auth_api", emailIndex: emailIndexFor(address) },
-    });
-    return;
-  }
-
-  await recordAudit({
-    actor,
-    action: "auth.magic_link.rate_limited",
-    resourceType: "user",
-    outcome: "DENIED",
-    reason: "Too many sign in links were requested for this address.",
-    metadata: {
-      entryPoint: "auth_api",
-      limit: decision.limit,
-      retryAfterSeconds: decision.retryAfterSeconds,
-    },
-  });
-
-  throw new AppError({
-    code: "RATE_LIMITED",
-    message: magicLinkPerEmail.description,
-    details: { retryAfterSeconds: decision.retryAfterSeconds },
-  });
 }
 
 /**

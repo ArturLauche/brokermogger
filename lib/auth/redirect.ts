@@ -9,3 +9,13 @@ export function authRedirect(url: string, applicationUrl: string): string {
     return fallback;
   }
 }
+
+/** Tokens must only be delivered to this instance's configured callback origin. */
+export function magicLinkUrlForInstance(url: string, applicationUrl: string): string {
+  const callback = new URL(url);
+  const application = new URL(applicationUrl);
+  const link = new URL(application.origin);
+  link.pathname = callback.pathname;
+  link.search = callback.search;
+  return link.href;
+}

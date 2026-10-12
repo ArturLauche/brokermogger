@@ -161,3 +161,46 @@ describe("policies and cleanup", () => {
     expect(rows[0]?.windowStart.toISOString()).toBe("2026-08-15T14:00:00.000Z");
   });
 });
+
+it("rolls back all authentication counters if a later bucket write fails", async () => {
+  const { incrementBuckets } = await import("@/lib/db/repositories/rateLimit");
+  const identity = {
+    scope: "test.atomic.auth",
+    key: "synthetic-hash",
+    windowStart: new Date(),
+    windowSeconds: 60,
+  };
+  await expect(
+    incrementBuckets([identity, { ...identity, key: null as unknown as string }])
+  ).rejects.toThrow();
+  expect(
+    await testPrisma.rateLimitBucket.count({ where: { scope: identity.scope } })
+  ).toBe(0);
+});
+
+it("fails closed and rolls back both counters when a database trigger suppresses a write", async () => {
+  const { incrementBuckets } = await import("@/lib/db/repositories/rateLimit");
+  await testPrisma.$executeRawUnsafe(
+    `CREATE FUNCTION synthetic_skip_bucket() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.scope = 'test.skip.bucket' THEN RETURN NULL; END IF; RETURN NEW; END $$`
+  );
+  await testPrisma.$executeRawUnsafe(
+    `CREATE TRIGGER synthetic_skip_bucket BEFORE INSERT ON "RateLimitBucket" FOR EACH ROW EXECUTE FUNCTION synthetic_skip_bucket()`
+  );
+  try {
+    const identity = {
+      scope: "test.batch.first",
+      key: "synthetic-key",
+      windowStart: new Date(),
+      windowSeconds: 60,
+    };
+    await expect(
+      incrementBuckets([identity, { ...identity, scope: "test.skip.bucket" }])
+    ).rejects.toMatchObject({ code: "INTERNAL_ERROR" });
+    expect(await testPrisma.rateLimitBucket.count()).toBe(0);
+  } finally {
+    await testPrisma.$executeRawUnsafe(
+      `DROP TRIGGER synthetic_skip_bucket ON "RateLimitBucket"`
+    );
+    await testPrisma.$executeRawUnsafe(`DROP FUNCTION synthetic_skip_bucket()`);
+  }
+});

@@ -426,3 +426,35 @@ describe("operator legal rule authoring", () => {
     expect((await listPublishedLegalRules())[0]!.legalRuleVersionId).toBe(next.versionId);
   });
 });
+
+it("queues the oldest draft/published version needing source review without publishing it", async () => {
+  const { actor } = await fixture();
+  await seedLegalRules(testPrisma);
+  const selected = await testPrisma.legalRuleVersion.findFirstOrThrow({
+    where: { status: "PUBLISHED" },
+  });
+  const before = await testPrisma.legalRuleVersion.findMany({
+    where: { legalRuleId: selected.legalRuleId },
+  });
+  const queue = await listLegalRuleAdministration(actor, {
+    status: "review",
+    search: (
+      await testPrisma.legalRule.findUniqueOrThrow({
+        where: { id: selected.legalRuleId },
+      })
+    ).key,
+  });
+  expect(queue.items.map((row) => row.id)).toContain(selected.legalRuleId);
+  expect(
+    queue.items.find((row) => row.id === selected.legalRuleId)?.versions[0]
+      ?.requiresLegalReview
+  ).toBe(true);
+  expect(
+    await testPrisma.legalRuleVersion.findMany({
+      where: { legalRuleId: selected.legalRuleId },
+    })
+  ).toEqual(before);
+  await expect(
+    listLegalRuleAdministration({ ...actor, role: "USER" }, { status: "review" })
+  ).rejects.toMatchObject({ code: "FORBIDDEN" });
+});

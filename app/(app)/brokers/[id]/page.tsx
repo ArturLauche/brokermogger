@@ -10,6 +10,8 @@ import { getBrokerWithContacts } from "@/lib/db/repositories/catalog";
 import { formatIsoDate } from "@/lib/format/datetime";
 import { REQUEST_TYPE_LABELS } from "@/lib/requests/labels";
 import { entityIdSchema } from "@/lib/validation/ids";
+import { BrokerReadinessSummary } from "@/components/brokers/readiness-summary";
+import { BROKER_REVIEW_INTERVAL_DAYS, reviewAge } from "@/lib/catalogue/reviewAge";
 
 export const metadata = { title: "Broker instructions" };
 export const dynamic = "force-dynamic";
@@ -54,6 +56,7 @@ export default async function BrokerInstructionsPage({
           <p>No primary source recorded.</p>
         )}
       </div>
+      <BrokerReadinessSummary readiness={broker.readiness} />
       <section className="space-y-4 border-t pt-6" aria-labelledby="broker-instructions">
         <h2 id="broker-instructions" className="text-xl font-semibold">
           Instructions and limitations
@@ -105,7 +108,7 @@ export default async function BrokerInstructionsPage({
             </h3>
             <p>
               {method.isVerified
-                ? `Verified ${formatIsoDate(method.verifiedAt)}`
+                ? `Verification recorded ${formatIsoDate(method.verifiedAt)} · ${reviewAge(method.verifiedAt, BROKER_REVIEW_INTERVAL_DAYS).label}`
                 : "Not verified"}
             </p>
             {method.type === "EMAIL" || method.type === "POSTAL" ? (
@@ -113,9 +116,6 @@ export default async function BrokerInstructionsPage({
             ) : (
               <ExternalLink href={method.value}>Open the published method</ExternalLink>
             )}
-            {method.verificationNote ? (
-              <p className="leading-6 whitespace-pre-wrap">{method.verificationNote}</p>
-            ) : null}
             {method.sourceUrl ? (
               <ExternalLink href={method.sourceUrl}>
                 Method verification source

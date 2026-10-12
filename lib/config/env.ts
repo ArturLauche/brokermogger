@@ -39,6 +39,9 @@ const rawSchema = z.object({
   AUTH_SECRET: z.string().min(16, "AUTH_SECRET must be at least 16 characters"),
   AUTH_URL: z.url().optional(),
   AUTH_TRUST_HOST: booleanFromString.default(false),
+  TRUSTED_PROXY_IP_HEADER: z
+    .enum(["none", "x-real-ip", "x-forwarded-for"])
+    .default("none"),
   AUTH_MAGIC_LINK_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(900),
   INSTANCE_ADMIN_EMAILS: z.string().default(""),
 

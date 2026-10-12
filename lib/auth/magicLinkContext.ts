@@ -3,34 +3,43 @@
  *
  * Auth.js can be reached two ways: through our own `/login` server action and
  * directly through `POST /api/auth/signin/magic-link`. Both paths end in
- * `sendVerificationRequest`, which is therefore the only reliable place to
- * enforce the rate limit.
- *
- * To avoid counting a legitimate request twice, the server action wraps its
- * `signIn()` call in this async context and records that it already consumed the
- * limit. A direct API call has no context, so the limit is consumed inside
- * `sendVerificationRequest` instead.
+ * a shared gate before token issuance, with a delivery-time defence in depth.
+ * The gate memoises its decision per address blind index for this request only.
+ * Concurrent checks share the same promise; callers cannot mark a quota as
+ * consumed. Neither request-local decisions nor identifiers survive the request.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { HashedRequestContext } from "./requestContext";
 
-export interface MagicLinkRequestContext {
-  /** True when the caller already consumed the magic link rate limits. */
-  rateLimitConsumed: boolean;
-  /** Request id of the calling action, so the audit trail stays correlated. */
-  requestId: string;
-  ipHash: string | null;
-  userAgentHash: string | null;
+export interface MagicLinkRequestContext extends HashedRequestContext {
+  entryPoint: "login_form" | "auth_api";
 }
 
-const storage = new AsyncLocalStorage<MagicLinkRequestContext>();
+const storage = new AsyncLocalStorage<{
+  context: MagicLinkRequestContext;
+  decisions: Map<string, Promise<boolean>>;
+}>();
 
 export async function withMagicLinkContext<T>(
   context: MagicLinkRequestContext,
   handler: () => Promise<T>
 ): Promise<T> {
-  return storage.run(context, handler);
+  return storage.run({ context, decisions: new Map() }, handler);
 }
 
 export function currentMagicLinkContext(): MagicLinkRequestContext | undefined {
-  return storage.getStore();
+  return storage.getStore()?.context;
+}
+
+export function oncePerMagicLinkRequest(
+  subjectKey: string,
+  check: () => Promise<boolean>
+): Promise<boolean> {
+  const request = storage.getStore();
+  if (!request) return check();
+  const previous = request.decisions.get(subjectKey);
+  if (previous) return previous;
+  const decision = check();
+  request.decisions.set(subjectKey, decision);
+  return decision;
 }
