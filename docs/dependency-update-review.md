@@ -41,7 +41,7 @@ application code, database schema and broker sending gates are unchanged.
 - npm 10.9.4 clean `npm ci --include=dev` and separate
   `PRISMA_SKIP_POSTINSTALL_GENERATE=true npm ci --omit=dev` both pass. The latter
   matches the production worker image's installation phase.
-- Environment consistency, typecheck, lint, formatting and **491 unit/component
+- Environment consistency, typecheck, lint, formatting and **493 unit/component
   tests** pass. Production compilation and standalone preparation pass.
 - The unfiltered production audit passes; the full policy gate accepts only the
   documented unpatched development advisory.
@@ -83,3 +83,13 @@ Report node/cause arrays now permit at most 100 unique entries each. Six new
 regressions failed before these corrections and pass afterward. All 15 browser
 journeys pass on fresh fixtures with retries disabled; CI retries and security
 thresholds are unchanged.
+
+The severity boundary also has explicit moderate/critical regrading regressions
+for both the reported package and upstream advisory. Repository-wide source,
+test and configuration searches confirmed no MSW imports or server/worker setup.
+This dependency branch removes its unused direct declaration and script allowlist
+entry with npm 10; optional Vitest peer metadata remains. Application behavior and
+mock provider fixtures are unchanged.
+The regenerated lock still retains MSW 2.15.0 through Vitest's optional peer
+resolution. No install-size or advisory-count reduction is claimed; all retained
+package versions are unchanged by this declaration cleanup.

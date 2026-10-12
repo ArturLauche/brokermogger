@@ -61,6 +61,23 @@ it("blocks a new advisory even in an excepted dependency", () => {
   });
   expect(evaluateDependencyAudit(changed, lock, now).blocking).toHaveLength(2);
 });
+it.each(["moderate", "critical"])(
+  "blocks an excepted finding regraded to %s",
+  (changedSeverity) => {
+    const changed = structuredClone(report);
+    changed.vulnerabilities.braces.severity = changedSeverity;
+    expect(evaluateDependencyAudit(changed, lock, now).blocking).toEqual([
+      "braces",
+      "micromatch",
+    ]);
+    const upstream = structuredClone(report);
+    upstream.vulnerabilities.braces.via[0]!.severity = changedSeverity;
+    expect(evaluateDependencyAudit(upstream, lock, now).blocking).toEqual([
+      "braces",
+      "micromatch",
+    ]);
+  }
+);
 it("blocks unrelated moderate findings", () => {
   const changed = {
     vulnerabilities: {
