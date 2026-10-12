@@ -57,3 +57,13 @@ The separately repaired #39 updates shadcn to 4.21.1, which extracts part of the
 same CLI into `@shadcn/registry`. Its verified dev-only glob paths cause a ninth
 dependent entry for the same braces advisory; that specific wrapper is included
 in the exception too. There is no additional excepted advisory.
+
+## Additional review safeguards
+
+The scanner now has a five-minute deadline with forced termination and fails
+closed on timeout or partial output. Every accepted-exception report prints the
+remaining days; within 14 days of expiry it emits a GitHub Actions warning. The
+scheduled dependency-security workflow checks both gates on the default branch
+every Monday at 07:17 UTC after merge, with manual dispatch available. Expiry
+remains blocking. This branch retains its nine actually installed affected
+packages, including `@shadcn/registry`; #40 uses its own eight-package inventory.

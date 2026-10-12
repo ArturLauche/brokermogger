@@ -102,3 +102,18 @@ shared test now checks the pending state and waits for the scheduled UI before
 driving the unchanged worker; final reminders wait for scheduling too. There is
 no arbitrary sleep, production change or relaxation of job eligibility, fencing,
 approval assertions or CI retries. Fresh exact-head CI is recorded in the PR.
+
+## Additional PR review follow-up
+
+The shared scanner now has a five-minute forced-termination budget, expiry-day
+reporting and a scheduled security workflow. Tests prove timeout/partial-output
+failure and warnings before the still-blocking expiry. Browser configuration
+errors use the isolated-environment message without exposing malformed URLs;
+five regressions failed before this correction. The correspondence journey
+observes its delayed target before advancing it. A database regression proves
+future jobs retain pending status, zero attempts and no lease until due.
+
+These compatible audit/fixture changes are shared with #40 without importing
+its application/proxy configuration or broadening this dependency repair into
+an authentication feature. The refreshed 501 unit/component tests and focused
+seven lease tests pass. Browser and new-head CI results are recorded in the PR.

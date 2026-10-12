@@ -405,6 +405,14 @@ async function processFollowUp(
       UPDATE "BackgroundJob" SET "runAt" = NOW() + INTERVAL '1 minute'
       WHERE "id" = ${row.id}
     `;
+    const [scheduled] = await db.$queryRaw<{ future: boolean }[]>`
+      SELECT "runAt" > NOW() AS future FROM "BackgroundJob" WHERE "id" = ${row.id}
+    `;
+    expect(scheduled?.future).toBe(true);
+    const untouched = await db.backgroundJob.findUniqueOrThrow({ where: { id: row.id } });
+    expect(untouched.status).toBe(row.status);
+    expect(untouched.attemptCount).toBe(row.attemptCount);
+    expect(untouched.leaseToken).toBeNull();
     await makeBrowserJobDue(db, row.id);
     const { claimDueJobs } = await import("../lib/db/repositories/jobs");
     const { runClaimedJob } = await import("../lib/jobs/queue");

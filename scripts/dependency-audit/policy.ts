@@ -77,5 +77,13 @@ export function evaluateDependencyAudit(
     if (accepts(name)) accepted.push(name);
     else blocking.push(name);
   }
-  return { blocking, accepted, exception };
+  return {
+    blocking,
+    accepted,
+    exception,
+    exceptionDaysRemaining: Math.max(
+      0,
+      Math.ceil((Date.parse(exception.expiresAt) - now.getTime()) / 86_400_000)
+    ),
+  };
 }
