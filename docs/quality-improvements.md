@@ -156,6 +156,28 @@ schema migration, broker activation, legal conclusion or personal-data retention
 change accompanies these safeguards. Final local and new-head CI evidence is
 recorded in the validation document and pull requests.
 
+## Counter and diagnostic follow-up
+
+The next review found an internal repository limitation: the batch counter port
+accepted empty, duplicate or arbitrarily large identity arrays. Current auth
+callers supply two fixed identities, so this was not demonstrated as a remotely
+reachable amplification defect. The repository now validates one to sixteen
+identities and rejects repeated database uniqueness tuples before any write,
+including caller-owned transactions. A real PostgreSQL constraint failure still
+tests rollback after the first write; validation does not replace that check.
+
+Two defects reproduced separately. Non-array injected counter results threw a
+`TypeError` instead of the promised `INTERNAL_ERROR`; result validation now checks
+the array shape first. The deployment CLI initialized an environment-dependent
+logger before it could explain invalid production settings, and uncaught
+validation messages could print configured values. A diagnostic logger retains
+normal redaction and safe error serialization without reading unvalidated
+configuration or reconfiguring runtime logging. The CLI prints its private-mode
+advisory before validation, catches failure and reports a fixed safe error.
+Production enforcement, explicit private acknowledgement and strict public
+checks remain required. Real child-process regressions cover these behaviors and
+exclude a synthetic private value from both output streams.
+
 ## Operational and privacy review
 
 The dispatch, approved-message, legal-eligibility and manual-submission paths

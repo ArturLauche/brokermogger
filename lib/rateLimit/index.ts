@@ -194,6 +194,7 @@ export async function consumePolicies(
   }));
   const counts = await increment(identities);
   if (
+    !Array.isArray(counts) ||
     counts.length !== identities.length ||
     identities.some(
       (_, index) => !Number.isSafeInteger(counts[index]) || counts[index]! < 1

@@ -12,6 +12,9 @@ const now = new Date("2026-10-13T12:00:10Z");
 
 it.each(
   [
+    null as unknown as number[],
+    undefined as unknown as number[],
+    { length: 2, 0: 1, 1: 1 } as unknown as number[],
     [],
     [1],
     [1, 2, 3],

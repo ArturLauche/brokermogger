@@ -7,6 +7,7 @@
  * never stores a raw email address, IP address or domain.
  */
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 
 import { prisma, type PrismaTransaction } from "@/lib/db/client";
 import { AppError } from "@/lib/core/errors";
@@ -56,14 +57,41 @@ export type BucketIncrementer = (
   identities: readonly BucketIdentity[]
 ) => Promise<number[]>;
 
-/** Both counters commit together, optionally with the caller's mandatory proof. */
+const identityBatch = z
+  .array(
+    z.object({
+      scope: z.string().min(1),
+      key: z.string().min(1),
+      windowStart: z.date(),
+      windowSeconds: z.number().int().positive(),
+    })
+  )
+  .min(1)
+  .max(16)
+  .refine(
+    (identities) =>
+      new Set(
+        identities.map((identity) =>
+          JSON.stringify([identity.scope, identity.key, identity.windowStart.getTime()])
+        )
+      ).size === identities.length
+  );
+
+/** Validated counters commit together, optionally with the caller's mandatory proof. */
 export async function incrementBuckets(
   identities: readonly BucketIdentity[],
   transaction?: PrismaTransaction
 ): Promise<number[]> {
+  const parsed = identityBatch.safeParse(identities);
+  if (!parsed.success)
+    throw new AppError({
+      code: "INTERNAL_ERROR",
+      message: "The rate limit identities could not be verified.",
+    });
   const increment = async (tx: PrismaTransaction) => {
     const counts: number[] = [];
-    for (const identity of identities) counts.push(await incrementBucketOn(tx, identity));
+    for (const identity of parsed.data)
+      counts.push(await incrementBucketOn(tx, identity));
     return counts;
   };
   return transaction ? increment(transaction) : withRateLimitTransaction(increment);

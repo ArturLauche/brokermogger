@@ -58,11 +58,11 @@ export function shouldUsePrettyTransport(config: {
   return config.APP_ENV === "development" && config.NODE_ENV === "development";
 }
 
-function buildOptions(): LoggerOptions {
+function buildOptions(diagnostic = false): LoggerOptions {
   const base: LoggerOptions = {
-    level: env.LOG_LEVEL,
+    level: diagnostic ? "info" : env.LOG_LEVEL,
     redact: { paths: REDACT_PATHS, censor: REDACTED },
-    base: { app: "brokermogger", appEnv: env.APP_ENV },
+    base: { app: "brokermogger", appEnv: diagnostic ? "unvalidated" : env.APP_ENV },
     timestamp: pino.stdTimeFunctions.isoTime,
     serializers: { err: safeError, error: safeError },
     formatters: {
@@ -72,7 +72,7 @@ function buildOptions(): LoggerOptions {
     },
   };
 
-  if (shouldUsePrettyTransport(env)) {
+  if (!diagnostic && shouldUsePrettyTransport(env)) {
     return {
       ...base,
       transport: {
@@ -116,8 +116,13 @@ function getRootLogger(): Logger {
 
 export function createLogger(
   component: string,
-  bindings: Record<string, unknown> = {}
+  bindings: Record<string, unknown> = {},
+  options: { diagnostic?: boolean } = {}
 ): Logger {
+  // CLI startup diagnostics must work before full environment validation. Keep
+  // the same redaction/error serializers, without reconfiguring runtime logging.
+  if (options.diagnostic)
+    return pino(buildOptions(true)).child({ component, ...bindings });
   return getRootLogger().child({ component, ...bindings });
 }
 

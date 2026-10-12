@@ -38,6 +38,10 @@ attribution. Only a private single-user instance should explicitly acknowledge
 shared-bucket use with `ALLOW_SHARED_AUTH_NETWORK_BUCKET=true`; run its advisory
 check with `npm run check:deployment -- --single-user`. Public configuration
 checks remain strict even when that private-use acknowledgement is set.
+The diagnostic command also works when full environment validation fails: it
+prints a safe error and exits unsuccessfully instead of throwing before the
+private-mode advisory. Check the required fields in `.env.example`; configured
+values and exception messages are deliberately omitted from diagnostics.
 
 Set `SECURITY_CONTACT_EMAIL` to a monitored operator address. Until configured,
 `/.well-known/security.txt` returns 404 and no placeholder contact appears on the

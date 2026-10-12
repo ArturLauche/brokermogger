@@ -17,6 +17,7 @@ import {
 
 import { testPrisma } from "../../helpers/db";
 import { incrementBucket, incrementBuckets } from "@/lib/db/repositories/rateLimit";
+import { prisma } from "@/lib/db/client";
 
 const WINDOW_SECONDS = 60;
 
@@ -171,12 +172,65 @@ it("rolls back all authentication counters if a later bucket write fails", async
     windowStart: new Date(),
     windowSeconds: 60,
   };
-  await expect(
-    incrementBuckets([identity, { ...identity, key: null as unknown as string }])
-  ).rejects.toThrow();
+  await testPrisma.$executeRawUnsafe(
+    `ALTER TABLE "RateLimitBucket" ADD CONSTRAINT synthetic_reject_key CHECK ("key" <> 'synthetic-reject')`
+  );
+  try {
+    await expect(
+      incrementBuckets([identity, { ...identity, key: "synthetic-reject" }])
+    ).rejects.toThrow();
+  } finally {
+    await testPrisma.$executeRawUnsafe(
+      `ALTER TABLE "RateLimitBucket" DROP CONSTRAINT synthetic_reject_key`
+    );
+  }
   expect(
     await testPrisma.rateLimitBucket.count({ where: { scope: identity.scope } })
   ).toBe(0);
+});
+
+it.each(["empty", "oversized", "duplicate"] as const)(
+  "rejects a %s identity batch before any standalone or caller-owned writes",
+  async (kind) => {
+    const identity = {
+      scope: "test.bounded.batch",
+      key: "synthetic-key",
+      windowStart: new Date(),
+      windowSeconds: 60,
+    };
+    const identities =
+      kind === "empty"
+        ? []
+        : kind === "duplicate"
+          ? [identity, { ...identity }]
+          : Array.from({ length: 17 }, (_, i) => ({
+              ...identity,
+              key: `synthetic-${i}`,
+            }));
+    await expect(incrementBuckets(identities)).rejects.toMatchObject({
+      code: "INTERNAL_ERROR",
+    });
+    await expect(
+      prisma.$transaction((tx) => incrementBuckets(identities, tx))
+    ).rejects.toMatchObject({ code: "INTERNAL_ERROR" });
+    expect(await testPrisma.rateLimitBucket.count()).toBe(0);
+  }
+);
+
+it("accepts sixteen distinct identities and distinguishes colon-containing tuples", async () => {
+  const identity = {
+    scope: "test:a",
+    key: "b",
+    windowStart: new Date(),
+    windowSeconds: 60,
+  };
+  const identities = [
+    identity,
+    { ...identity, scope: "test", key: "a:b" },
+    ...Array.from({ length: 14 }, (_, i) => ({ ...identity, key: `synthetic-${i}` })),
+  ];
+  expect(await incrementBuckets(identities)).toEqual(Array(16).fill(1));
+  expect(await testPrisma.rateLimitBucket.count()).toBe(16);
 });
 
 it("fails closed and rolls back both counters when a database trigger suppresses a write", async () => {

@@ -205,3 +205,36 @@ nine-package inventory retains the installed `@shadcn/registry` wrapper; this
 branch removes that absent entry. Neither branch changes supported toolchain
 majors, broker activation, legal contents, encryption, request approval or
 external-sending gates during this follow-up.
+
+## Counter and diagnostic follow-up
+
+The three subsequent review findings were reproduced before correction: **six
+unit failures** cover null/undefined/array-like counter results and actual CLI
+startup/advisory/privacy failures; **three integration failures** cover empty,
+oversized and duplicate batches. PostgreSQL regressions check both standalone
+and caller-owned transactions, the sixteen-identity boundary and distinct tuples
+containing colons. A real second-write SQL constraint failure still proves
+rollback after the first write, rather than relying on rejected input validation.
+
+The latest **562 unit/component tests in 83 files** pass, including five real
+child-process diagnostic tests with valid and invalid production configuration.
+The CLI refuses disabled enforcement and unacknowledged private shared-bucket
+use, preserves strict public checks, and excludes a synthetic configured value
+from both output streams. Typecheck, lint, the **42-variable** environment check,
+production build and production Docker smoke pass. Both dependency gates pass
+under the existing policy: zero production findings and eight explicitly
+excepted development entries, with the November 11 expiry still blocking.
+
+All **17 Chromium journeys pass with retries disabled** in a fresh isolated
+browser schema. The first attempt stopped in global setup because the fresh
+schema had not been migrated; applying the existing seventeen migrations
+resolved that setup error before the passing run. No application or CI behavior
+was changed to accommodate it. T3 inspection of the rebuilt confirmation at
+1440×900 and 375×812 CSS pixels found no console errors or horizontal overflow.
+No UI markup changed, so existing committed screenshots remain representative.
+
+The full PostgreSQL suite passes **328 tests in 48 files** (1,031.39 seconds).
+The existing suppressed-audit failure injections still emit the documented
+Prisma 6 engine panic diagnostics; those tests prove rollback and recovery and
+the complete suite passes. New-commit CI is recorded in the pull request;
+previous green CI is not used to certify this follow-up while its checks run.
