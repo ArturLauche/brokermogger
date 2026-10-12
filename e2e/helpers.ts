@@ -51,8 +51,7 @@ export async function fillProfile(page: Page, email: string, name: string) {
     .check();
 }
 
-/** Keep repeated local QA runs independent without weakening application limits. */
-export async function resetBrowserAuthenticationLimit() {
+export function assertIsolatedBrowserEnvironment() {
   const local = new URL(process.env.E2E_BASE_URL ?? "http://127.0.0.1:3000");
   const database = new URL(process.env.DATABASE_URL ?? "");
   if (
@@ -64,6 +63,22 @@ export async function resetBrowserAuthenticationLimit() {
     throw new Error(
       "Browser fixtures require a local server, a dedicated test database and disabled external sending."
     );
+}
+
+/** Explicitly advance only a synthetic target before driving a leased worker. */
+export async function makeBrowserJobDue(db: PrismaClient, jobId: string) {
+  assertIsolatedBrowserEnvironment();
+  const updated = await db.$executeRaw`
+    UPDATE "BackgroundJob"
+    SET "priority" = 0, "runAt" = NOW() - INTERVAL '1 minute', "updatedAt" = NOW()
+    WHERE "id" = ${jobId} AND "status" IN ('PENDING', 'RETRYABLE')
+  `;
+  expect(updated).toBe(1);
+}
+
+/** Keep repeated local QA runs independent without weakening application limits. */
+export async function resetBrowserAuthenticationLimit() {
+  assertIsolatedBrowserEnvironment();
   const db = new PrismaClient();
   try {
     await db.rateLimitBucket.deleteMany({ where: { scope: "auth.magic_link.ip" } });

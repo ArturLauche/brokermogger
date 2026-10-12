@@ -5,8 +5,26 @@ const severity = z.enum(["info", "low", "moderate", "high", "critical"]);
 const advisory = z.object({ url: z.url(), name: z.string(), severity });
 const vulnerability = z.object({
   severity,
-  nodes: z.array(z.string()).min(1),
-  via: z.array(z.union([z.string(), advisory])).min(1),
+  nodes: z
+    .array(z.string())
+    .min(1)
+    .max(100)
+    .refine((nodes) => new Set(nodes).size === nodes.length, {
+      message: "nodes must be unique",
+    }),
+  via: z
+    .array(z.union([z.string(), advisory]))
+    .min(1)
+    .max(100)
+    .refine(
+      (via) =>
+        new Set(
+          via.map((cause) =>
+            typeof cause === "string" ? `package:${cause}` : `advisory:${cause.url}`
+          )
+        ).size === via.length,
+      { message: "via entries must be unique" }
+    ),
 });
 const reportSchema = z.object({ vulnerabilities: z.record(z.string(), vulnerability) });
 const lockSchema = z.object({

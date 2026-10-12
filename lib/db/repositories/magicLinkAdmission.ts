@@ -19,10 +19,19 @@ interface MagicLinkAdmissionPorts {
 export async function withMagicLinkAdmission<T>(
   admit: (ports: MagicLinkAdmissionPorts) => Promise<T>
 ): Promise<T> {
-  return prisma.$transaction((tx) =>
-    admit({
-      incrementBuckets: (identities) => incrementBuckets(identities, tx),
-      appendAuditLog: (input, hash) => appendAuditLogInTransaction(tx, input, hash),
-    })
+  return prisma.$transaction(
+    async (tx) => {
+      // A Prisma deadline alone does not interrupt PostgreSQL lock waits. Keep
+      // both bucket and chain contention bounded inside this transaction only.
+      await tx.$executeRaw`
+        SELECT set_config('lock_timeout', '1s', true),
+               set_config('statement_timeout', '2s', true)
+      `;
+      return admit({
+        incrementBuckets: (identities) => incrementBuckets(identities, tx),
+        appendAuditLog: (input, hash) => appendAuditLogInTransaction(tx, input, hash),
+      });
+    },
+    { maxWait: 2_000, timeout: 3_000 }
   );
 }

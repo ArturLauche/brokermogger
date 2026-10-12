@@ -246,6 +246,62 @@ it("rolls back real counters when the audit appender silently returns null", asy
   }
 });
 
+it.each(["audit", "network"] as const)(
+  "bounds admission blocked on the %s lock, rolls back and recovers on a fresh request",
+  async (target) => {
+    const token = await csrf();
+    await requestLink("synthetic-before-contention@example.org", token);
+    const before = await testPrisma.rateLimitBucket.findMany({
+      orderBy: { scope: "asc" },
+    });
+    let acquired!: () => void;
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      acquired = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const blocker = testPrisma.$transaction(
+      async (tx) => {
+        if (target === "audit")
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('brokermogger_audit_chain'))`;
+        else
+          await tx.$queryRaw`SELECT "id" FROM "RateLimitBucket" WHERE "scope" = ${magicLinkPerIp.scope} FOR UPDATE`;
+        acquired();
+        await released;
+      },
+      { maxWait: 2_000, timeout: 10_000 }
+    );
+    // Bound the fixture too, so a regression cannot leave an open lock holder.
+    const cleanup = setTimeout(() => release(), 7_000);
+    try {
+      await Promise.race([ready, blocker]);
+      const started = performance.now();
+      const response = await requestLink("synthetic-after-contention@example.org", token);
+      expect(response.headers.get("location")).toBe(
+        `${origin}/api/auth/verify-request?provider=magic-link&type=email`
+      );
+      expect(performance.now() - started).toBeLessThan(4_500);
+      expect(
+        await testPrisma.rateLimitBucket.findMany({ orderBy: { scope: "asc" } })
+      ).toEqual(before);
+      expect(await testPrisma.auditLog.count()).toBe(1);
+      expect(await testPrisma.verificationToken.count()).toBe(1);
+      expect(await testPrisma.outboundEmail.count()).toBe(1);
+    } finally {
+      clearTimeout(cleanup);
+      release();
+      await blocker;
+    }
+    await requestLink("synthetic-after-contention@example.org", token);
+    expect(await testPrisma.auditLog.count()).toBe(2);
+    expect(await testPrisma.verificationToken.count()).toBe(2);
+    expect(await testPrisma.outboundEmail.count()).toBe(2);
+    expect((await verifyAuditChain()).valid).toBe(true);
+  }
+);
+
 it.each([false, true])(
   "single-flights concurrent callback/provider checks when audit failure is %s",
   async (failed) => {

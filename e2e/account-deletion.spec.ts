@@ -1,7 +1,12 @@
 import { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { expect, test } from "./fixtures";
-import { fillProfile, resetBrowserAuthenticationLimit, signIn } from "./helpers";
+import {
+  fillProfile,
+  resetBrowserAuthenticationLimit,
+  signIn,
+  makeBrowserJobDue,
+} from "./helpers";
 import { accountEmailIndex } from "@/lib/security/accountEmail";
 
 test.beforeAll(resetBrowserAuthenticationLimit);
@@ -76,7 +81,7 @@ test("deletes an account through confirmation, blocks the old session and comple
       where: { idempotencyKey: `delete-account:${account.id}` },
     });
     expect(row.status).toBe("PENDING");
-    await db.backgroundJob.update({ where: { id: row.id }, data: { priority: 0 } });
+    await makeBrowserJobDue(db, row.id);
     const { claimDueJobs } = await import("../lib/db/repositories/jobs");
     const { runClaimedJob } = await import("../lib/jobs/queue");
     const { createJobHandlers } = await import("../lib/jobs/handlers");

@@ -31,6 +31,14 @@ delivery checks do not retry or charge again. After rollback, a fresh HTTP reque
 may retry with a fresh context. This is single-flight admission within one request,
 not a cross-request cache or a guarantee that subsequent email delivery succeeds.
 
+Admission has explicit connection/transaction budgets (two/three seconds), plus
+transaction-local PostgreSQL lock and statement limits (one/two seconds). A
+Prisma transaction deadline alone does not interrupt a blocked database statement.
+Contended bucket or audit-chain locks fail closed and roll back without leaving
+bucket charges, tokens or email. A fresh request can retry after the lock holder
+finishes. These limits do not change other audit writers or account-erasure
+transactions; they cannot guarantee successful admission during sustained overload.
+
 Issued callback links are pinned to `APP_BASE_URL`'s origin, preserving the Auth.js
 callback path and token query. `AUTH_URL` should also identify the public origin.
 Redirect destinations remain restricted to the configured instance origin.

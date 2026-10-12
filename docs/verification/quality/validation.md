@@ -96,3 +96,43 @@ The failure reproduces locally under CI's URL settings. Assertions now derive th
 expected canonical from validated configuration, while hostile request-host tests
 and exact redirect/JSON equality checks remain. Both loopback configurations are
 verified explicitly; no application policy or CI setting is changed for this fix.
+
+#39's completed CI then exposed an existing correspondence-fixture race: the
+browser helper changed only priority and immediately tried to claim the scheduled
+target, without ensuring its timestamp was due on the database clock. CI returned no target
+job; retries could pick the previous fixture's now-due job. Forcing a synthetic
+target into the future reproduced the claim failure locally. A shared guarded
+browser helper now makes the specified preparation, report, export or erasure job
+due before using the unchanged claim/lease/handler path. It requires isolated mock
+fixtures, updates exactly one pending/retryable row and leaves payload, state and
+fencing intact. The correspondence journey deliberately delays its synthetic
+preparation to exercise this contract. Fresh browser schemas exclude old failed
+fixture jobs. No production schedule or approval gate changes.
+
+Fresh runs also exposed fixture ordering: a page could cache an empty legal
+catalogue before a later journey seeded reference data, leaving draft generation
+disabled until the normal cache expired. Browser global setup now prepares the
+existing jurisdiction, legal-rule and template fixtures before pages run, guarded
+by the same isolated mock-environment checks. Production caching and legal content
+are unchanged.
+
+Additional automated review found two audit-tool boundary issues and contended
+authentication locks. The full scan now explicitly includes development
+dependencies under `NODE_ENV=production`; node/cause arrays are bounded and
+deduplicated. Six new unit regressions failed before the changes and pass after;
+real npm 10 production-environment scans confirm the omission and its correction.
+The new audit-chain and network-lock contention regressions took seven seconds
+before the fix despite Prisma's default deadline. Transaction-local PostgreSQL
+lock/statement limits plus explicit Prisma budgets now bound admission, prove
+complete rollback and permit a fresh request after release. Both regressions
+pass alongside mixed concurrent writers, failure injection and generic replies.
+Neither lock failures nor audit exceptions enable token issuance without proof.
+Fresh browser fixtures pass all 17 feature journeys and all 15 #39 journeys with
+retries disabled. CI's retry configuration is unchanged.
+
+The latest feature unit/component run passes **526 tests in 79 files**, including
+moderate/critical regrading of the excepted finding and its advisory. The expanded
+authentication/audit-focused run passes **39 tests**; the full integration result
+is recorded in the PR. Rebuilt standalone browser verification passes **17
+journeys without retries**, and the rebuilt production Docker smoke passes private
+downloads, encrypted shared storage, backup restoration and resumed erasure.
