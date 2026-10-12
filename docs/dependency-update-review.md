@@ -41,7 +41,7 @@ application code, database schema and broker sending gates are unchanged.
 - npm 10.9.4 clean `npm ci --include=dev` and separate
   `PRISMA_SKIP_POSTINSTALL_GENERATE=true npm ci --omit=dev` both pass. The latter
   matches the production worker image's installation phase.
-- Environment consistency, typecheck, lint, formatting and **485 unit/component
+- Environment consistency, typecheck, lint, formatting and **491 unit/component
   tests** pass. Production compilation and standalone preparation pass.
 - The unfiltered production audit passes; the full policy gate accepts only the
   documented unpatched development advisory.
@@ -55,3 +55,31 @@ application code, database schema and broker sending gates are unchanged.
 The full integration result and exact-commit CI links are recorded in the PR.
 No test sent a real broker message. This branch targets main directly and does
 not depend on merging #40. Do not merge automatically.
+
+Completed CI exposed an existing browser-fixture timing race after all install,
+audit, integration and build stages passed. The helper changed only priority and
+attempted an immediate claim without ensuring the target's scheduled timestamp
+was due on the database clock. CI found no eligible target, and subsequent retries
+could claim the previous fixture's overdue job. Forcing a synthetic future target
+reproduces this locally. The helper now makes that one job due using the database
+clock before the same production claim/lease/handler path. The shared helper
+requires the existing isolated mock environment and exactly one pending/retryable
+target; reports, exports and erasure use it too. The correspondence fixture
+deliberately delays its synthetic target so the contract is covered. Fresh browser
+schemas isolate previous failed fixtures. No production scheduling, job
+payload/state, lease fence or request approval rule is changed.
+
+Browser global setup also seeds the existing jurisdiction, legal-rule and template
+fixtures before pages warm catalogue caches. Previously a journey could cache an
+empty catalogue before another journey seeded it, depending on test order and
+cache expiry. This runs only under the isolated mock-environment guard; production
+caching and legal content are unchanged.
+
+The next automated review found that npm's production environment could omit
+development advisories from the purported full scan. Explicit `--include=dev`
+fixes that boundary. Both npm 10 scans reproduced the difference; the updated
+gate still evaluates all nine development entries under `NODE_ENV=production`.
+Report node/cause arrays now permit at most 100 unique entries each. Six new
+regressions failed before these corrections and pass afterward. All 15 browser
+journeys pass on fresh fixtures with retries disabled; CI retries and security
+thresholds are unchanged.

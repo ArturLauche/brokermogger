@@ -4,7 +4,12 @@ import { PrismaClient } from "@prisma/client";
 import { seedJurisdictions } from "../prisma/seeds/jurisdictions";
 import { seedLegalRules } from "../prisma/seeds/legalRules";
 import { seedRequestTemplates } from "../prisma/seeds/templates";
-import { resetBrowserAuthenticationLimit, signIn, fillProfile } from "./helpers";
+import {
+  resetBrowserAuthenticationLimit,
+  signIn,
+  fillProfile,
+  makeBrowserJobDue,
+} from "./helpers";
 
 test.beforeAll(resetBrowserAuthenticationLimit);
 
@@ -318,10 +323,7 @@ async function processReport(reportId: string) {
   const db = new PrismaClient();
   try {
     const report = await db.report.findUniqueOrThrow({ where: { id: reportId } });
-    await db.backgroundJob.update({
-      where: { id: report.jobId! },
-      data: { priority: 0 },
-    });
+    await makeBrowserJobDue(db, report.jobId!);
     const { claimDueJobs } = await import("../lib/db/repositories/jobs");
     const { runClaimedJob } = await import("../lib/jobs/queue");
     const { renderReportForJob } = await import("../lib/reports/service");
@@ -337,7 +339,7 @@ async function processExport(exportId: string) {
   const db = new PrismaClient();
   try {
     const data = await db.accountExport.findUniqueOrThrow({ where: { id: exportId } });
-    await db.backgroundJob.update({ where: { id: data.jobId! }, data: { priority: 0 } });
+    await makeBrowserJobDue(db, data.jobId!);
     const { claimDueJobs } = await import("../lib/db/repositories/jobs");
     const { runClaimedJob } = await import("../lib/jobs/queue");
     const { generateAccountExport } = await import("../lib/exports/service");
@@ -367,7 +369,12 @@ async function processFollowUp(
       });
       return;
     }
-    await db.backgroundJob.update({ where: { id: row.id }, data: { priority: 0 } });
+    // Exercise a deliberately delayed synthetic preparation before advancing it.
+    await db.$executeRaw`
+      UPDATE "BackgroundJob" SET "runAt" = NOW() + INTERVAL '1 minute'
+      WHERE "id" = ${row.id}
+    `;
+    await makeBrowserJobDue(db, row.id);
     const { claimDueJobs } = await import("../lib/db/repositories/jobs");
     const { runClaimedJob } = await import("../lib/jobs/queue");
     const { createJobHandlers } = await import("../lib/jobs/handlers");

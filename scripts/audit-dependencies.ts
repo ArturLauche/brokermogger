@@ -5,10 +5,14 @@ import { evaluateDependencyAudit } from "./dependency-audit/policy";
 
 // Always run the full upstream scan at the existing moderate threshold. A
 // registry/network error or malformed report fails rather than looking clean.
-const scan = spawnSync("npm", ["audit", "--json", "--audit-level=moderate"], {
-  encoding: "utf8",
-  maxBuffer: 16 * 1024 * 1024,
-});
+const scan = spawnSync(
+  "npm",
+  ["audit", "--json", "--audit-level=moderate", "--include=dev"],
+  {
+    encoding: "utf8",
+    maxBuffer: 16 * 1024 * 1024,
+  }
+);
 try {
   if (scan.error || scan.signal || scan.status === null || scan.status > 1)
     throw new Error("npm audit could not complete");

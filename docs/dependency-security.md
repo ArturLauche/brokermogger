@@ -38,7 +38,9 @@ patched upstream release or remove the affected tooling before expiry; expiry
 automatically blocks CI. It does not assert the package is fixed or vulnerability-free.
 
 `npm run audit:dependencies` always runs the upstream full `npm audit --json
---audit-level=moderate`. Its policy validates the report and lockfile, checks every
+--audit-level=moderate --include=dev`, including when `NODE_ENV=production` would
+otherwise omit development dependencies. Its policy validates the report and
+lockfile, bounds each node/cause array to 100 unique entries, checks every
 affected node is dev-only, and recursively checks that every cause is this exact
 advisory. New advisories (even in these packages), production paths, missing lock
 entries, unsupported versions, severity changes, registry errors and expired

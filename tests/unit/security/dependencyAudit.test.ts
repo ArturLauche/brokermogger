@@ -84,3 +84,42 @@ it("rejects malformed or missing scanner data", () => {
   expect(() => evaluateDependencyAudit({}, lock, now)).toThrow();
   expect(() => evaluateDependencyAudit(report, {}, now)).toThrow();
 });
+
+it.each([
+  {
+    label: "duplicate nodes",
+    nodes: ["node_modules/braces", "node_modules/braces"],
+    via: [cause],
+  },
+  {
+    label: "too many nodes",
+    nodes: Array.from(
+      { length: 101 },
+      (_, index) => `node_modules/copy-${index}/node_modules/braces`
+    ),
+    via: [cause],
+  },
+  {
+    label: "duplicate advisory causes",
+    nodes: ["node_modules/braces"],
+    via: [cause, cause],
+  },
+  {
+    label: "too many causes",
+    nodes: ["node_modules/braces"],
+    via: Array.from({ length: 101 }, (_, index) => ({
+      ...cause,
+      url: `https://example.invalid/advisory-${index}`,
+    })),
+  },
+])("rejects $label before evaluating the report", ({ nodes, via }) => {
+  const changed = structuredClone(report);
+  changed.vulnerabilities.braces = { severity: "high", nodes, via };
+  expect(() => evaluateDependencyAudit(changed, lock, now)).toThrow();
+});
+
+it("rejects duplicate package causes before traversing them", () => {
+  const changed = structuredClone(report);
+  changed.vulnerabilities.micromatch.via = ["braces", "braces"];
+  expect(() => evaluateDependencyAudit(changed, lock, now)).toThrow();
+});
