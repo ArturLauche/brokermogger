@@ -63,6 +63,8 @@ export default async function AdminBrokersPage({
             <option value="sending">Sending enabled</option>
             <option value="unverified">Needs verification</option>
             <option value="inactive">Inactive</option>
+            <option value="real_drafts">Inactive real drafts</option>
+            <option value="stale">Source review due or missing</option>
           </select>
         </div>
         <Button type="submit" variant="outline">
@@ -89,7 +91,7 @@ export default async function AdminBrokersPage({
                 <TableHead>Name</TableHead>
                 <TableHead>Category</TableHead>
                 <TableHead>Verification</TableHead>
-                <TableHead>Availability</TableHead>
+                <TableHead>Readiness</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -118,11 +120,20 @@ export default async function AdminBrokersPage({
                     />
                   </TableCell>
                   <TableCell>
-                    {!broker.isActive
-                      ? "Inactive"
-                      : broker.productionSendingEnabled
-                        ? "Sending enabled"
-                        : "Sending disabled"}
+                    <p className="font-medium">{broker.readiness.label}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {broker.readiness.reviewed.label}
+                    </p>
+                    {broker.readiness.warnings.length ? (
+                      <p className="mt-1 text-sm">Source review due</p>
+                    ) : null}
+                    <p className="mt-1 text-sm">
+                      {!broker.isActive
+                        ? "Inactive"
+                        : broker.productionSendingEnabled
+                          ? "Sending enabled"
+                          : "Sending disabled"}
+                    </p>
                   </TableCell>
                 </TableRow>
               ))}

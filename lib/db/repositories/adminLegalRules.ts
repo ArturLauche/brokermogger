@@ -1,6 +1,7 @@
 /** Public legal configuration; writes are fenced by current role and parent revision. */
 import { Prisma, type LegalRule, type LegalRuleVersion } from "@prisma/client";
 import { z } from "zod";
+import { LEGAL_REVIEW_INTERVAL_DAYS, reviewCutoff } from "@/lib/catalogue/reviewAge";
 import { prisma, type PrismaTransaction } from "@/lib/db/client";
 import { AppError, NotFoundError, ValidationError } from "@/lib/core/errors";
 import type { ActorContext } from "@/lib/permissions/actor";
@@ -30,7 +31,9 @@ import {
 
 const listSchema = pageInputSchema.extend({
   search: z.string().trim().max(100).default(""),
-  status: z.enum(["all", "draft", "published", "inactive", "scheduled"]).default("all"),
+  status: z
+    .enum(["all", "draft", "published", "inactive", "scheduled", "review"])
+    .default("all"),
   jurisdictionId: entityIdSchema.or(z.literal("")).default(""),
 });
 export async function listLegalRuleAdministration(
@@ -40,6 +43,17 @@ export async function listLegalRuleAdministration(
   requirePermission(actor, "admin:legalRule:read");
   const input = parseWithSchema(listSchema, raw);
   const now = new Date();
+  const reviewWhere: Prisma.LegalRuleVersionWhereInput = {
+    status: { in: ["DRAFT", "PUBLISHED"] },
+    OR: [
+      { requiresLegalReview: true },
+      { lastReviewedAt: { lte: reviewCutoff(LEGAL_REVIEW_INTERVAL_DAYS, now) } },
+      { lastReviewedAt: { gt: now } },
+      { sourceUrl: "" },
+      { sourceTitle: "" },
+      { reviewedBy: "" },
+    ],
+  };
   const where: Prisma.LegalRuleWhereInput = {
     deletedAt: null,
     ...(input.search
@@ -52,6 +66,7 @@ export async function listLegalRuleAdministration(
     ...(input.jurisdictionId ? { jurisdictionId: input.jurisdictionId } : {}),
     ...(input.status === "inactive" ? { isActive: false } : {}),
     ...(input.status === "draft" ? { versions: { some: { status: "DRAFT" } } } : {}),
+    ...(input.status === "review" ? { versions: { some: reviewWhere } } : {}),
     ...(input.status === "published"
       ? {
           isActive: true,
@@ -79,7 +94,11 @@ export async function listLegalRuleAdministration(
         isActive: true,
         jurisdiction: { select: { name: true, code: true } },
         versions: {
-          orderBy: { version: "desc" },
+          ...(input.status === "review" ? { where: reviewWhere } : {}),
+          orderBy:
+            input.status === "review"
+              ? [{ lastReviewedAt: "asc" }, { version: "asc" }]
+              : { version: "desc" },
           take: 1,
           select: {
             version: true,
@@ -88,6 +107,9 @@ export async function listLegalRuleAdministration(
             requiresLegalReview: true,
             lastReviewedAt: true,
             effectiveFrom: true,
+            sourceUrl: true,
+            sourceTitle: true,
+            reviewedBy: true,
           },
         },
       },

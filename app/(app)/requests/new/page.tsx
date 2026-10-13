@@ -180,7 +180,10 @@ export default async function NewRequestPage({
         initial={{
           profileId: profile.id,
           requestType: types[0] ?? "",
-          brokerIds: selected.map((broker) => broker.id).join(","),
+          brokerIds: selected
+            .filter((broker) => broker.isActive)
+            .map((broker) => broker.id)
+            .join(","),
           identifierIds: profile.identifiers
             .filter((row) => row.isPrimary)
             .map((row) => row.id)
@@ -195,6 +198,7 @@ export default async function NewRequestPage({
           id: broker.id,
           label: `${broker.legalName}${broker.isDemoData ? " (demo)" : ""}`,
           active: broker.isActive,
+          readinessLabel: broker.readiness.label,
           supportedTypes:
             broker.jurisdictionCoverage.find(
               (row) => row.isActive && row.jurisdictionId === resolved.jurisdiction.id

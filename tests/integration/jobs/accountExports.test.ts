@@ -449,3 +449,32 @@ describe("complete account exports with separate sensitive confirmation", () => 
     expect(fullBody).not.toContain("FOREIGN_NOTIFICATION");
   });
 });
+
+it("serializes complete masked exports across page boundaries without losing or duplicating records", async () => {
+  const f = await fixture();
+  const ids = Array.from({ length: 252 }, () => randomUUID());
+  await testPrisma.removalRequest.createMany({
+    data: ids.map((id) => ({
+      id,
+      userId: f.user.id,
+      profileId: f.profile.id,
+      brokerId: f.brokers[0]!.id,
+      requestType: "DELETION",
+      channel: "EMAIL",
+      status: "COMPLETED",
+      jurisdictionId: f.request.jurisdictionId,
+      legalBasisText: "Synthetic pagination fixture; no legal conclusion.",
+    })),
+  });
+  const body = await exportMaskedAccount(f.actor);
+  const result = JSON.parse(body.toString()) as {
+    requests: { id: string }[];
+    recordCounts: { requests: number };
+  };
+  expect(result.recordCounts.requests).toBe(253);
+  expect(new Set(result.requests.map((row) => row.id))).toEqual(
+    new Set([...ids, f.request.id])
+  );
+  expect(body.includes("Private reply body marker")).toBe(false);
+  expect(body.includes("NEVER_EXPORT_SESSION_SECRET")).toBe(false);
+});

@@ -36,7 +36,7 @@ fail-closed tests are included here so this PR installs and verifies independent
 of #40. Production audit has zero findings. Major frameworks, Node pins,
 application code, database schema and broker sending gates are unchanged.
 
-## Verification
+## Verification of the original repair
 
 - npm 10.9.4 clean `npm ci --include=dev` and separate
   `PRISMA_SKIP_POSTINSTALL_GENERATE=true npm ci --omit=dev` both pass. The latter
@@ -53,8 +53,8 @@ application code, database schema and broker sending gates are unchanged.
   downloads, database/object restore and resumed account deletion on pinned Node 22.
 
 The full integration result and exact-commit CI links are recorded in the PR.
-No test sent a real broker message. This branch targets main directly and does
-not depend on merging #40. Do not merge automatically.
+No test sent a real broker message. At that stage the repair targeted main
+independently of #40. Merging requires a maintainer's authorization.
 
 Completed CI exposed an existing browser-fixture timing race after all install,
 audit, integration and build stages passed. The helper changed only priority and
@@ -117,3 +117,20 @@ These compatible audit/fixture changes are shared with #40 without importing
 its application/proxy configuration or broadening this dependency repair into
 an authentication feature. The refreshed 501 unit/component tests and focused
 seven lease tests pass. Browser and new-head CI results are recorded in the PR.
+
+## Integration after the quality improvements merge
+
+After #40 merged into main, this branch was updated against `6514a93`. The
+application changes now come from its base; this PR retains the compatible
+development updates. The shared audit script has one manifest entry. Its lockfile
+was regenerated with npm 10.9.4 from the security-updated main tree, preserving
+the previously verified production and transitive security fixes.
+
+The installed shadcn 4.21.1 tree includes `@shadcn/registry`, so the exact
+development-only inventory contains nine affected entries for the same braces
+advisory. The owner, severity, version, expiry and production/new-advisory
+blocking rules are unchanged. A clean npm 10 install, the 42-variable environment
+check, typecheck, lint, all 569 unit/component tests and both dependency gates
+pass locally. Production audit reports zero findings. Complete combined
+integration, build, browser and Docker results are recorded in the PR before
+merging; earlier separate-branch results do not certify this updated tree.

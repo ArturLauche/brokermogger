@@ -56,6 +56,9 @@ export async function GET(request: NextRequest): Promise<Response> {
     "# HELP brokermogger_file_purge_backlog Objects awaiting recoverable storage deletion.",
     "# TYPE brokermogger_file_purge_backlog gauge",
     `brokermogger_file_purge_backlog ${metrics.filesPendingPurge}`,
+    "# HELP brokermogger_auth_unknown_network_attempts_24h Committed sign-in admission attempts without trusted IP attribution in the last 24 hours; includes quota denials and excludes rolled-back failures.",
+    "# TYPE brokermogger_auth_unknown_network_attempts_24h gauge",
+    `brokermogger_auth_unknown_network_attempts_24h ${metrics.unknownNetworkAuthAttempts24h}`,
     "",
   ].join("\n");
 

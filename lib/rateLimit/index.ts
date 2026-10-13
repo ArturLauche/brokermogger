@@ -11,13 +11,15 @@
  *    decision is still logged at debug level so that the switch is visible.
  */
 import { env } from "@/lib/config/env";
-import { RateLimitError } from "@/lib/core/errors";
+import { AppError, RateLimitError } from "@/lib/core/errors";
 import {
   countExpiredBuckets,
   deleteExpiredBuckets,
   incrementBucket,
+  incrementBuckets,
   readBucketCount,
   reserveWeightedRequestCreate,
+  type BucketIncrementer,
 } from "@/lib/db/repositories/rateLimit";
 import { createLogger } from "@/lib/observability/logger";
 import { hashContextValue } from "@/lib/security/crypto";
@@ -173,6 +175,40 @@ export async function consumePolicy(
     windowSeconds: policy.windowSeconds,
     ...(overrides.now ? { now: overrides.now } : {}),
   });
+}
+
+/** One attempt against multiple policies, using one clock and one transaction. */
+export async function consumePolicies(
+  inputs: readonly { policy: RateLimitPolicy; key: string }[],
+  now = new Date(),
+  increment: BucketIncrementer = incrementBuckets
+): Promise<RateLimitResult[]> {
+  if (inputs.length === 0) return [];
+  const requests = inputs.map(({ policy, key }) => ({ ...policy, key }));
+  if (!env.RATE_LIMIT_ENABLED)
+    return requests.map((request) => bypassResult(request, "RATE_LIMIT_ENABLED=false"));
+  const identities = requests.map((request) => ({
+    scope: request.scope,
+    key: hashKey(request.scope, request.key),
+    windowStart: windowStartFor(now, request.windowSeconds),
+    windowSeconds: request.windowSeconds,
+  }));
+  const counts = await increment(identities);
+  if (
+    !Array.isArray(counts) ||
+    counts.length !== identities.length ||
+    identities.some(
+      (_, index) => !Number.isSafeInteger(counts[index]) || counts[index]! < 1
+    )
+  ) {
+    throw new AppError({
+      code: "INTERNAL_ERROR",
+      message: "The rate limit counter results could not be verified.",
+    });
+  }
+  return requests.map((request, index) =>
+    buildResult(counts[index]!, request, identities[index]!.windowStart, now)
+  );
 }
 
 export async function checkPolicy(

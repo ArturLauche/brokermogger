@@ -8,12 +8,15 @@
  * no raw IP address or user agent string is ever passed on.
  */
 import { headers } from "next/headers";
+import { isIP } from "node:net";
 
 import type { UserRole } from "@prisma/client";
 
 import { createLogger } from "@/lib/observability/logger";
+import { env } from "@/lib/config/env";
 import type { ActorContext } from "@/lib/permissions/actor";
 import { blindIndex, hashContextValue } from "@/lib/security/crypto";
+import { currentMagicLinkContext } from "./magicLinkContext";
 
 const log = createLogger("auth.context");
 
@@ -26,16 +29,34 @@ export interface HashedRequestContext {
   userAgentHash: string | null;
 }
 
-/** First hop of `x-forwarded-for`, falling back to `x-real-ip`. */
-export function clientIpFromHeaders(headerList: Headers): string | null {
-  const forwarded = headerList.get("x-forwarded-for");
-  if (forwarded) {
-    const first = forwarded.split(",")[0]?.trim();
-    if (first) {
-      return first;
-    }
+/**
+ * Opt-in trust in one ingress-overwritten header. An appended forwarding chain
+ * cannot prove which hop is the client, so it uses the shared unknown bucket.
+ * The operator must prevent direct ingress and overwrite this header at the
+ * trusted proxy; AUTH_TRUST_HOST does not establish that IP trust boundary.
+ */
+export function clientIpFromHeaders(
+  headerList: Headers,
+  trustedHeader = env.TRUSTED_PROXY_IP_HEADER
+): string | null {
+  if (trustedHeader === "none") return null;
+  const value = headerList.get(trustedHeader)?.trim();
+  if (!value || !isIP(value)) return null;
+  if (isIP(value) === 4) return value;
+  try {
+    // URL parsing canonicalises equivalent IPv6 spellings before hashing.
+    return new URL(`http://[${value}]/`).hostname.slice(1, -1);
+  } catch {
+    return null;
   }
-  return headerList.get("x-real-ip");
+}
+
+export function requestContextFromHeaders(headerList: Headers): HashedRequestContext {
+  return {
+    requestId: crypto.randomUUID(),
+    ipHash: hashContextValue(clientIpFromHeaders(headerList)),
+    userAgentHash: hashContextValue(headerList.get("user-agent")),
+  };
 }
 
 /**
@@ -44,15 +65,13 @@ export function clientIpFromHeaders(headerList: Headers): string | null {
  * special case the worker.
  */
 export async function readRequestContext(): Promise<HashedRequestContext> {
+  const context = currentMagicLinkContext();
+  if (context) return context;
   const requestId = crypto.randomUUID();
 
   try {
     const headerList = await headers();
-    return {
-      requestId,
-      ipHash: hashContextValue(clientIpFromHeaders(headerList)),
-      userAgentHash: hashContextValue(headerList.get("user-agent")),
-    };
+    return requestContextFromHeaders(headerList);
   } catch {
     log.debug("No request scope available, continuing without request context");
     return { requestId, ipHash: null, userAgentHash: null };

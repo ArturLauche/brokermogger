@@ -39,13 +39,17 @@ services:
       target: app
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      # Host-local reverse proxy only. Do not expose this port to untrusted clients.
+      - "127.0.0.1:3000:3000"
     env_file:
       - path: .env
         required: false
     environment:
       NODE_ENV: production
       APP_ENV: production
+      TRUSTED_PROXY_IP_HEADER: ${TRUSTED_PROXY_IP_HEADER:-none}
+      ALLOW_SHARED_AUTH_NETWORK_BUCKET: ${ALLOW_SHARED_AUTH_NETWORK_BUCKET:-false}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL using postgres as the host and URL-encoded credentials}
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-resend}
       ALLOW_EXTERNAL_SENDING: ${ALLOW_EXTERNAL_SENDING:-false}
@@ -86,6 +90,9 @@ services:
       NODE_ENV: production
       WORKER_HEALTH_FILE: /tmp/brokermogger-worker-id
       APP_ENV: production
+      TRUSTED_PROXY_IP_HEADER: ${TRUSTED_PROXY_IP_HEADER:-none}
+      ALLOW_SHARED_AUTH_NETWORK_BUCKET: ${ALLOW_SHARED_AUTH_NETWORK_BUCKET:-false}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL using postgres as the host and URL-encoded credentials}
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-resend}
       ALLOW_EXTERNAL_SENDING: ${ALLOW_EXTERNAL_SENDING:-false}

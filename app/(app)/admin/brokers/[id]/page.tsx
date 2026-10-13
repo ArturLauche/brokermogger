@@ -6,6 +6,8 @@ import { ExternalLink } from "@/components/common/external-link";
 import { requireRole } from "@/lib/auth";
 import { env } from "@/lib/config/env";
 import { brokerRequirements } from "@/lib/brokers/requirements";
+import { brokerReadiness } from "@/lib/brokers/readiness";
+import { BrokerReadinessSummary } from "@/components/brokers/readiness-summary";
 import { isAppError } from "@/lib/core/errors";
 import { getBrokerAdministration } from "@/lib/db/repositories/adminBrokers";
 import { listActiveJurisdictions } from "@/lib/db/repositories/catalog";
@@ -98,6 +100,7 @@ export default async function BrokerEditorPage({
           </a>
         ))}
       </nav>
+      <BrokerReadinessSummary readiness={brokerReadiness(broker)} operator />
       <section
         id="details"
         className="scroll-mt-24 space-y-4"

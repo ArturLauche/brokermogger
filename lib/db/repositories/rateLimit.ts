@@ -7,9 +7,11 @@
  * never stores a raw email address, IP address or domain.
  */
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 
 import { prisma, type PrismaTransaction } from "@/lib/db/client";
 import { AppError } from "@/lib/core/errors";
+import { withRateLimitTransaction } from "@/lib/db/rateLimitTransaction";
 
 export interface BucketIdentity {
   scope: string;
@@ -47,11 +49,63 @@ class MonthlyQuotaRollback extends AppError {
 
 /** Atomically increments the counter for one window and returns the new value. */
 export async function incrementBucket(identity: BucketIdentity): Promise<number> {
+  return withRateLimitTransaction((tx) => incrementBucketOn(tx, identity));
+}
+
+/** Narrow port for counting a set of policies in a caller-owned transaction. */
+export type BucketIncrementer = (
+  identities: readonly BucketIdentity[]
+) => Promise<number[]>;
+
+const identityBatch = z
+  .array(
+    z.object({
+      scope: z.string().min(1),
+      key: z.string().min(1),
+      windowStart: z.date(),
+      windowSeconds: z.number().int().positive(),
+    })
+  )
+  .min(1)
+  .max(16)
+  .refine(
+    (identities) =>
+      new Set(
+        identities.map((identity) =>
+          JSON.stringify([identity.scope, identity.key, identity.windowStart.getTime()])
+        )
+      ).size === identities.length
+  );
+
+/** Validated counters commit together, optionally with the caller's mandatory proof. */
+export async function incrementBuckets(
+  identities: readonly BucketIdentity[],
+  transaction?: PrismaTransaction
+): Promise<number[]> {
+  const parsed = identityBatch.safeParse(identities);
+  if (!parsed.success)
+    throw new AppError({
+      code: "INTERNAL_ERROR",
+      message: "The rate limit identities could not be verified.",
+    });
+  const increment = async (tx: PrismaTransaction) => {
+    const counts: number[] = [];
+    for (const identity of parsed.data)
+      counts.push(await incrementBucketOn(tx, identity));
+    return counts;
+  };
+  return transaction ? increment(transaction) : withRateLimitTransaction(increment);
+}
+
+async function incrementBucketOn(
+  db: Queryable,
+  identity: BucketIdentity
+): Promise<number> {
   const expiresAt = new Date(
     identity.windowStart.getTime() + identity.windowSeconds * 1000
   );
 
-  const rows = await prisma.$queryRaw<{ count: number }[]>`
+  const rows = await db.$queryRaw<{ count: number }[]>`
     INSERT INTO "RateLimitBucket" (
       "id", "scope", "key", "windowStart", "windowSeconds", "count", "expiresAt",
       "createdAt", "updatedAt"
@@ -66,7 +120,12 @@ export async function incrementBucket(identity: BucketIdentity): Promise<number>
     RETURNING "count"
   `;
 
-  return rows[0]?.count ?? 1;
+  if (!rows[0])
+    throw new AppError({
+      code: "INTERNAL_ERROR",
+      message: "The rate limit counter could not be recorded.",
+    });
+  return rows[0].count;
 }
 
 /**

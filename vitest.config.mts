@@ -9,7 +9,7 @@ Object.assign(process.env, { NODE_ENV: "test" });
 
 /**
  * Three test projects:
- *   unit         pure domain logic, no database, no network
+ *   unit         domain logic and isolated local CLI checks; no database or network
  *   components   React Testing Library against jsdom
  *   integration  real PostgreSQL from docker compose (TEST_DATABASE_URL)
  */

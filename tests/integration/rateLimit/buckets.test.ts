@@ -16,6 +16,8 @@ import {
 } from "@/lib/rateLimit";
 
 import { testPrisma } from "../../helpers/db";
+import { incrementBucket, incrementBuckets } from "@/lib/db/repositories/rateLimit";
+import { prisma } from "@/lib/db/client";
 
 const WINDOW_SECONDS = 60;
 
@@ -161,3 +163,150 @@ describe("policies and cleanup", () => {
     expect(rows[0]?.windowStart.toISOString()).toBe("2026-08-15T14:00:00.000Z");
   });
 });
+
+it("rolls back all authentication counters if a later bucket write fails", async () => {
+  const { incrementBuckets } = await import("@/lib/db/repositories/rateLimit");
+  const identity = {
+    scope: "test.atomic.auth",
+    key: "synthetic-hash",
+    windowStart: new Date(),
+    windowSeconds: 60,
+  };
+  await testPrisma.$executeRawUnsafe(
+    `ALTER TABLE "RateLimitBucket" ADD CONSTRAINT synthetic_reject_key CHECK ("key" <> 'synthetic-reject')`
+  );
+  try {
+    await expect(
+      incrementBuckets([identity, { ...identity, key: "synthetic-reject" }])
+    ).rejects.toThrow();
+  } finally {
+    await testPrisma.$executeRawUnsafe(
+      `ALTER TABLE "RateLimitBucket" DROP CONSTRAINT synthetic_reject_key`
+    );
+  }
+  expect(
+    await testPrisma.rateLimitBucket.count({ where: { scope: identity.scope } })
+  ).toBe(0);
+});
+
+it.each(["empty", "oversized", "duplicate"] as const)(
+  "rejects a %s identity batch before any standalone or caller-owned writes",
+  async (kind) => {
+    const identity = {
+      scope: "test.bounded.batch",
+      key: "synthetic-key",
+      windowStart: new Date(),
+      windowSeconds: 60,
+    };
+    const identities =
+      kind === "empty"
+        ? []
+        : kind === "duplicate"
+          ? [identity, { ...identity }]
+          : Array.from({ length: 17 }, (_, i) => ({
+              ...identity,
+              key: `synthetic-${i}`,
+            }));
+    await expect(incrementBuckets(identities)).rejects.toMatchObject({
+      code: "INTERNAL_ERROR",
+    });
+    await expect(
+      prisma.$transaction((tx) => incrementBuckets(identities, tx))
+    ).rejects.toMatchObject({ code: "INTERNAL_ERROR" });
+    expect(await testPrisma.rateLimitBucket.count()).toBe(0);
+  }
+);
+
+it("accepts sixteen distinct identities and distinguishes colon-containing tuples", async () => {
+  const identity = {
+    scope: "test:a",
+    key: "b",
+    windowStart: new Date(),
+    windowSeconds: 60,
+  };
+  const identities = [
+    identity,
+    { ...identity, scope: "test", key: "a:b" },
+    ...Array.from({ length: 14 }, (_, i) => ({ ...identity, key: `synthetic-${i}` })),
+  ];
+  expect(await incrementBuckets(identities)).toEqual(Array(16).fill(1));
+  expect(await testPrisma.rateLimitBucket.count()).toBe(16);
+});
+
+it("fails closed and rolls back both counters when a database trigger suppresses a write", async () => {
+  const { incrementBuckets } = await import("@/lib/db/repositories/rateLimit");
+  await testPrisma.$executeRawUnsafe(
+    `CREATE FUNCTION synthetic_skip_bucket() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.scope = 'test.skip.bucket' THEN RETURN NULL; END IF; RETURN NEW; END $$`
+  );
+  await testPrisma.$executeRawUnsafe(
+    `CREATE TRIGGER synthetic_skip_bucket BEFORE INSERT ON "RateLimitBucket" FOR EACH ROW EXECUTE FUNCTION synthetic_skip_bucket()`
+  );
+  try {
+    const identity = {
+      scope: "test.batch.first",
+      key: "synthetic-key",
+      windowStart: new Date(),
+      windowSeconds: 60,
+    };
+    await expect(
+      incrementBuckets([identity, { ...identity, scope: "test.skip.bucket" }])
+    ).rejects.toMatchObject({ code: "INTERNAL_ERROR" });
+    expect(await testPrisma.rateLimitBucket.count()).toBe(0);
+  } finally {
+    await testPrisma.$executeRawUnsafe(
+      `DROP TRIGGER synthetic_skip_bucket ON "RateLimitBucket"`
+    );
+    await testPrisma.$executeRawUnsafe(`DROP FUNCTION synthetic_skip_bucket()`);
+  }
+});
+
+it.each(["single", "batch"] as const)(
+  "bounds standalone %s counter contention and recovers after rollback",
+  async (mode) => {
+    const identity = {
+      scope: "test.bounded.counter",
+      key: "synthetic-hash",
+      windowStart: new Date("2026-10-13T12:00:00Z"),
+      windowSeconds: 60,
+    };
+    await incrementBucket(identity);
+    let acquired!: () => void;
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      acquired = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const blocker = testPrisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT "id" FROM "RateLimitBucket" WHERE "scope" = ${identity.scope} FOR UPDATE`;
+        acquired();
+        await released;
+      },
+      { maxWait: 2_000, timeout: 10_000 }
+    );
+    const cleanup = setTimeout(release, 7_000);
+    try {
+      await Promise.race([ready, blocker]);
+      const started = performance.now();
+      const operation =
+        mode === "single"
+          ? incrementBucket(identity)
+          : incrementBuckets([
+              { ...identity, key: "first-write-must-roll-back" },
+              identity,
+            ]);
+      await expect(operation).rejects.toThrow();
+      expect(performance.now() - started).toBeLessThan(4_500);
+      const rows = await testPrisma.rateLimitBucket.findMany();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.count).toBe(1);
+    } finally {
+      clearTimeout(cleanup);
+      release();
+      await blocker;
+    }
+    expect(await incrementBucket(identity)).toBe(2);
+  }
+);

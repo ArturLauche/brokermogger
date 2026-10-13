@@ -275,3 +275,43 @@ describe("operator broker editing", () => {
     expect(await testPrisma.rateLimitBucket.count()).toBe(0);
   });
 });
+
+it("offers bounded review filters and keeps operator evidence out of public broker results", async () => {
+  const { listBrokersForDirectory, getBrokerWithContacts, getSelectedBrokersForChoice } =
+    await import("@/lib/db/repositories/catalog");
+  const actor = await maintainer();
+  const broker = await saveBrokerRecord(actor, {
+    ...brokerInput(),
+    isActive: "false",
+    verificationStatus: "SOURCE_FOUND",
+    lastVerifiedAt: "",
+  });
+  await saveBrokerContact(actor, { ...(await scope(broker.id)), ...contactInput });
+  expect(
+    (await listBrokerAdministration(actor, { status: "real_drafts" })).items.map(
+      (row) => row.id
+    )
+  ).toEqual([broker.id]);
+  expect(
+    (await listBrokerAdministration(actor, { status: "stale" })).items.map(
+      (row) => row.id
+    )
+  ).toEqual([broker.id]);
+  await expect(
+    listBrokerAdministration({ ...actor, role: "USER" }, { status: "stale" })
+  ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  const views = [
+    await listBrokersForDirectory(),
+    await getBrokerWithContacts(broker.id),
+    await getSelectedBrokersForChoice([broker.id]),
+  ];
+  for (const view of views)
+    expect(JSON.stringify(view)).not.toContain(contactInput.verificationNote);
+  expect((await getBrokerWithContacts(broker.id))?.readiness).toMatchObject({
+    canPrepare: false,
+    activationReady: false,
+  });
+  expect(
+    (await getBrokerAdministration(actor, broker.id)).contactMethods[0]?.verificationNote
+  ).toBe(contactInput.verificationNote);
+});
