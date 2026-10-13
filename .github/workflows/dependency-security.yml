@@ -1,0 +1,26 @@
+name: Scheduled dependency security
+
+on:
+  schedule:
+    - cron: "17 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: ".nvmrc"
+          cache: npm
+      - run: npm ci --include=dev
+        env:
+          NODE_ENV: development
+          npm_config_engine_strict: "true"
+      - run: npm audit --omit=dev --audit-level=moderate
+      - run: npm run audit:dependencies

@@ -13,10 +13,10 @@
  *     values that look like an email address, phone number or token are dropped
  *     as well, so an accidental identifier never reaches the audit trail.
  *
- * Audit writes must never break the operation they describe. `recordAudit()`
- * therefore reports a failure through the logger and returns `null` instead of
- * throwing, while `recordAuditOrThrow()` exists for callers that treat the
- * audit entry as part of their contract (for example consent evidence).
+ * Best-effort events use `recordAudit()`, which logs failures and returns null.
+ * Mandatory proofs use `recordAuditOrThrow()` with a transaction-bound appender
+ * so the operation cannot commit without its evidence (for example consent
+ * and authentication admission).
  */
 import type { ActorType, AuditOutcome, UserRole } from "@prisma/client";
 
@@ -31,6 +31,7 @@ import {
   type AuditLogAppender,
 } from "@/lib/db/repositories/audit";
 import { createLogger } from "@/lib/observability/logger";
+import { AppError } from "@/lib/core/errors";
 import type { ActorContext } from "@/lib/permissions/actor";
 
 import { isAuditAction, type AuditAction, type AuditResourceType } from "./actions";
@@ -371,6 +372,13 @@ export async function recordAuditOrThrow(
         })
       )
   );
+
+  if (!entry) {
+    throw new AppError({
+      code: "INTERNAL_ERROR",
+      message: "The audit entry could not be recorded.",
+    });
+  }
 
   log.debug(
     {

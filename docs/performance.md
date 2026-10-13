@@ -151,3 +151,38 @@ The completed public-interface pass reduced encoded JavaScript transfer from
 190,430 to 156,299 bytes over three cold Chromium runs. All public content and
 FAQ behavior remain available. The method and raw totals are documented in
 [interface verification](interface-verification.md#measured-javascript-transfer).
+
+## October 12 artifact measurements
+
+`npm run benchmark:database -- artifacts` now measures full JSON **and PDF**
+report generation, lease-fenced publication, encrypted memory storage and
+ownership-checked download at 100, 1,000 and 10,000 requests. The PDF signature
+and complete processed-request count are checked; PDF text is not parsed. Mock
+providers and disabled external sending remain mandatory. Synthetic queue jobs
+are explicitly due before measurement to avoid a race with small database/host
+clock skew. No production lease or queue behavior changed.
+
+In this environment, nine warm samples at 10,000 requests had median generation
+and download times of **1,643 ms (JSON)** and **2,704 ms (PDF)**. Median sampled
+process RSS was approximately **368 MiB** and **343 MiB**, respectively. These
+include encrypted storage and download with the memory backend, not remote S3
+latency, real-provider delivery or a measurement of rendering fidelity. See
+[raw artifact samples](verification/quality/database-artifacts.json).
+
+A complete 10,000-request masked export reproduced the existing workload:
+**4,950 ms**, **1,014 queries**, and **19,562,492 bytes** for the first sample;
+median sampled process peak RSS was approximately **506 MiB**. Queries already use
+250-record pages and explicit projections. The output still accumulates a complete
+plaintext buffer before authenticated encryption/storage, and reports accumulate
+all projected request rows. The storage interface currently accepts whole
+buffers; true bounded streaming needs a reviewed encryption/storage protocol,
+recovery and authenticated-download design rather than a cache of plaintext.
+
+An experimental page-buffer serializer measured 4,874 ms with higher observed
+RSS (531 MiB). That difference is too small to support a speed improvement; index
+configuration and shared-host workloads also differ. **The serializer was
+reverted.** No export speed or memory gain is claimed. The
+[original samples](verification/quality/database-before.json) and
+[discarded allocation experiment](verification/quality/database-allocation-experiment.json)
+record counts, runtime/source hashes and measurement limits. The complete export
+and encryption requirements are preserved.

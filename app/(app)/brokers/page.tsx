@@ -118,23 +118,29 @@ export default async function BrokersPage({
               <TableHead>Name</TableHead>
               <TableHead>Category</TableHead>
               <TableHead>Verification</TableHead>
-              <TableHead>Flags</TableHead>
+              <TableHead>Readiness and next step</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {page.items.map((broker) => (
               <TableRow key={broker.id}>
                 <TableCell>
-                  <Link className="underline" href={`/requests/new?brokers=${broker.id}`}>
+                  <Link className="underline" href={`/brokers/${broker.id}`}>
                     {broker.legalName}
                   </Link>
-                  <Link
-                    className="block! py-2 text-sm underline underline-offset-4"
-                    href={`/brokers/${broker.id}`}
-                  >
-                    Sources and instructions
-                    <span className="sr-only"> for {broker.legalName}</span>
-                  </Link>
+                  {broker.readiness.canPrepare ? (
+                    <Link
+                      className="block! py-2 text-sm underline underline-offset-4"
+                      href={`/requests/new?brokers=${broker.id}`}
+                    >
+                      {broker.isDemoData ? "Practise with a draft" : "Prepare a request"}
+                      <span className="sr-only"> for {broker.legalName}</span>
+                    </Link>
+                  ) : (
+                    <p className="pt-2 text-sm text-muted-foreground">
+                      Operator review required before preparation.
+                    </p>
+                  )}
                 </TableCell>
                 <TableCell>
                   {broker.category.replaceAll("_", " ").toLowerCase()}
@@ -146,6 +152,7 @@ export default async function BrokersPage({
                   />
                 </TableCell>
                 <TableCell>
+                  <p className="mb-2 font-medium">{broker.readiness.label}</p>
                   <div className="flex flex-wrap gap-2">
                     {broker.isDemoData ? <Badge variant="outline">Demo</Badge> : null}
                     {broker.productionSendingEnabled ? (
@@ -154,6 +161,9 @@ export default async function BrokersPage({
                       <Badge variant="outline">Sending off</Badge>
                     )}
                   </div>
+                  {broker.readiness.warnings.length ? (
+                    <p className="mt-2 text-sm">Source review due</p>
+                  ) : null}
                 </TableCell>
               </TableRow>
             ))}

@@ -15,6 +15,7 @@ export async function readOperationalMetrics() {
     ambiguousNotifications,
     deletions,
     filesPendingPurge,
+    unknownNetworkAuthAttempts24h,
   ] = await Promise.all([
     prisma.$queryRaw<
       {
@@ -55,6 +56,13 @@ export async function readOperationalMetrics() {
       _min: { deletionRequestedAt: true },
     }),
     prisma.evidenceFile.count({ where: { storageState: "PURGE_PENDING" } }),
+    prisma.auditLog.count({
+      where: {
+        action: { in: ["auth.magic_link.requested", "auth.magic_link.rate_limited"] },
+        ipHash: null,
+        createdAt: { gte: new Date(now.getTime() - 86_400_000) },
+      },
+    }),
   ]);
   const ageSeconds = (date: Date | null) =>
     date ? Math.max(0, Math.floor((now.getTime() - date.getTime()) / 1000)) : 0;
@@ -73,5 +81,6 @@ export async function readOperationalMetrics() {
     deletionBacklog: deletions._count.id,
     oldestDeletionAgeSeconds: ageSeconds(deletions._min.deletionRequestedAt),
     filesPendingPurge,
+    unknownNetworkAuthAttempts24h,
   };
 }

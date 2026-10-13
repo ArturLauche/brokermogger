@@ -1,8 +1,7 @@
 /**
  * Confirmation screen after a sign in link was requested.
  *
- * The wording is deliberately conditional ("if the address belongs to an
- * account"). This page is shown for a known address, an unknown address and a
+ * The wording is deliberately conditional. This page is shown for a known address, an unknown address and a
  * throttled address alike, so it must never confirm that an account exists.
  */
 import type { Metadata } from "next";
@@ -17,10 +16,11 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { env } from "@/lib/config/env";
+import { magicLinkPerEmail, magicLinkPerIp } from "@/lib/rateLimit/policies";
 
 export const metadata: Metadata = {
   title: "Check your email",
-  description: "A one time sign in link was sent if the address belongs to an account.",
+  description: "The same confirmation appears whether a sign in link is issued or not.",
   robots: { index: false, follow: false },
 };
 
@@ -37,7 +37,8 @@ export default function CheckEmailPage() {
           Check your email
         </h1>
         <p className="text-sm text-muted-foreground">
-          If the address you entered belongs to an account, a sign in link is on its way.
+          If this request can be processed, a sign in link will arrive at the address you
+          entered.
         </p>
       </div>
 
@@ -61,9 +62,20 @@ export default function CheckEmailPage() {
               Nothing is sent to a data broker at this point. Signing in only opens your
               own account.
             </li>
+            <li>{magicLinkPerEmail.description}</li>
+            <li>
+              {magicLinkPerIp.description} Requests beyond these operational limits show
+              this same confirmation.
+            </li>
           </ul>
         </CardContent>
       </Card>
+      {env.TRUSTED_PROXY_IP_HEADER === "none" ? (
+        <p className="text-sm text-muted-foreground">
+          This instance shares the network allowance across all sign in requests. Contact
+          the instance operator if it prevents you from signing in.
+        </p>
+      ) : null}
 
       {isDevelopment ? (
         <Alert>

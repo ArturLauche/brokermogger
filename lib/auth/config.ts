@@ -34,6 +34,7 @@ import {
 } from "./cookies";
 import { authRedirect } from "./redirect";
 import { sendMagicLinkVerificationRequest } from "./magicLink";
+import { authorizeMagicLinkRequest, MAGIC_LINK_VERIFY_PATH } from "./magicLinkRateLimit";
 import { buildUserActor, readRequestContext } from "./requestContext";
 
 const log = createLogger("auth");
@@ -127,10 +128,17 @@ export const authConfig: NextAuthConfig = {
      * redirect to `/login/error?error=AccessDenied`.
      */
     async signIn({ user, email }) {
-      // First leg of the email flow: the link has not been used yet, so there is
-      // nothing to authorise. The request itself is rate limited elsewhere.
+      // A string redirect stops Auth.js before token creation and email delivery.
+      // Match the allowed response so quotas do not reveal account/address state.
       if (email?.verificationRequest) {
-        return true;
+        try {
+          if (await authorizeMagicLinkRequest(user.email ?? "")) return true;
+        } catch {
+          // Admission rolled back. Do not expose address/account-specific
+          // failures, and never proceed to token issuance or delivery.
+          log.error("Magic link admission failed; no sign-in link was issued");
+        }
+        return new URL(MAGIC_LINK_VERIFY_PATH, env.APP_BASE_URL).href;
       }
 
       const account =

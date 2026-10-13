@@ -16,7 +16,7 @@ import { clearMemoryStorage } from "@/lib/storage/memory";
 import { testActor } from "../helpers/actor";
 
 const mode = process.argv[2] ?? "baseline";
-assert(["baseline", "optimized", "report-index"].includes(mode));
+assert(["baseline", "optimized", "report-index", "artifacts"].includes(mode));
 const url = new URL(env.DATABASE_URL);
 const schema = url.searchParams.get("schema") ?? "";
 assert(/_test$/.test(url.pathname), "A dedicated test database is required.");
@@ -284,22 +284,45 @@ async function main() {
   for (const count of mode === "report-index" ? [10000] : [100, 1000, 10000]) {
     const fixture = await createFixture(count);
     const { actor, userId, profileId, detailId } = fixture;
-    const completeReport = async () => {
+    const completeReport = async (format: "JSON" | "PDF" = "JSON") => {
       const report = await requestReport(actor, {
         profileId,
         dateFrom: "2026-09-01",
         dateTo: "2026-09-30",
-        format: "JSON",
+        format,
         submissionKey: randomUUID(),
       });
       const [job] = await claimDueJobs("benchmark-report", 1);
       assert(job?.type === "GENERATE_REPORT");
       await runClaimedJob(job, { GENERATE_REPORT: renderReportForJob });
       const result = await downloadReport(actor, report.id);
-      assert.equal(JSON.parse(result.body.toString()).requests.length, count);
+      if (format === "JSON")
+        assert.equal(JSON.parse(result.body.toString()).requests.length, count);
+      else {
+        assert(result.body.subarray(0, 5).equals(Buffer.from("%PDF-")));
+        const stored = await db.report.findUniqueOrThrow({
+          where: { id: report.id },
+          select: { status: true, processedRequests: true },
+        });
+        assert.equal(stored.status, "READY");
+        assert.equal(stored.processedRequests, count);
+      }
       clearMemoryStorage();
       return result.body;
     };
+    if (mode === "artifacts") {
+      for (let round = 0; round < 3; round++) {
+        await measure(count, "complete-json-report", round, 3, completeReport);
+        await measure(count, "complete-pdf-report", round, 3, () =>
+          completeReport("PDF")
+        );
+      }
+      assert.equal(await db.outboundEmail.count(), 0);
+      process.stdout.write(
+        `Measured encrypted JSON/PDF generation and authenticated downloads for ${count} requests.\n`
+      );
+      continue;
+    }
     if (mode === "report-index") {
       const configurations = ["none", "page", "export"] as const;
       for (let round = 0; round < 3; round++) {
@@ -506,6 +529,9 @@ async function main() {
             type: "RETENTION_SWEEP",
             payloadJson: { dryRun: true },
             idempotencyKey: randomUUID(),
+            // PostgreSQL and the benchmark process can have a small clock skew.
+            // These synthetic jobs are deliberately due before claiming starts.
+            runAt: new Date(Date.now() - 60_000),
           })),
         });
         const completed: string[] = [];
@@ -597,6 +623,7 @@ async function main() {
           "Worker throughput uses actual claim/lease/finish paths with a synthetic bounded database-read handler; it does not predict provider, PDF or encryption throughput.",
           "Legacy reference reads reproduce broad list and unbounded history patterns using the current schema; they are not a complete build of the old application.",
           "Report/export samples exercise full generation, encryption/publication/download and verify all request records; no record cap is introduced.",
+          "PDF samples verify the file signature and the complete processed-request count. They do not parse PDF text or predict external provider latency.",
         ],
         samples,
         workerSamples,

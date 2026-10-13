@@ -51,19 +51,42 @@ export async function fillProfile(page: Page, email: string, name: string) {
     .check();
 }
 
-/** Keep repeated local QA runs independent without weakening application limits. */
-export async function resetBrowserAuthenticationLimit() {
-  const local = new URL(process.env.E2E_BASE_URL ?? "http://127.0.0.1:3000");
-  const database = new URL(process.env.DATABASE_URL ?? "");
+export function assertIsolatedBrowserEnvironment() {
+  const message =
+    "Browser fixtures require a local server, a dedicated test database and disabled external sending.";
+  let local: URL;
+  let database: URL;
+  try {
+    if (!process.env.DATABASE_URL) throw new Error(message);
+    local = new URL(process.env.E2E_BASE_URL ?? "http://127.0.0.1:3000");
+    database = new URL(process.env.DATABASE_URL);
+  } catch {
+    // URL's native error includes its input, which can contain credentials.
+    throw new Error(message);
+  }
   if (
     !["localhost", "127.0.0.1", "[::1]"].includes(local.hostname) ||
     !database.pathname.endsWith("_test") ||
     process.env.EMAIL_PROVIDER !== "mock" ||
     process.env.ALLOW_EXTERNAL_SENDING !== "false"
   )
-    throw new Error(
-      "Browser fixtures require a local server, a dedicated test database and disabled external sending."
-    );
+    throw new Error(message);
+}
+
+/** Explicitly advance only a synthetic target before driving a leased worker. */
+export async function makeBrowserJobDue(db: PrismaClient, jobId: string) {
+  assertIsolatedBrowserEnvironment();
+  const updated = await db.$executeRaw`
+    UPDATE "BackgroundJob"
+    SET "priority" = 0, "runAt" = NOW() - INTERVAL '1 minute', "updatedAt" = NOW()
+    WHERE "id" = ${jobId} AND "status" IN ('PENDING', 'RETRYABLE')
+  `;
+  expect(updated).toBe(1);
+}
+
+/** Keep repeated local QA runs independent without weakening application limits. */
+export async function resetBrowserAuthenticationLimit() {
+  assertIsolatedBrowserEnvironment();
   const db = new PrismaClient();
   try {
     await db.rateLimitBucket.deleteMany({ where: { scope: "auth.magic_link.ip" } });

@@ -328,3 +328,12 @@ Operator-managed rules receive draft updates. Use the legal-rule editor to save,
 preview and publish a reviewed correction; future-effective versions wait for
 their recorded effective instant. See [catalogue-versions.md](catalogue-versions.md)
 and [operator-catalogue.md](operator-catalogue.md).
+
+## Operator review reminders
+
+The legal-rule administration list flags source reviews at least 180 days old,
+missing evidence, future review dates and `requiresLegalReview`. Its review-work
+filter identifies the oldest draft or published version needing attention, even
+when a newer draft exists. This is an operational reminder, not a statutory
+freshness period, a legal conclusion or an automatic publication/withdrawal rule.
+No holiday calendars or legal content were revised by this interface change.

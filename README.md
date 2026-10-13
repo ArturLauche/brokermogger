@@ -67,6 +67,8 @@ npm run test:e2e
 npm run db:migrate
 npm run db:seed
 npm run check:env
+npm run check:deployment # strict public configuration check; --single-user for private use
+npm run audit:dependencies
 ```
 
 ## Configuration
@@ -103,7 +105,7 @@ GitHub Actions runs on every push to `main` and on pull requests. Node is instal
 
 1. `npm ci --include=dev` (lockfile must match `package.json`; no `--legacy-peer-deps`)
 2. Prisma generate + migrate against a Postgres 16 service on port 5433
-3. Dependency auditing and `npm run check:env`, `typecheck`, `lint`, `format:check`, `test`, `test:integration`
+3. Production auditing at moderate severity, the full [dependency security gate](docs/dependency-security.md) and `npm run check:env`, `typecheck`, `lint`, `format:check`, `test`, `test:integration`
 4. Production build and Playwright (`npm run test:e2e`)
 
 Browser fixtures preload the existing `tsx` loader for worker-side TypeScript
@@ -117,6 +119,10 @@ are required. The Docker workflow builds the images on pull requests and
 using `GITHUB_TOKEN`.
 
 ## Security
+
+See [magic-link abuse controls and reverse-proxy IP trust](docs/authentication-abuse-controls.md)
+before exposing or upgrading a multi-user instance. Forwarding headers are ignored
+by default; untrusted callers share the operational network allowance.
 
 See [SECURITY.md](SECURITY.md), [docs/asvs.md](docs/asvs.md) and [docs/privacy-retention.md](docs/privacy-retention.md). Report vulnerabilities to the address in `SECURITY_CONTACT_EMAIL`.
 

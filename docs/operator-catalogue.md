@@ -156,3 +156,33 @@ full template and legal-rule draft/repair/preview/publication/supersession
 workflows, including future-effective scheduling. Failure injection checks that
 legal publication cannot partially replace the current version. Demotion tests
 check current authority at privileged writes.
+
+## Readiness and source review queues
+
+The broker editor shows the same activation requirements used by its sending
+command. A missing date, verified contact evidence, usable coverage, activity or
+verification stage is explained before the operator tries to enable the entry.
+Verification stages distinguish source discovery, contact review, method review
+and observed response behavior; none proves removal.
+
+The broker list can show inactive real drafts or real entries with missing/future
+review dates or reviews at least 90 days old, including verified contact methods.
+Review age is an operational reminder, not a new sending gate. Rechecking a
+source does not silently activate a broker. Contact evidence notes remain in the
+operator editor; user catalogue responses expose method sources/dates and fixed
+readiness explanations. Put publishable instructions in broker instructions,
+rather than private evidence notes.
+
+Users open sources and instructions for inactive drafts. Preparation links appear
+only for active entries, and inactive preselected entries are not checked in a new
+workflow. Verified manual methods still require the user to submit and record
+submission/receipt separately. An eligible email contact still needs per-request
+coverage, an approved message, current consent and every instance sending gate.
+
+The legal list's **Has source or legal review work** filter shows the oldest draft
+or published version needing review for each matching rule. It includes legal
+review flags, source/reviewer omissions and review dates at least 180 days old or
+in the future. It excludes archived/superseded versions and does not publish,
+replace, expire or activate a rule. The ordinary list's review age belongs to its
+latest version, which may be a draft or a future publication. Follow the existing
+preview and explicit publication workflow for any legal correction.

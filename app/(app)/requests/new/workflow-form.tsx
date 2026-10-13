@@ -19,6 +19,7 @@ type BrokerChoice = {
   label: string;
   active: boolean;
   supportedTypes: RequestType[];
+  readinessLabel?: string;
 };
 
 export function WorkflowForm({
@@ -234,13 +235,27 @@ export function WorkflowForm({
                   disabled={
                     pending || (!compatible && !selectedBrokers.includes(broker.id))
                   }
+                  aria-labelledby={`broker-${broker.id}-name`}
                   aria-describedby={
-                    !compatible ? `broker-${broker.id}-compatibility` : undefined
+                    [
+                      broker.readinessLabel ? `broker-${broker.id}-readiness` : "",
+                      !compatible ? `broker-${broker.id}-compatibility` : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ") || undefined
                   }
                   className="size-4 shrink-0"
                 />
                 <span className="min-w-0 break-words">
-                  {broker.label}
+                  <span id={`broker-${broker.id}-name`}>{broker.label}</span>
+                  {broker.readinessLabel ? (
+                    <span
+                      id={`broker-${broker.id}-readiness`}
+                      className="block text-muted-foreground"
+                    >
+                      {broker.readinessLabel}
+                    </span>
+                  ) : null}
                   {!compatible ? (
                     <span
                       id={`broker-${broker.id}-compatibility`}

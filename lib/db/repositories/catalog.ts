@@ -18,6 +18,9 @@ import { pageInputSchema, createdBeforeCursor, cursorPage } from "@/lib/paginati
 import { parseWithSchema } from "@/lib/validation/form";
 import { entityIdSchema } from "@/lib/validation/ids";
 
+import { brokerReadiness } from "@/lib/brokers/readiness";
+import { BROKER_READINESS_SELECT, withBrokerReadiness } from "./brokerReadiness";
+
 const CATALOG_TTL_MS = 60_000;
 const jurisdictionsCache = createTtlCache<JurisdictionRecord[]>(CATALOG_TTL_MS);
 type CatalogueLegalVersion = Prisma.LegalRuleVersionGetPayload<{
@@ -161,6 +164,7 @@ const directoryListSchema = pageInputSchema.extend({
   search: z.string().trim().max(100).default(""),
 });
 const DIRECTORY_SELECT = {
+  ...BROKER_READINESS_SELECT,
   id: true,
   createdAt: true,
   legalName: true,
@@ -169,10 +173,6 @@ const DIRECTORY_SELECT = {
   isDemoData: true,
   productionSendingEnabled: true,
   verificationStatus: true,
-  jurisdictionCoverage: {
-    where: { isActive: true },
-    select: { jurisdictionId: true, isActive: true, supportedRequestTypes: true },
-  },
 } satisfies Prisma.BrokerSelect;
 
 /** Public configuration only. Search and pages are bounded, without private fields. */
@@ -206,24 +206,26 @@ export async function listBrokersForDirectory(raw: unknown = {}) {
     }),
     prisma.broker.count({ where }),
   ]);
-  return { ...cursorPage(rows, input.limit), total };
+  const page = cursorPage(rows, input.limit);
+  return { ...page, items: page.items.map((row) => withBrokerReadiness(row)), total };
 }
 
 /** Selected choices stay visible across search/page changes; input is bounded independently. */
 export async function getSelectedBrokersForChoice(raw: unknown) {
   const ids = parseWithSchema(z.array(entityIdSchema).max(MAX_BROKERS_PER_WORKFLOW), raw);
   if (!ids.length) return [];
-  return prisma.broker.findMany({
+  const rows = await prisma.broker.findMany({
     where: { id: { in: ids }, deletedAt: null },
     select: DIRECTORY_SELECT,
   });
+  return rows.map((row) => withBrokerReadiness(row));
 }
 
 export async function getBrokerWithContacts(brokerId: string) {
-  return prisma.broker.findFirst({
+  const broker = await prisma.broker.findFirst({
     where: { id: brokerId, deletedAt: null },
     select: {
-      id: true,
+      ...BROKER_READINESS_SELECT,
       legalName: true,
       tradingNames: true,
       category: true,
@@ -243,6 +245,7 @@ export async function getBrokerWithContacts(brokerId: string) {
           id: true,
           type: true,
           value: true,
+          isActive: true,
           label: true,
           isVerified: true,
           verifiedAt: true,
@@ -255,14 +258,23 @@ export async function getBrokerWithContacts(brokerId: string) {
         select: {
           id: true,
           supportedRequestTypes: true,
+          isActive: true,
           coverageType: true,
           confidence: true,
           notes: true,
-          jurisdiction: { select: { name: true } },
+          jurisdiction: { select: { name: true, isActive: true } },
         },
       },
     },
   });
+  if (!broker) return null;
+  return {
+    ...broker,
+    readiness: brokerReadiness(broker),
+    contactMethods: broker.contactMethods.map(
+      ({ verificationNote: _evidence, ...method }) => method
+    ),
+  };
 }
 
 export async function getBrokersWithContacts(brokerIds: readonly string[]) {

@@ -22,6 +22,24 @@ async function queued(key = "lease-test") {
 }
 
 describe("fenced job leases", () => {
+  it("does not claim future jobs or charge an attempt before they are due", async () => {
+    const job = await insertJob({
+      type: "RETENTION_SWEEP",
+      payload: { dryRun: true },
+      idempotencyKey: "synthetic-future-claim",
+      runAt: new Date(Date.now() + 60_000),
+    });
+    expect(await claimDueJobs("early-worker", 1)).toEqual([]);
+    expect(
+      await testPrisma.backgroundJob.findUniqueOrThrow({ where: { id: job.id } })
+    ).toMatchObject({
+      status: "PENDING",
+      attemptCount: 0,
+      leaseToken: null,
+    });
+    await testPrisma.$executeRaw`UPDATE "BackgroundJob" SET "runAt" = NOW() - INTERVAL '1 minute' WHERE "id" = ${job.id}`;
+    expect((await claimDueJobs("due-worker", 1))[0]?.id).toBe(job.id);
+  });
   it("marks an exhausted requested retry failed so an operator can recover it", async () => {
     await insertJob({
       type: "RETENTION_SWEEP",

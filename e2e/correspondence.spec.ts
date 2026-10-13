@@ -1,10 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "./fixtures";
 import { PrismaClient } from "@prisma/client";
+import type { Route } from "@playwright/test";
 import { seedJurisdictions } from "../prisma/seeds/jurisdictions";
 import { seedLegalRules } from "../prisma/seeds/legalRules";
 import { seedRequestTemplates } from "../prisma/seeds/templates";
-import { resetBrowserAuthenticationLimit, signIn, fillProfile } from "./helpers";
+import {
+  resetBrowserAuthenticationLimit,
+  signIn,
+  fillProfile,
+  makeBrowserJobDue,
+} from "./helpers";
 
 test.beforeAll(resetBrowserAuthenticationLimit);
 
@@ -133,7 +139,34 @@ test("edits and approves a manual request, records submission, then confirms a r
   await expect(
     page.getByRole("heading", { name: "Follow-up preparation needs a retry" })
   ).toBeVisible();
-  await page.getByRole("button", { name: "Retry preparation", exact: true }).click();
+  // Hold the retry POST so the fixture exercises an action still in flight.
+  let releaseRetry!: () => void;
+  const retryGate = new Promise<void>((resolve) => {
+    releaseRetry = resolve;
+  });
+  const retryPattern = `**/requests/${requestId}**`;
+  const delayRetry = async (route: Route) => {
+    if (route.request().method() === "POST" && route.request().headers()["next-action"])
+      await retryGate;
+    await route.continue();
+  };
+  await page.route(retryPattern, delayRetry);
+  try {
+    await page.getByRole("button", { name: "Retry preparation", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Scheduling…", exact: true })
+    ).toBeDisabled();
+    await expect(
+      page.getByRole("heading", { name: "Follow-up preparation needs a retry" })
+    ).toBeVisible();
+    releaseRetry();
+    await expect(
+      page.getByRole("heading", { name: "Follow-up scheduled", exact: true })
+    ).toBeVisible();
+  } finally {
+    releaseRetry();
+    await page.unrouteAll({ behavior: "wait" });
+  }
   await processFollowUp(requestId);
   await page.getByRole("button", { name: "Refresh status" }).click();
   await expect(page.getByRole("link", { name: "Review", exact: true })).toBeVisible();
@@ -155,6 +188,9 @@ test("edits and approves a manual request, records submission, then confirms a r
   await page.getByRole("button", { name: "Record submission", exact: true }).click();
   await expect(page).toHaveURL(/saved=submission/);
   await page.getByRole("button", { name: "Prepare final reminder", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Final reminder scheduled", exact: true })
+  ).toBeVisible();
   await processFollowUp(requestId, false, 2);
   await page.getByRole("button", { name: "Refresh status" }).click();
   await page.getByRole("link", { name: "Review", exact: true }).click();
@@ -318,10 +354,7 @@ async function processReport(reportId: string) {
   const db = new PrismaClient();
   try {
     const report = await db.report.findUniqueOrThrow({ where: { id: reportId } });
-    await db.backgroundJob.update({
-      where: { id: report.jobId! },
-      data: { priority: 0 },
-    });
+    await makeBrowserJobDue(db, report.jobId!);
     const { claimDueJobs } = await import("../lib/db/repositories/jobs");
     const { runClaimedJob } = await import("../lib/jobs/queue");
     const { renderReportForJob } = await import("../lib/reports/service");
@@ -337,7 +370,7 @@ async function processExport(exportId: string) {
   const db = new PrismaClient();
   try {
     const data = await db.accountExport.findUniqueOrThrow({ where: { id: exportId } });
-    await db.backgroundJob.update({ where: { id: data.jobId! }, data: { priority: 0 } });
+    await makeBrowserJobDue(db, data.jobId!);
     const { claimDueJobs } = await import("../lib/db/repositories/jobs");
     const { runClaimedJob } = await import("../lib/jobs/queue");
     const { generateAccountExport } = await import("../lib/exports/service");
@@ -367,7 +400,20 @@ async function processFollowUp(
       });
       return;
     }
-    await db.backgroundJob.update({ where: { id: row.id }, data: { priority: 0 } });
+    // Exercise a deliberately delayed synthetic preparation before advancing it.
+    await db.$executeRaw`
+      UPDATE "BackgroundJob" SET "runAt" = NOW() + INTERVAL '1 minute'
+      WHERE "id" = ${row.id}
+    `;
+    const [scheduled] = await db.$queryRaw<{ future: boolean }[]>`
+      SELECT "runAt" > NOW() AS future FROM "BackgroundJob" WHERE "id" = ${row.id}
+    `;
+    expect(scheduled?.future).toBe(true);
+    const untouched = await db.backgroundJob.findUniqueOrThrow({ where: { id: row.id } });
+    expect(untouched.status).toBe(row.status);
+    expect(untouched.attemptCount).toBe(row.attemptCount);
+    expect(untouched.leaseToken).toBeNull();
+    await makeBrowserJobDue(db, row.id);
     const { claimDueJobs } = await import("../lib/db/repositories/jobs");
     const { runClaimedJob } = await import("../lib/jobs/queue");
     const { createJobHandlers } = await import("../lib/jobs/handlers");

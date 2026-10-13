@@ -7,7 +7,9 @@ import {
   coverageCommandSchema,
   sendingCommandSchema,
 } from "@/lib/admin/brokerCommands";
-import { evaluateBrokerSendable } from "@/lib/brokers/sendable";
+import { evaluateBrokerActivation } from "@/lib/brokers/readiness";
+import { BROKER_REVIEW_INTERVAL_DAYS, reviewCutoff } from "@/lib/catalogue/reviewAge";
+import { BROKER_READINESS_SELECT, withBrokerReadiness } from "./brokerReadiness";
 import { AppError, NotFoundError } from "@/lib/core/errors";
 import { prisma, type PrismaTransaction } from "@/lib/db/client";
 import { pageInputSchema, createdBeforeCursor, cursorPage } from "@/lib/pagination";
@@ -15,16 +17,19 @@ import type { ActorContext } from "@/lib/permissions/actor";
 import { requirePermission } from "@/lib/permissions/policy";
 import { parseWithSchema } from "@/lib/validation/form";
 import { entityIdSchema } from "@/lib/validation/ids";
-import { publicUrlSchema } from "@/lib/validation/publicUrl";
 import { lockAuthorizedAccount } from "./access";
 
 const listSchema = pageInputSchema.extend({
   search: z.string().trim().max(100).default(""),
-  status: z.enum(["all", "sending", "unverified", "inactive"]).default("all"),
+  status: z
+    .enum(["all", "sending", "unverified", "inactive", "real_drafts", "stale"])
+    .default("all"),
 });
 export async function listBrokerAdministration(actor: ActorContext, raw: unknown = {}) {
   requirePermission(actor, "admin:broker:read");
   const input = parseWithSchema(listSchema, raw);
+  const now = new Date();
+  const cutoff = reviewCutoff(BROKER_REVIEW_INTERVAL_DAYS, now);
   const where: Prisma.BrokerWhereInput = {
     deletedAt: null,
     ...(input.search
@@ -32,6 +37,41 @@ export async function listBrokerAdministration(actor: ActorContext, raw: unknown
           OR: [
             { legalName: { contains: input.search, mode: "insensitive" } },
             { slug: { contains: input.search, mode: "insensitive" } },
+          ],
+        }
+      : {}),
+    ...(input.status === "real_drafts"
+      ? {
+          isDemoData: false,
+          isActive: false,
+          verificationStatus: { in: ["UNVERIFIED", "SOURCE_FOUND"] },
+        }
+      : {}),
+    ...(input.status === "stale"
+      ? {
+          AND: [
+            { isDemoData: false },
+            {
+              OR: [
+                { lastVerifiedAt: null },
+                { lastVerifiedAt: { lte: cutoff } },
+                { lastVerifiedAt: { gt: now } },
+                {
+                  contactMethods: {
+                    some: {
+                      isActive: true,
+                      isVerified: true,
+                      deletedAt: null,
+                      OR: [
+                        { verifiedAt: null },
+                        { verifiedAt: { lte: cutoff } },
+                        { verifiedAt: { gt: now } },
+                      ],
+                    },
+                  },
+                },
+              ],
+            },
           ],
         }
       : {}),
@@ -49,7 +89,7 @@ export async function listBrokerAdministration(actor: ActorContext, raw: unknown
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: input.limit + 1,
       select: {
-        id: true,
+        ...BROKER_READINESS_SELECT,
         createdAt: true,
         legalName: true,
         category: true,
@@ -61,7 +101,12 @@ export async function listBrokerAdministration(actor: ActorContext, raw: unknown
     }),
     prisma.broker.count({ where }),
   ]);
-  return { ...cursorPage(rows, input.limit), total };
+  const page = cursorPage(rows, input.limit);
+  return {
+    ...page,
+    items: page.items.map((row) => withBrokerReadiness(row, now)),
+    total,
+  };
 }
 
 export async function getBrokerAdministration(actor: ActorContext, rawId: string) {
@@ -75,7 +120,7 @@ export async function getBrokerAdministration(actor: ActorContext, rawId: string
         orderBy: [{ priority: "asc" }, { id: "asc" }],
       },
       jurisdictionCoverage: {
-        include: { jurisdiction: { select: { name: true, code: true } } },
+        include: { jurisdiction: { select: { name: true, code: true, isActive: true } } },
         orderBy: { jurisdictionId: "asc" },
       },
       seedSources: { orderBy: { retrievedAt: "desc" } },
@@ -255,11 +300,11 @@ export async function changeBrokerSending(actor: ActorContext, raw: unknown) {
   return prisma.$transaction(async (tx) => {
     const broker = await lockBroker(tx, actor, command);
     if (command.enabled) {
-      const [contactMethods, coverage] = await Promise.all([
+      const [contactMethods, jurisdictionCoverage] = await Promise.all([
         tx.brokerContactMethod.findMany({
           where: { brokerId: broker.id, isActive: true, deletedAt: null },
         }),
-        tx.brokerJurisdictionCoverage.count({
+        tx.brokerJurisdictionCoverage.findMany({
           where: {
             brokerId: broker.id,
             isActive: true,
@@ -267,20 +312,13 @@ export async function changeBrokerSending(actor: ActorContext, raw: unknown) {
             coverageType: { in: ["STATUTORY", "VOLUNTARY_OPT_OUT"] },
             jurisdiction: { isActive: true },
           },
+          include: { jurisdiction: { select: { isActive: true } } },
         }),
       ]);
-      const decision = evaluateBrokerSendable({
+      const decision = evaluateBrokerActivation({
         ...broker,
-        productionSendingEnabled: true,
-        contactMethods: contactMethods.filter(
-          (method) =>
-            method.verifiedAt &&
-            method.verifiedAt <= new Date() &&
-            method.verificationNote &&
-            method.verificationNote.length >= 10 &&
-            publicUrlSchema.safeParse(method.sourceUrl).success
-        ),
-        hasJurisdictionCoverage: coverage > 0,
+        contactMethods,
+        jurisdictionCoverage,
       });
       if (!decision.sendable)
         throw new AppError({

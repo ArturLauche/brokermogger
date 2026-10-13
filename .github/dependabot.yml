@@ -13,6 +13,10 @@ updates:
           - patch
       development:
         dependency-type: development
+        # Evaluate major framework/toolchain migrations in separate PRs.
+        update-types:
+          - minor
+          - patch
     ignore:
       # Transitive-only packages that Dependabot Updates tried to bump without a
       # direct pin. Keep them out of the noise until they are direct deps.
