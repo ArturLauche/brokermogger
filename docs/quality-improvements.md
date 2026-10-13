@@ -178,6 +178,13 @@ Production enforcement, explicit private acknowledgement and strict public
 checks remain required. Real child-process regressions cover these behaviors and
 exclude a synthetic private value from both output streams.
 
+A subsequent compatibility review reproduced an empty-policy regression in
+`consumePolicies([])`: the repository's nonempty guard made that domain no-op
+throw. The helper now returns `[]` before invoking a counter port. Database
+batches still require one to sixteen distinct identities, and magic-link
+admission still submits both fixed email and network policies. Tests exercise
+the default repository port and a supplied port that must never be called.
+
 ## Operational and privacy review
 
 The dispatch, approved-message, legal-eligibility and manual-submission paths

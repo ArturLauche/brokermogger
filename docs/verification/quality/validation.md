@@ -238,3 +238,20 @@ The existing suppressed-audit failure injections still emit the documented
 Prisma 6 engine panic diagnostics; those tests prove rollback and recovery and
 the complete suite passes. New-commit CI is recorded in the pull request;
 previous green CI is not used to certify this follow-up while its checks run.
+
+## Empty policy compatibility follow-up
+
+The next review reproduced two failures: `consumePolicies([])` threw with its
+actual default repository port, and it unnecessarily invoked a supplied counter
+port. The helper now returns `[]` before counter work. The repository still
+rejects empty batches and requires one to sixteen distinct identities; the
+authentication gate still supplies both fixed email and network policies.
+
+Both new regressions failed before correction. The latest **564 unit/component
+tests in 84 files** and **36 focused authentication/counter integration tests in
+two files** pass, including concurrent direct API admission, mandatory proof
+rollback, malformed results and repository batch validation. Typecheck, lint and
+formatting pass. No UI, dependencies, migrations or database repository code
+changed in this follow-up. Full integration/browser/build/Docker checks passed
+on preceding commit `fe7e047`; new-commit CI reruns those suites before readiness.
+Those previous results are not claimed for a new commit while its checks run.

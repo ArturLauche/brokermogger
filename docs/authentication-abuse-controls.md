@@ -39,12 +39,16 @@ bucket charges, tokens or email. A fresh request can retry after the lock holder
 finishes. These limits do not change other audit writers or account-erasure
 transactions; they cannot guarantee successful admission during sustained overload.
 Standalone single and batched counter increments use the same database budget;
-caller-owned increments inherit the surrounding transaction's budget. Batches
-must contain between one and sixteen validated identities, with no repeated
+caller-owned increments inherit the surrounding transaction's budget. Database
+batches must contain between one and sixteen validated identities, with no repeated
 `(scope, key, windowStart)` tuple; invalid batches fail before writes, including
 inside caller-owned transactions. The authentication gate currently submits two
 identities. Non-array, incomplete or invalid counter-port results raise
 `INTERNAL_ERROR` rather than producing an invalid allowance.
+
+The domain helper `consumePolicies([])` remains a no-op returning `[]` without
+calling its counter port; this does not relax the repository's nonempty-batch
+requirement or omit either of the authentication gate's two fixed policies.
 
 Issued callback links are pinned to `APP_BASE_URL`'s origin, preserving the Auth.js
 callback path and token query. `AUTH_URL` should also identify the public origin.

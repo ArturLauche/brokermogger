@@ -183,6 +183,7 @@ export async function consumePolicies(
   now = new Date(),
   increment: BucketIncrementer = incrementBuckets
 ): Promise<RateLimitResult[]> {
+  if (inputs.length === 0) return [];
   const requests = inputs.map(({ policy, key }) => ({ ...policy, key }));
   if (!env.RATE_LIMIT_ENABLED)
     return requests.map((request) => bypassResult(request, "RATE_LIMIT_ENABLED=false"));
