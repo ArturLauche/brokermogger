@@ -12,6 +12,7 @@
     "micromatch",
     "fast-glob",
     "@next/eslint-plugin-next",
+    "@shadcn/registry",
     "eslint-config-next",
     "@ts-morph/common",
     "ts-morph",

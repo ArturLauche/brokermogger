@@ -55,13 +55,15 @@ default branch (after merge), with manual dispatch available. It detects stale
 exceptions even without a new PR; expiry remains blocking and cannot be waived
 by a warning.
 
-The raw full `npm audit --audit-level=moderate` still reports eight high package
+The raw full `npm audit --audit-level=moderate` still reports nine high package
 entries caused by this one unpatched advisory and exits unsuccessfully. Report
 this honestly. The policy gate distinguishes that documented exception from a
 clean raw scan; the production scan has zero vulnerabilities after the updates.
 
-The separately repaired #39 updates shadcn to 4.21.1, which extracts part of the
+The combined dependency tree uses shadcn 4.21.1, which extracts part of the
 same CLI into `@shadcn/registry`. Its verified dev-only glob paths cause a ninth
-dependent entry for the same braces advisory; that specific wrapper is included
-in #39's exception. #40's list contains only its eight installed affected
-packages; the absent wrapper was removed. There is no additional excepted advisory.
+dependent entry for the same braces advisory. The exception includes that
+specific installed wrapper. The earlier #40 tree had eight affected packages
+and omitted the absent wrapper; updating #39 against main reconciles the
+inventory with the installed combined tree. There is no additional excepted
+advisory, broader path allowance or expiry extension.
