@@ -11,7 +11,9 @@ const fixtureDirectory = mkdtempSync(join(tmpdir(), "brokermogger-cli-test-"));
 const emptyEnvPath = join(fixtureDirectory, "empty.env");
 const invalidEnvPath = join(fixtureDirectory, "invalid.env");
 writeFileSync(emptyEnvPath, "");
-writeFileSync(invalidEnvPath, "EMAIL_FROM=x\n");
+// Keep this validated setting absent from the synthetic child environment so
+// explicit configuration cannot shadow either parent or dotenv poisoning.
+writeFileSync(invalidEnvPath, "JOB_BATCH_SIZE=not-a-number\n");
 afterAll(() => rmSync(fixtureDirectory, { recursive: true, force: true }));
 
 function check(flags: string[], overrides: Record<string, string> = {}) {
@@ -112,26 +114,26 @@ describe("production deployment CLI", { timeout: 30_000, concurrent: false }, ()
   });
 
   it("does not inherit application configuration from the parent process", () => {
-    const previous = process.env.EMAIL_FROM;
-    process.env.EMAIL_FROM = "x";
+    const previous = process.env.JOB_BATCH_SIZE;
+    process.env.JOB_BATCH_SIZE = "not-a-number";
     try {
       expect(check([], { TRUSTED_PROXY_IP_HEADER: "x-real-ip" }).status).toBe(0);
     } finally {
-      if (previous === undefined) delete process.env.EMAIL_FROM;
-      else process.env.EMAIL_FROM = previous;
+      if (previous === undefined) delete process.env.JOB_BATCH_SIZE;
+      else process.env.JOB_BATCH_SIZE = previous;
     }
   });
 
   it("does not load application configuration from a parent dotenv file", () => {
-    const previousSender = process.env.EMAIL_FROM;
+    const previousBatchSize = process.env.JOB_BATCH_SIZE;
     const previousEnvPath = process.env.DOTENV_CONFIG_PATH;
-    delete process.env.EMAIL_FROM;
+    delete process.env.JOB_BATCH_SIZE;
     process.env.DOTENV_CONFIG_PATH = invalidEnvPath;
     try {
       expect(check([], { TRUSTED_PROXY_IP_HEADER: "x-real-ip" }).status).toBe(0);
     } finally {
-      if (previousSender === undefined) delete process.env.EMAIL_FROM;
-      else process.env.EMAIL_FROM = previousSender;
+      if (previousBatchSize === undefined) delete process.env.JOB_BATCH_SIZE;
+      else process.env.JOB_BATCH_SIZE = previousBatchSize;
       if (previousEnvPath === undefined) delete process.env.DOTENV_CONFIG_PATH;
       else process.env.DOTENV_CONFIG_PATH = previousEnvPath;
     }

@@ -191,10 +191,14 @@ application variables and dotenv paths. The CLI suite now has a local thirty-sec
 test budget covering its maximum two ten-second children, forced subprocess
 termination and an explicit failure when no exit status is available. Synthetic
 configuration and a private empty dotenv fixture isolate checks from operator
-settings. Three failing-before regressions cover inherited sender/path poisoning
-and interrupted-process handling. The unit project explicitly documents these
-local CLI checks; they use neither a database nor the network. No global test
-deadline, retry policy or application security budget changed.
+settings. The original sender/path regressions failed with the old helper, but a
+follow-up review found that an explicit sender override hid later isolation
+regressions. Both checks now poison an omitted, schema-validated job setting.
+Controlled local mutations separately restored parent-variable inheritance and
+parent dotenv selection: the original checks stayed green, and each strengthened
+test fails. Interrupted-process handling remains covered. These local CLI checks
+use neither a database nor the network. No global test deadline, retry policy or
+application security budget changed.
 
 The diagnostic logger option documents one-off CLI startup use and per-call
 allocation. Its only application caller initializes it once. The reviewer offered

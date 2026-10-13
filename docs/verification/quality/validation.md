@@ -262,9 +262,11 @@ Three new regressions fail before correction: an invalid inherited sender or
 parent dotenv file changes an otherwise valid diagnostic into failure, and a
 simulated subprocess timeout returns a null status without a useful explanation.
 They pass with an explicit synthetic child environment, an empty temporary dotenv
-fixture and a clear interrupted-process error. Only platform process variables
-are inherited. The eight tests include actual Node processes; only the timeout
-case injects a process result. Temporary fixtures are removed after the suite.
+fixture and a clear interrupted-process error. A later review found the sender
+override could mask reintroduced isolation defects; the next section records
+stronger poisoning and mutation checks. Only platform process variables are
+inherited. The eight tests include actual Node processes; only the timeout case
+injects a process result. Temporary fixtures are removed after the suite.
 
 The CLI suite has a local thirty-second deadline, covering the test with two
 ten-second subprocesses plus runner overhead. Each child uses forced termination
@@ -272,9 +274,31 @@ at its existing ten-second limit. Global test defaults, CI retries and productio
 database/admission budgets are unchanged. The diagnostic logger is documented as
 one-off CLI startup use, matching its sole production call.
 
-All **567 unit/component tests in 84 files**, typecheck, lint and formatting pass.
+Commit `27d9e90` passes both full CI jobs and the Docker image workflow. Logs
+confirm **567 unit/component tests in 84 files**, **328 integration tests in 48
+files** and **17 browser journeys on first attempts**, with no flaky/retried
+cases or failed steps. Clean installation, environment checks, typecheck, lint,
+formatting, both dependency gates, production build and Docker smoke pass.
 No application runtime behavior, UI, dependencies, migrations or sending gates
-changed. Preceding `b158d8c` passes full CI, including **328 integration tests**,
-**17 browser journeys without retries**, production build and Docker smoke;
-the new commit reruns those checks before readiness. Prior-commit results are
-not claimed for an unverified new commit.
+changed in that follow-up.
+
+## CLI poisoning regression follow-up
+
+The next review identified false negatives in the two environment-isolation
+tests: the explicit synthetic sender hid the invalid inherited sender and the
+dotenv fixture's value. Controlled local mutations confirmed the original tests
+stayed green when the child environment regained `...process.env`, and when
+`DOTENV_CONFIG_PATH` selected the parent's path instead of the empty fixture.
+
+Both tests now poison `JOB_BATCH_SIZE=not-a-number`, a schema-validated setting
+the synthetic child environment deliberately leaves unset. The dotenv test
+removes any parent value during its check and restores it afterwards. Repeating
+each mutation makes its corresponding strengthened test fail with CLI status
+one instead of zero. Both mutations were restored; the real helper still uses
+only platform variables and its private empty dotenv fixture. This fixes test
+coverage, with no application behavior or deadline changes.
+
+All **567 unit/component tests in 84 files**, typecheck, lint and formatting pass
+locally. New-commit CI reruns the complete suites before readiness; `27d9e90`'s
+green integration/browser/build/Docker results are historical evidence, not a
+claim that the new commit passed checks before they finish.
