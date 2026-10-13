@@ -117,7 +117,10 @@ function getRootLogger(): Logger {
 export function createLogger(
   component: string,
   bindings: Record<string, unknown> = {},
-  options: { diagnostic?: boolean } = {}
+  options: {
+    /** One-off CLI startup only: creates a separate logger per call; never use in request or worker loops. */
+    diagnostic?: boolean;
+  } = {}
 ): Logger {
   // CLI startup diagnostics must work before full environment validation. Keep
   // the same redaction/error serializers, without reconfiguring runtime logging.

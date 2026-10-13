@@ -255,3 +255,26 @@ formatting pass. No UI, dependencies, migrations or database repository code
 changed in this follow-up. Full integration/browser/build/Docker checks passed
 on preceding commit `fe7e047`; new-commit CI reruns those suites before readiness.
 Those previous results are not claimed for a new commit while its checks run.
+
+## CLI verification isolation follow-up
+
+Three new regressions fail before correction: an invalid inherited sender or
+parent dotenv file changes an otherwise valid diagnostic into failure, and a
+simulated subprocess timeout returns a null status without a useful explanation.
+They pass with an explicit synthetic child environment, an empty temporary dotenv
+fixture and a clear interrupted-process error. Only platform process variables
+are inherited. The eight tests include actual Node processes; only the timeout
+case injects a process result. Temporary fixtures are removed after the suite.
+
+The CLI suite has a local thirty-second deadline, covering the test with two
+ten-second subprocesses plus runner overhead. Each child uses forced termination
+at its existing ten-second limit. Global test defaults, CI retries and production
+database/admission budgets are unchanged. The diagnostic logger is documented as
+one-off CLI startup use, matching its sole production call.
+
+All **567 unit/component tests in 84 files**, typecheck, lint and formatting pass.
+No application runtime behavior, UI, dependencies, migrations or sending gates
+changed. Preceding `b158d8c` passes full CI, including **328 integration tests**,
+**17 browser journeys without retries**, production build and Docker smoke;
+the new commit reruns those checks before readiness. Prior-commit results are
+not claimed for an unverified new commit.

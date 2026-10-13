@@ -185,6 +185,22 @@ batches still require one to sixteen distinct identities, and magic-link
 admission still submits both fixed email and network policies. Tests exercise
 the default repository port and a supplied port that must never be called.
 
+The next review identified test-infrastructure weaknesses: subprocess budgets
+exceeded the unit default deadline, and child configuration depended on inherited
+application variables and dotenv paths. The CLI suite now has a local thirty-second
+test budget covering its maximum two ten-second children, forced subprocess
+termination and an explicit failure when no exit status is available. Synthetic
+configuration and a private empty dotenv fixture isolate checks from operator
+settings. Three failing-before regressions cover inherited sender/path poisoning
+and interrupted-process handling. The unit project explicitly documents these
+local CLI checks; they use neither a database nor the network. No global test
+deadline, retry policy or application security budget changed.
+
+The diagnostic logger option documents one-off CLI startup use and per-call
+allocation. Its only application caller initializes it once. The reviewer offered
+documenting that constraint as an alternative to caching; no production hot-path
+allocation problem or performance gain is claimed.
+
 ## Operational and privacy review
 
 The dispatch, approved-message, legal-eligibility and manual-submission paths
