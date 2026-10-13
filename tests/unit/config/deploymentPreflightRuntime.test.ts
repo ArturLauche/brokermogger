@@ -3,18 +3,21 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("node:child_process", { spy: true });
 
+const subprocessTimeoutMs = 10_000;
+const invalidJobBatchSize = "not-a-number";
 const fixtureDirectory = mkdtempSync(join(tmpdir(), "brokermogger-cli-test-"));
 const emptyEnvPath = join(fixtureDirectory, "empty.env");
 const invalidEnvPath = join(fixtureDirectory, "invalid.env");
 writeFileSync(emptyEnvPath, "");
 // Keep this validated setting absent from the synthetic child environment so
 // explicit configuration cannot shadow either parent or dotenv poisoning.
-writeFileSync(invalidEnvPath, "JOB_BATCH_SIZE=not-a-number\n");
+writeFileSync(invalidEnvPath, `JOB_BATCH_SIZE=${invalidJobBatchSize}\n`);
 afterAll(() => rmSync(fixtureDirectory, { recursive: true, force: true }));
+afterEach(() => vi.mocked(spawnSync).mockReset());
 
 function check(flags: string[], overrides: Record<string, string> = {}) {
   const platformEnvironment = Object.fromEntries(
@@ -28,7 +31,7 @@ function check(flags: string[], overrides: Record<string, string> = {}) {
     ["--import", "tsx", "scripts/check-deployment.ts", ...flags],
     {
       encoding: "utf8",
-      timeout: 10_000,
+      timeout: subprocessTimeoutMs,
       killSignal: "SIGKILL",
       env: {
         ...platformEnvironment,
@@ -61,14 +64,15 @@ function check(flags: string[], overrides: Record<string, string> = {}) {
   );
   if (result.error || result.signal || result.status === null)
     throw new Error(
-      "Deployment CLI subprocess did not complete within its 10,000 ms budget or was interrupted."
+      `Deployment CLI subprocess did not complete within its ${subprocessTimeoutMs} ms budget or was interrupted.`
     );
   return result;
 }
 
-// One test launches two children: allow both 10s budgets plus runner overhead.
+// Allow two sequential child budgets plus another budget for runner overhead.
 // These are isolated local CLI checks; neither the network nor a database is used.
-describe("production deployment CLI", { timeout: 30_000, concurrent: false }, () => {
+const cliTestOptions = { timeout: subprocessTimeoutMs * 3, concurrent: false };
+describe("production deployment CLI", cliTestOptions, () => {
   it("explains invalid production private use without crashing before its advisory", () => {
     const result = check(["--single-user"]);
     expect(result.status).toBe(1);
@@ -113,9 +117,21 @@ describe("production deployment CLI", { timeout: 30_000, concurrent: false }, ()
     expect(result.stdout).toContain("configuration could not be validated");
   });
 
+  it.each<[string, Record<string, string>]>([
+    ["the explicit child environment", { JOB_BATCH_SIZE: invalidJobBatchSize }],
+    ["the selected dotenv file", { DOTENV_CONFIG_PATH: invalidEnvPath }],
+  ])("rejects the isolation poison from %s", (_source, overrides) => {
+    const result = check([], {
+      TRUSTED_PROXY_IP_HEADER: "x-real-ip",
+      ...overrides,
+    });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("configuration could not be validated");
+  });
+
   it("does not inherit application configuration from the parent process", () => {
     const previous = process.env.JOB_BATCH_SIZE;
-    process.env.JOB_BATCH_SIZE = "not-a-number";
+    process.env.JOB_BATCH_SIZE = invalidJobBatchSize;
     try {
       expect(check([], { TRUSTED_PROXY_IP_HEADER: "x-real-ip" }).status).toBe(0);
     } finally {

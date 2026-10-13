@@ -258,15 +258,21 @@ Those previous results are not claimed for a new commit while its checks run.
 
 ## CLI verification isolation follow-up
 
-Three new regressions fail before correction: an invalid inherited sender or
-parent dotenv file changes an otherwise valid diagnostic into failure, and a
-simulated subprocess timeout returns a null status without a useful explanation.
-They pass with an explicit synthetic child environment, an empty temporary dotenv
-fixture and a clear interrupted-process error. A later review found the sender
-override could mask reintroduced isolation defects; the next section records
-stronger poisoning and mutation checks. Only platform process variables are
-inherited. The eight tests include actual Node processes; only the timeout case
-injects a process result. Temporary fixtures are removed after the suite.
+Before `27d9e90`, adding three checks to the original `b158d8c` helper produced
+**three failures and five passes**. That helper inherited `process.env` and had
+no explicit sender or dotenv-path override: an invalid parent sender and a
+selected invalid dotenv file each changed a valid diagnostic into failure. The
+simulated interrupted-process check also failed because a null status was
+returned without an explanatory error.
+
+Commit `27d9e90` isolated the child configuration and added the error guard.
+The two original isolation poisons then became insufficient to detect partial
+regressions that retained the new explicit sender/path overrides. Those partial
+mutations stayed green; the next section records the stronger checks added in
+`31869c7`. These are different helper baselines. Only platform process variables
+are inherited. The eight checks at `27d9e90` include real Node processes; only
+the interrupted-process case injects a process result. Temporary fixtures are
+removed after the suite.
 
 The CLI suite has a local thirty-second deadline, covering the test with two
 ten-second subprocesses plus runner overhead. Each child uses forced termination
@@ -298,7 +304,33 @@ one instead of zero. Both mutations were restored; the real helper still uses
 only platform variables and its private empty dotenv fixture. This fixes test
 coverage, with no application behavior or deadline changes.
 
-All **567 unit/component tests in 84 files**, typecheck, lint and formatting pass
-locally. New-commit CI reruns the complete suites before readiness; `27d9e90`'s
-green integration/browser/build/Docker results are historical evidence, not a
-claim that the new commit passed checks before they finish.
+Commit `31869c7` also passes full CI and the Docker image workflow: **567
+unit/component tests in 84 files**, **328 integration tests in 48 files**, and
+**17 Chromium journeys on first attempts**, with no flaky/retried cases or
+failed steps. Clean installation, environment validation, typecheck, lint,
+formatting, both dependency gates, production build and Docker smoke pass.
+
+## CLI control and cleanup follow-up
+
+Two real subprocess controls require the job-setting poison to fail validation
+when supplied directly and when loaded from the selected invalid dotenv fixture.
+A temporary local schema mutation accepting invalid job settings produces
+**two failed controls and two passing isolation checks**. This demonstrates the
+controls detect a silently ineffective poison that the isolation checks alone
+would miss. The schema mutation was restored before normal verification.
+
+The `spawnSync` module spy is reset after each test. Its one-time result is
+installed inside each interrupted-process attempt; ordinary retries reinstall
+it. The reproduced cleanup weakness is narrower: aborting an attempt before it
+consumes the queued result leaves a stale result for a later real subprocess.
+In a local controlled run with one retry, that abort causes failure without
+cleanup and passes with cleanup. The temporary abort and local retry option were
+removed; global test defaults and CI retries remain unchanged. Cleanup retains
+the real subprocess implementation. Timeout, test budget and diagnostic text
+now derive from the same constant; limits remain ten and thirty seconds.
+
+All **569 unit/component tests in 84 files**, including all **ten CLI checks**,
+typecheck, lint and formatting pass locally. The follow-up changes only tests
+and documentation. Full integration/browser/build/Docker checks pass at
+preceding `31869c7`; CI reruns them for the new commit before readiness. Those
+previous results are not claimed as verification of a new head.
