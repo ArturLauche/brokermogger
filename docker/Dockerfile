@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Keep the base image patch in sync with .nvmrc.
-FROM node:22.23.2-alpine AS base
+FROM node:26.12.0-alpine AS base
 WORKDIR /app
 RUN apk add --no-cache libc6-compat openssl \
     && addgroup --system --gid 1001 nodejs \
