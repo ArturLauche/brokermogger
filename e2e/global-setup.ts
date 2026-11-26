@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "./db";
 import { seedJurisdictions } from "../prisma/seeds/jurisdictions";
 import { seedLegalRules } from "../prisma/seeds/legalRules";
 import { seedRequestTemplates } from "../prisma/seeds/templates";

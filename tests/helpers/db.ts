@@ -1,37 +1,15 @@
-import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@prisma/client";
+import { type PrismaClient } from "@prisma/client";
 
 import { TEST_DATABASE_URL } from "../setup/test-env";
-
-/**
- * Prisma 7's pg driver adapter no longer honours `?schema=` on its own: schema
- * selection must be passed explicitly, and raw queries need it on the connection
- * `search_path` too. Preserve Prisma 6's `DATABASE_URL ?schema=` semantics.
- */
-function prismaPgAdapter(connectionString: string) {
-  let schema: string | undefined;
-  try {
-    const raw = new URL(connectionString).searchParams.get("schema");
-    // Only allow a plain identifier; never interpolate anything else into SQL.
-    schema = raw && /^[A-Za-z_][A-Za-z0-9_]*$/.test(raw) ? raw : undefined;
-  } catch {
-    schema = undefined;
-  }
-  return new PrismaPg(
-    schema
-      ? { connectionString, options: `-c search_path="${schema}"` }
-      : { connectionString },
-    schema ? { schema } : undefined
-  );
-}
+import { createPrismaClient } from "@/lib/db/createPrismaClient";
 
 /**
  * Prisma client for integration tests. Always bound to TEST_DATABASE_URL by
- * `tests/setup/test-env.ts`.
+ * `tests/setup/test-env.ts`, through the same adapter factory the app uses so
+ * `?schema=`, pool size and connection timeouts behave identically.
  */
-export const testPrisma = new PrismaClient({
-  // Prisma 7 requires an explicit driver adapter.
-  adapter: prismaPgAdapter(TEST_DATABASE_URL),
+export const testPrisma: PrismaClient = createPrismaClient({
+  connectionString: TEST_DATABASE_URL,
   log: process.env.TEST_LOG_QUERIES === "true" ? ["query", "warn", "error"] : ["error"],
 });
 

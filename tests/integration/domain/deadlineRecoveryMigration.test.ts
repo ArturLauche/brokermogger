@@ -10,8 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@prisma/client";
+import { createPrismaClient } from "@/lib/db/createPrismaClient";
 import { expect, it } from "vitest";
 import { testPrisma } from "../../helpers/db";
 
@@ -21,12 +20,9 @@ it("upgrades proven automatic preparation without relabelling manual choices or 
   url.searchParams.set("schema", name);
   const directory = mkdtempSync(join(tmpdir(), "bm-reminder-upgrade-"));
   const migration = "20260930030000_deadline_recovery";
-  const client = new PrismaClient({
-    adapter: new PrismaPg(
-      { connectionString: url.toString(), options: `-c search_path=\"${name}\"` },
-      { schema: name }
-    ),
-  });
+  // Schema, pool and timeouts come from the shared adapter factory, which
+  // applies `?schema=` to both generated SQL and connection `search_path`.
+  const client = createPrismaClient({ connectionString: url.toString() });
   const migrate = () =>
     execFileSync(
       process.execPath,

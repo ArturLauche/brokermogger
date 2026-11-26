@@ -5,7 +5,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { resolve } from "node:path";
-import { PrismaClient, type Prisma } from "@prisma/client";
+import { type PrismaClient, type Prisma } from "@prisma/client";
+import { createPrismaClient } from "@/lib/db/createPrismaClient";
 import { env } from "@/lib/config/env";
 import { encryptedAccountEmail } from "@/lib/security/accountEmail";
 import { encryptField, chainHash, canonicalJson, sha256Hex } from "@/lib/security/crypto";
@@ -28,7 +29,10 @@ assert(env.isTest && !env.isProduction && !env.ALLOW_EXTERNAL_SENDING);
 assert.equal(env.EMAIL_PROVIDER, "mock");
 assert.equal(env.STORAGE_BACKEND, "memory");
 
-const db = new PrismaClient({ log: [{ emit: "event", level: "query" }] });
+const db = createPrismaClient({
+  connectionString: env.DATABASE_URL,
+  log: [{ emit: "event", level: "query" }],
+});
 let queries = 0;
 let listSql: { query: string; params: string } | undefined;
 db.$on("query", (event) => {

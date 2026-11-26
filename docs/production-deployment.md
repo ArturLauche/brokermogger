@@ -17,6 +17,14 @@ and `DATABASE_URL` independently: the URL must use `postgres:5432` as its host
 inside Compose and percent-encode reserved characters in credentials. Never pass
 a workstation's `localhost` database URL into these containers.
 
+`DATABASE_URL` still accepts the Prisma 6 pool settings. `?schema=` selects a
+plain lowercase PostgreSQL schema for both generated SQL and raw queries;
+`?connection_limit=` maps to the pg pool size (default 10), `?connect_timeout=`
+sets the connection timeout in seconds and `?pool_timeout=` bounds waiting for a
+pooled connection (default 5 seconds). Unrepresentable schema names such as
+quoted or mixed-case identifiers now fail at startup instead of silently using
+the connection's default schema.
+
 Start with `ALLOW_EXTERNAL_SENDING=false`. Configure email delivery, verified
 broker methods and consent separately; starting the instance does not authorize
 broker contact. Use the [private-storage upgrade procedure](upgrade-private-storage.md)

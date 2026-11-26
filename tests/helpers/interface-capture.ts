@@ -2,7 +2,8 @@ import { createLogger } from "@/lib/observability/logger";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { chromium } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { PrismaClient } from "@prisma/client";
+import { type PrismaClient } from "@prisma/client";
+import { createPrismaClient } from "@/lib/db/createPrismaClient";
 import { env } from "../../lib/config/env";
 import { readAccountEmail, encryptedAccountEmail } from "../../lib/security/accountEmail";
 import { signIn, resetBrowserAuthenticationLimit } from "../../e2e/helpers";
@@ -123,7 +124,7 @@ async function main() {
     throw new Error(
       "Visual fixtures require the dedicated local browser database and mock transport."
     );
-  const db = new PrismaClient();
+  const db = createPrismaClient({ connectionString: env.DATABASE_URL });
   const browser = await chromium.launch();
   try {
     const savedFixture = await readFile(".tmp/interface-fixture.json", "utf8")

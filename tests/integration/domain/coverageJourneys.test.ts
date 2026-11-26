@@ -228,8 +228,18 @@ describe("sourced coverage journeys", () => {
         format: "JSON",
         submissionKey: randomUUID(),
       });
+      // Prisma 7's driver adapter evaluates `BackgroundJob.runAt @default(now())`
+      // with the application clock, which this suite freezes to a future legal
+      // effective date. `claimDueJobs` compares against PostgreSQL `NOW()`, so
+      // make the intended job due on the database clock before claiming it.
+      await testPrisma.$executeRaw`
+        UPDATE "BackgroundJob"
+        SET "runAt" = NOW()
+        WHERE "idempotencyKey" = ${`report:${report.id}`}
+      `;
       const [job] = await claimDueJobs("coverage-report", 1);
       expect(job?.type).toBe("GENERATE_REPORT");
+      expect(job?.payload).toMatchObject({ reportId: report.id });
       await renderReportForJob(job as ClaimedJob<"GENERATE_REPORT">);
       const data = JSON.parse((await downloadReport(f.actor, report.id)).body.toString());
       expect(data.requests).toHaveLength(completed.length);

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "./db";
 import AxeBuilder from "@axe-core/playwright";
 import { accountEmailIndex } from "../lib/security/accountEmail";
 import { appendRequestEvent } from "../lib/db/repositories/requests";
