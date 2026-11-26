@@ -1,8 +1,16 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { cpSync, mkdtempSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import {
+  cpSync,
+  mkdtempSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import { expect, it } from "vitest";
 import { testPrisma } from "../../helpers/db";
@@ -13,7 +21,12 @@ it("rehearses the additive response-clock upgrade with submitted and unsent lega
   url.searchParams.set("schema", name);
   const directory = mkdtempSync(join(tmpdir(), "bm-target-upgrade-"));
   const migration = "20260930010000_response_targets";
-  const client = new PrismaClient({ datasourceUrl: url.toString() });
+  const client = new PrismaClient({
+    adapter: new PrismaPg(
+      { connectionString: url.toString(), options: `-c search_path=\"${name}\"` },
+      { schema: name }
+    ),
+  });
   const migrate = () =>
     execFileSync(
       process.execPath,
@@ -34,6 +47,12 @@ it("rehearses the additive response-clock upgrade with submitted and unsent lega
   try {
     cpSync("prisma/schema.prisma", join(directory, "schema.prisma"));
     mkdirSync(join(directory, "migrations"));
+    // Prisma 7 requires a config file with `datasource.url`; keep it standalone
+    // (no `prisma/config` import) so it resolves inside a bare temp directory.
+    writeFileSync(
+      join(directory, "prisma.config.ts"),
+      'export default { schema: "schema.prisma", migrations: { path: "migrations" }, datasource: { url: process.env.DATABASE_URL } };\n'
+    );
     for (const entry of readdirSync("prisma/migrations"))
       if (entry === "migration_lock.toml" || entry < migration)
         cpSync(join("prisma/migrations", entry), join(directory, "migrations", entry), {

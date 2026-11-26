@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Generic table wrapper around TanStack Table v8.
+ * Generic table wrapper around TanStack Table v9 (v8-compatible legacy API).
  *
  * Accessibility contract of this component:
  *   - the table always has a caption (visually hidden by default),
@@ -19,16 +19,19 @@
 import * as React from "react";
 import {
   flexRender,
+  type ColumnVisibilityState,
+  type RowData,
+  type RowSelectionState,
+  type SortingState,
+} from "@tanstack/react-table";
+import {
   getCoreRowModel,
   getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
-  useReactTable,
-  type ColumnDef,
-  type RowSelectionState,
-  type SortingState,
-  type VisibilityState,
-} from "@tanstack/react-table";
+  useLegacyTable,
+  type LegacyColumnDef,
+} from "@tanstack/react-table/legacy";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
@@ -60,8 +63,8 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
-export interface DataTableProps<TData> {
-  columns: ColumnDef<TData>[];
+export interface DataTableProps<TData extends RowData> {
+  columns: LegacyColumnDef<TData>[];
   data: TData[];
   /** Accessible name of the table. Always rendered as a caption element. */
   caption: string;
@@ -96,7 +99,7 @@ function humanizeColumnId(id: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
-export function DataTable<TData>({
+export function DataTable<TData extends RowData>({
   columns,
   data,
   caption,
@@ -120,15 +123,17 @@ export function DataTable<TData>({
   const searchId = React.useId();
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = React.useState("");
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
+  const [columnVisibility, setColumnVisibility] = React.useState<ColumnVisibilityState>(
+    {}
+  );
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
 
-  const resolvedColumns = React.useMemo<ColumnDef<TData>[]>(() => {
+  const resolvedColumns = React.useMemo<LegacyColumnDef<TData>[]>(() => {
     if (!enableRowSelection) {
       return columns;
     }
 
-    const selectionColumn: ColumnDef<TData> = {
+    const selectionColumn: LegacyColumnDef<TData> = {
       id: "select",
       enableSorting: false,
       enableHiding: false,
@@ -157,9 +162,7 @@ export function DataTable<TData>({
     return [selectionColumn, ...columns];
   }, [columns, enableRowSelection, getRowLabel]);
 
-  // TanStack Table returns function identities that the React Compiler cannot memoize.
-  // eslint-disable-next-line react-hooks/incompatible-library -- upstream table API
-  const table = useReactTable({
+  const table = useLegacyTable<TData>({
     data,
     columns: resolvedColumns,
     state: { sorting, globalFilter, columnVisibility, rowSelection },

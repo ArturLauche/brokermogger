@@ -1,4 +1,4 @@
-import type { ColumnDef } from "@tanstack/react-table";
+import type { LegacyColumnDef } from "@tanstack/react-table/legacy";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -11,7 +11,7 @@ interface BrokerRow {
   category: string;
 }
 
-const columns: ColumnDef<BrokerRow>[] = [
+const columns: LegacyColumnDef<BrokerRow>[] = [
   { id: "name", accessorKey: "name", header: "Broker" },
   { id: "category", accessorKey: "category", header: "Category", enableSorting: false },
 ];
