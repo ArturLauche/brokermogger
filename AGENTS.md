@@ -4,6 +4,26 @@ Brokermogger is an open source privacy request desk. Users prepare, approve, sen
 and track privacy requests against data brokers. The product is free, self
 hostable and must never behave like a black box.
 
+This file is the working agreement for AI agents. It does not replace
+[`CONTRIBUTING.md`](CONTRIBUTING.md): read that file too before you change
+anything. It holds the patch rules, the local setup steps and the full check
+list that CI enforces. Where the two overlap, `CONTRIBUTING.md` is the source of
+truth for process and this file is the source of truth for architecture and
+product rules.
+
+## Disclosure (required)
+
+Every pull request an agent opens against this repository must disclose its
+model in the PR description, as described in
+[`CONTRIBUTING.md` → AI agents and AI-assisted work](CONTRIBUTING.md#ai-agents-and-ai-assisted-work):
+
+- State the exact **model slug** the agent runs on (for example
+  `Model: gpt-5.1-codex`), not a friendly product name.
+- Name the agent or harness and its version when known.
+- Say which files or areas the agent changed.
+- If the slug is unknown, write `Model: unknown` and say why. Never guess one.
+- Do not open a PR without this disclosure. Undisclosed agent PRs are closed.
+
 ## Non negotiable product rules
 
 1. **No billing.** No subscription, payment, pricing, checkout or paywall code,
@@ -77,7 +97,9 @@ npm run db:seed          # demo brokers, jurisdictions, legal rules, templates
 ```
 
 Before finishing any change: `npm run typecheck`, `npm run lint`,
-`npm run format`, and the tests for the area you touched.
+`npm run format`, and the tests for the area you touched. The setup steps, the
+CI jobs and the patch rules in [`CONTRIBUTING.md`](CONTRIBUTING.md) apply
+unchanged to agent-authored work.
 
 ## Environment
 
