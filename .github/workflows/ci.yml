@@ -65,6 +65,9 @@ jobs:
           npm_config_engine_strict: "true"
       - run: npx prisma generate
       - run: npm audit --omit=dev --audit-level=moderate
+      - name: Audit migration image dependencies
+        run: npm audit --omit=dev --audit-level=moderate
+        working-directory: docker/migrate
       - run: npm run audit:dependencies
       - run: npx prisma migrate deploy
       - run: npm run check:env

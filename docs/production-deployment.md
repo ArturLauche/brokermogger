@@ -18,12 +18,22 @@ inside Compose and percent-encode reserved characters in credentials. Never pass
 a workstation's `localhost` database URL into these containers.
 
 `DATABASE_URL` still accepts the Prisma 6 pool settings. `?schema=` selects a
-plain lowercase PostgreSQL schema for both generated SQL and raw queries;
-`?connection_limit=` maps to the pg pool size (default 10), `?connect_timeout=`
-sets the connection timeout in seconds and `?pool_timeout=` bounds waiting for a
-pooled connection (default 5 seconds). Unrepresentable schema names such as
-quoted or mixed-case identifiers now fail at startup instead of silently using
-the connection's default schema.
+plain lowercase PostgreSQL schema for generated SQL **and** raw SQL; omitting it
+uses `public`, while an empty, duplicated or quoted/mixed-case name fails at
+startup. `?connection_limit=` maps to the pg pool size (default: 2 × available
+parallelism + 1, matching Prisma 6's CPU-derived default). pg exposes one
+acquisition timeout: `?pool_timeout=` takes precedence over `?connect_timeout=`
+and defaults to 10 seconds (Prisma 6's pool timeout); it also bounds TCP
+connection establishment. URL `?options=` values are preserved, but
+`search_path` is rejected there because the schema parameter is authoritative.
+
+Prisma 6 defaulted to `sslmode=prefer`, while pg defaults to plaintext when no
+TLS setting is present. Production startup therefore requires an explicit
+`sslmode` for non-loopback hosts. Use `sslmode=verify-full` (with
+`sslrootcert` where a private CA is used) for external databases; for the
+private Docker Compose network add `sslmode=disable` explicitly to
+`DATABASE_URL`. Upgrade existing deployments by adding their intended
+`sslmode` before restarting the app or worker.
 
 Start with `ALLOW_EXTERNAL_SENDING=false`. Configure email delivery, verified
 broker methods and consent separately; starting the instance does not authorize

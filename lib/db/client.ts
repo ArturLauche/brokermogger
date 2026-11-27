@@ -15,7 +15,13 @@ const globalForPrisma = globalThis as unknown as { brokermoggerPrisma?: PrismaCl
 function createClient(): PrismaClient {
   // Prisma 7 requires an explicit driver adapter; the connection string comes
   // from the validated environment instead of Prisma's own env resolution.
-  return createPrismaClient({ connectionString: env.DATABASE_URL });
+  return createPrismaClient({
+    connectionString: env.DATABASE_URL,
+    // Prisma 6 defaulted to sslmode=prefer; pg defaults to plaintext. Require
+    // an explicit decision for remote production databases instead of silently
+    // downgrading an existing TLS connection.
+    requireExplicitSsl: env.isProduction,
+  });
 }
 
 export const prisma: PrismaClient = globalForPrisma.brokermoggerPrisma ?? createClient();
