@@ -21,6 +21,13 @@ async function currentDatabase(): Promise<string> {
   return row!.name;
 }
 
+async function currentRole(): Promise<string> {
+  const [row] = await testPrisma.$queryRaw<
+    { name: string }[]
+  >`SELECT current_user AS name`;
+  return row!.name;
+}
+
 /**
  * Prisma 7's pg adapter dropped automatic `?schema=` handling. The shared
  * factory applies it to both generated SQL (adapter option) and raw queries
@@ -87,6 +94,7 @@ describe("database schema selection", () => {
     const schemaB = `bm_schema_b_${suffix}`;
     const email = `schema-default-${suffix}@example.invalid`;
     const database = await currentDatabase();
+    const role = await currentRole();
     await testPrisma.$executeRawUnsafe(`CREATE SCHEMA ${quoteIdentifier(schemaA)}`);
     await testPrisma.$executeRawUnsafe(`CREATE SCHEMA ${quoteIdentifier(schemaB)}`);
 
@@ -105,6 +113,9 @@ describe("database schema selection", () => {
       // search_path. Benign URL options must not displace the schema either.
       await testPrisma.$executeRawUnsafe(
         `ALTER DATABASE ${quoteIdentifier(database)} SET search_path = ${quoteIdentifier(schemaB)}, public`
+      );
+      await testPrisma.$executeRawUnsafe(
+        `ALTER ROLE ${quoteIdentifier(role)} SET search_path = ${quoteIdentifier(schemaB)}, public`
       );
 
       const url = new URL(process.env.TEST_DATABASE_URL!);
@@ -134,6 +145,9 @@ describe("database schema selection", () => {
         `ALTER DATABASE ${quoteIdentifier(database)} RESET search_path`
       );
       await testPrisma.$executeRawUnsafe(
+        `ALTER ROLE ${quoteIdentifier(role)} RESET search_path`
+      );
+      await testPrisma.$executeRawUnsafe(
         `DROP SCHEMA IF EXISTS ${quoteIdentifier(schemaA)} CASCADE`
       );
       await testPrisma.$executeRawUnsafe(
@@ -147,6 +161,7 @@ describe("database schema selection", () => {
     const suffix = randomUUID().replaceAll("-", "").slice(0, 12);
     const otherSchema = `bm_schema_other_${suffix}`;
     const database = await currentDatabase();
+    const role = await currentRole();
     await testPrisma.$executeRawUnsafe(`CREATE SCHEMA ${quoteIdentifier(otherSchema)}`);
     let client: ReturnType<typeof createPrismaClient> | undefined;
     try {
@@ -155,6 +170,9 @@ describe("database schema selection", () => {
       );
       await testPrisma.$executeRawUnsafe(
         `ALTER DATABASE ${quoteIdentifier(database)} SET search_path = ${quoteIdentifier(otherSchema)}, public`
+      );
+      await testPrisma.$executeRawUnsafe(
+        `ALTER ROLE ${quoteIdentifier(role)} SET search_path = ${quoteIdentifier(otherSchema)}, public`
       );
       client = createPrismaClient({ connectionString: process.env.TEST_DATABASE_URL! });
       expect(
@@ -166,6 +184,9 @@ describe("database schema selection", () => {
       await client?.$disconnect();
       await testPrisma.$executeRawUnsafe(
         `ALTER DATABASE ${quoteIdentifier(database)} RESET search_path`
+      );
+      await testPrisma.$executeRawUnsafe(
+        `ALTER ROLE ${quoteIdentifier(role)} RESET search_path`
       );
       await testPrisma.$executeRawUnsafe(
         `DROP SCHEMA IF EXISTS ${quoteIdentifier(otherSchema)} CASCADE`

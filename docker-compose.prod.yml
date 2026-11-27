@@ -26,7 +26,7 @@ services:
       dockerfile: docker/Dockerfile
       target: migrate
     environment:
-      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL using postgres as the host and URL-encoded credentials}
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL using postgres as the host, URL-encoded credentials and an explicit sslmode (sslmode=disable for this private network)}
     depends_on:
       postgres:
         condition: service_healthy
@@ -50,7 +50,7 @@ services:
       TRUSTED_PROXY_IP_HEADER: ${TRUSTED_PROXY_IP_HEADER:-none}
       ALLOW_SHARED_AUTH_NETWORK_BUCKET: ${ALLOW_SHARED_AUTH_NETWORK_BUCKET:-false}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
-      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL using postgres as the host and URL-encoded credentials}
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL using postgres as the host, URL-encoded credentials and an explicit sslmode (sslmode=disable for this private network)}
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-resend}
       ALLOW_EXTERNAL_SENDING: ${ALLOW_EXTERNAL_SENDING:-false}
       STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
@@ -93,7 +93,7 @@ services:
       TRUSTED_PROXY_IP_HEADER: ${TRUSTED_PROXY_IP_HEADER:-none}
       ALLOW_SHARED_AUTH_NETWORK_BUCKET: ${ALLOW_SHARED_AUTH_NETWORK_BUCKET:-false}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
-      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL using postgres as the host and URL-encoded credentials}
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL using postgres as the host, URL-encoded credentials and an explicit sslmode (sslmode=disable for this private network)}
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-resend}
       ALLOW_EXTERNAL_SENDING: ${ALLOW_EXTERNAL_SENDING:-false}
       STORAGE_BACKEND: ${STORAGE_BACKEND:-local}

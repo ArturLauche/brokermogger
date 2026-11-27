@@ -21,7 +21,7 @@ a workstation's `localhost` database URL into these containers.
 plain lowercase PostgreSQL schema for generated SQL **and** raw SQL; omitting it
 uses `public`, while an empty, duplicated or quoted/mixed-case name fails at
 startup. `?connection_limit=` maps to the pg pool size (default: 2 × available
-parallelism + 1, matching Prisma 6's CPU-derived default). pg exposes one
+parallelism + 1, following Prisma 6's CPU-derived default instead of a fixed 10). pg exposes one
 acquisition timeout: `?pool_timeout=` takes precedence over `?connect_timeout=`
 and defaults to 10 seconds (Prisma 6's pool timeout); it also bounds TCP
 connection establishment. URL `?options=` values are preserved, but
