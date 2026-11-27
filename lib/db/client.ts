@@ -5,17 +5,22 @@
  * application code goes through the repositories in `lib/db/repositories`
  * which require an ActorContext and apply ownership scoping.
  */
-import { PrismaClient, type Prisma } from "@prisma/client";
+import { type PrismaClient, type Prisma } from "@prisma/client";
 
 import { env } from "@/lib/config/env";
+import { createPrismaClient } from "@/lib/db/createPrismaClient";
 
 const globalForPrisma = globalThis as unknown as { brokermoggerPrisma?: PrismaClient };
 
 function createClient(): PrismaClient {
-  return new PrismaClient({
-    // Prisma's formatted errors include query arguments, which may be personal.
-    // Callers log stable error codes through createLogger instead.
-    log: [],
+  // Prisma 7 requires an explicit driver adapter; the connection string comes
+  // from the validated environment instead of Prisma's own env resolution.
+  return createPrismaClient({
+    connectionString: env.DATABASE_URL,
+    // Prisma 6 defaulted to sslmode=prefer; pg defaults to plaintext. Require
+    // an explicit decision for remote production databases instead of silently
+    // downgrading an existing TLS connection.
+    requireExplicitSsl: env.isProduction,
   });
 }
 

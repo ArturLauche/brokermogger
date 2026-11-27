@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "./db";
 import { accountEmailIndex } from "../lib/security/accountEmail";
 import { expect, test } from "./fixtures";
 import { resetBrowserAuthenticationLimit, signIn } from "./helpers";

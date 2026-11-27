@@ -8,8 +8,11 @@
  *   npm run db:seed
  *   SEED_DEMO_USERS=true npm run db:seed   # additionally creates demo accounts
  */
-import { PrismaClient } from "@prisma/client";
+import "dotenv/config";
 
+import { type PrismaClient } from "@prisma/client";
+
+import { createPrismaClient } from "../lib/db/createPrismaClient";
 import { seedBrokers } from "./seeds/brokers";
 import { seedRealBrokerDrafts } from "./seeds/realBrokers";
 import { seedDemoUsers } from "./seeds/demoUsers";
@@ -19,7 +22,12 @@ import { seedSystemSettings } from "./seeds/settings";
 import { seedRequestTemplates } from "./seeds/templates";
 import { type SeedStepResult } from "./seeds/types";
 
-const prisma = new PrismaClient({ log: ["error"] });
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) throw new Error("DATABASE_URL is required to seed a database.");
+
+// Prisma 7 requires an explicit driver adapter; reuse the app factory so the
+// seed connects exactly like runtime (schema parameter, pool and timeouts).
+const prisma = createPrismaClient({ connectionString, log: ["error"] });
 
 const STEPS: { run: (client: PrismaClient) => Promise<SeedStepResult> }[] = [
   { run: seedJurisdictions },

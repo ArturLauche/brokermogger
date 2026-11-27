@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "./fixtures";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "./db";
 import type { Route } from "@playwright/test";
 import { seedJurisdictions } from "../prisma/seeds/jurisdictions";
 import { seedLegalRules } from "../prisma/seeds/legalRules";

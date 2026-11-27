@@ -17,6 +17,24 @@ and `DATABASE_URL` independently: the URL must use `postgres:5432` as its host
 inside Compose and percent-encode reserved characters in credentials. Never pass
 a workstation's `localhost` database URL into these containers.
 
+`DATABASE_URL` still accepts the Prisma 6 pool settings. `?schema=` selects a
+plain lowercase PostgreSQL schema for generated SQL **and** raw SQL; omitting it
+uses `public`, while an empty, duplicated or quoted/mixed-case name fails at
+startup. `?connection_limit=` maps to the pg pool size (default: 2 × available
+parallelism + 1, following Prisma 6's CPU-derived default instead of a fixed 10). pg exposes one
+acquisition timeout: `?pool_timeout=` takes precedence over `?connect_timeout=`
+and defaults to 10 seconds (Prisma 6's pool timeout); it also bounds TCP
+connection establishment. URL `?options=` values are preserved, but
+`search_path` is rejected there because the schema parameter is authoritative.
+
+Prisma 6 defaulted to `sslmode=prefer`, while pg defaults to plaintext when no
+TLS setting is present. Production startup therefore requires an explicit
+`sslmode` for non-loopback hosts. Use `sslmode=verify-full` (with
+`sslrootcert` where a private CA is used) for external databases; for the
+private Docker Compose network add `sslmode=disable` explicitly to
+`DATABASE_URL`. Upgrade existing deployments by adding their intended
+`sslmode` before restarting the app or worker.
+
 Start with `ALLOW_EXTERNAL_SENDING=false`. Configure email delivery, verified
 broker methods and consent separately; starting the instance does not authorize
 broker contact. Use the [private-storage upgrade procedure](upgrade-private-storage.md)

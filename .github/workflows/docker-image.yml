@@ -37,8 +37,8 @@ jobs:
       # GHA cache backend (cache-from/cache-to type=gha) needs this.
       actions: write
     steps:
-      - uses: actions/checkout@v5
-      - uses: docker/metadata-action@v5
+      - uses: actions/checkout@v7
+      - uses: docker/metadata-action@v6
         id: meta
         with:
           images: ghcr.io/${{ github.repository }}${{ matrix.image_suffix }}
@@ -54,7 +54,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/setup-buildx-action@v4
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/Dockerfile

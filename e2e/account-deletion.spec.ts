@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "./db";
 import { randomUUID } from "node:crypto";
 import { expect, test } from "./fixtures";
 import {

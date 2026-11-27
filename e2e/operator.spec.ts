@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "./fixtures";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "./db";
 import { accountEmailIndex } from "../lib/security/accountEmail";
 import { seedJurisdictions } from "../prisma/seeds/jurisdictions";
 import { DEFAULT_TEMPLATE_SOURCE } from "../lib/templates/authoring";

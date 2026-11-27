@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "./db";
 import AxeBuilder from "@axe-core/playwright";
 import { test, expect } from "./fixtures";
 import { signIn, resetBrowserAuthenticationLimit } from "./helpers";

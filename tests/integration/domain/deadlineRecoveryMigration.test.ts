@@ -1,9 +1,16 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { cpSync, mkdtempSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import {
+  cpSync,
+  mkdtempSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { PrismaClient } from "@prisma/client";
+import { createPrismaClient } from "@/lib/db/createPrismaClient";
 import { expect, it } from "vitest";
 import { testPrisma } from "../../helpers/db";
 
@@ -13,7 +20,9 @@ it("upgrades proven automatic preparation without relabelling manual choices or 
   url.searchParams.set("schema", name);
   const directory = mkdtempSync(join(tmpdir(), "bm-reminder-upgrade-"));
   const migration = "20260930030000_deadline_recovery";
-  const client = new PrismaClient({ datasourceUrl: url.toString() });
+  // Schema, pool and timeouts come from the shared adapter factory, which
+  // applies `?schema=` to both generated SQL and connection `search_path`.
+  const client = createPrismaClient({ connectionString: url.toString() });
   const migrate = () =>
     execFileSync(
       process.execPath,
@@ -34,6 +43,12 @@ it("upgrades proven automatic preparation without relabelling manual choices or 
   try {
     cpSync("prisma/schema.prisma", join(directory, "schema.prisma"));
     mkdirSync(join(directory, "migrations"));
+    // Prisma 7 requires a config file with `datasource.url`; keep it standalone
+    // (no `prisma/config` import) so it resolves inside a bare temp directory.
+    writeFileSync(
+      join(directory, "prisma.config.ts"),
+      'export default { schema: "schema.prisma", migrations: { path: "migrations" }, datasource: { url: process.env.DATABASE_URL } };\n'
+    );
     for (const entry of readdirSync("prisma/migrations"))
       if (entry === "migration_lock.toml" || entry < migration)
         cpSync(join("prisma/migrations", entry), join(directory, "migrations", entry), {

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "./db";
 import { test, expect } from "./fixtures";
 import { resetBrowserAuthenticationLimit } from "./helpers";
 import { env } from "../lib/config/env";

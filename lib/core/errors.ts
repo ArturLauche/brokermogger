@@ -26,6 +26,7 @@ export type AppErrorCode =
   | "UNSAFE_INPUT"
   | "STORAGE_FAILED"
   | "EMAIL_FAILED"
+  | "CONFIGURATION_INVALID"
   | "INTERNAL_ERROR";
 
 export interface AppErrorOptions {
@@ -57,6 +58,7 @@ const DEFAULT_STATUS: Record<AppErrorCode, number> = {
   UNSAFE_INPUT: 400,
   STORAGE_FAILED: 500,
   EMAIL_FAILED: 502,
+  CONFIGURATION_INVALID: 500,
   INTERNAL_ERROR: 500,
 };
 
@@ -109,6 +111,17 @@ export class ValidationError extends AppError {
   constructor(message: string, details?: Record<string, unknown>) {
     super({ code: "VALIDATION_FAILED", message, ...(details ? { details } : {}) });
     this.name = "ValidationError";
+  }
+}
+
+/**
+ * Startup configuration is unrepresentable or unsafe. The message must stay
+ * free of credentials because it is logged and may reach an operator console.
+ */
+export class ConfigurationError extends AppError {
+  constructor(message: string, details?: Record<string, unknown>) {
+    super({ code: "CONFIGURATION_INVALID", message, ...(details ? { details } : {}) });
+    this.name = "ConfigurationError";
   }
 }
 
