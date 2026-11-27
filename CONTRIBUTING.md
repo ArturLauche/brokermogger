@@ -28,21 +28,22 @@ UI screens must match `docs/ui-spec.md`.
 
 ## AI agents and AI-assisted work
 
-AI work is welcome, but it must be visible. Be honest about it — do not present
-generated code as your own hand-written work.
+AI work is welcome, but it must be visible. Do not present generated code as
+your own hand-written work.
 
 - **Disclose the model.** Every pull request that was produced wholly or partly
   by an AI agent must state the **exact model slug** that wrote the code in the
   PR description, for example `Model: gpt-5.1-codex` or
   `Model: claude-sonnet-4.5`. The slug is the identifier the provider or harness
   actually reports, not a product name, a family name or a friendly label.
-- **Name the agent, not just the model.** If a specific agent or harness ran the
-  work (an IDE agent, a CLI agent, a review bot), say which one, plus its version
-  if you know it.
+- **Name the agent, not just the model.** If a specific agent or harness ran
+  the work (an IDE agent, a CLI agent, a review bot), say which one, plus its
+  version if you know it.
 - **State what it touched.** One line is enough: which files, areas or decisions
   the agent was responsible for.
-- **One model per PR.** If several models contributed, list all of them with
-  the scope each one covered. If the model changed mid-PR, note the switch.
+- **List every model that contributed.** If several models touched the PR, name
+  each one with the scope it covered. If the model changed mid-PR, note the
+  switch and the commit or point where it happened.
 - **Assume extra scrutiny.** The author of the PR stays responsible for every
   line: it has to follow `AGENTS.md`, pass the full check list above, and be
   reviewable by a human without guessing what the agent meant.

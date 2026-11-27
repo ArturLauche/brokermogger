@@ -14,8 +14,8 @@ product rules.
 ## Disclosure (required)
 
 Every pull request an agent opens against this repository must disclose its
-model in the PR description, as described in
-[`CONTRIBUTING.md` → AI agents and AI-assisted work](CONTRIBUTING.md#ai-agents-and-ai-assisted-work):
+model in the PR description, as set out in the
+[AI agents section of `CONTRIBUTING.md`](CONTRIBUTING.md#ai-agents-and-ai-assisted-work):
 
 - State the exact **model slug** the agent runs on (for example
   `Model: gpt-5.1-codex`), not a friendly product name.
